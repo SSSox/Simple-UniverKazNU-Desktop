@@ -152,5 +152,5 @@ jobs:
         run: |
           $files = @(Get-ChildItem -LiteralPath artifacts\ci -File | Where-Object Extension -in '.zip', '.exe', '.sha256', '.json' | ForEach-Object FullName)
           $notes = "Which file to download: [README]($env:REPOSITORY_URL#readme). [Code signing policy]($env:REPOSITORY_URL/blob/main/README.en.md#code-signing-policy)."
-          gh release create $env:GITHUB_REF_NAME @files --repo $env:GITHUB_REPOSITORY --title "Simple-UniverKazNU $env:VERSION" --notes $notes
+          gh release create $env:GITHUB_REF_NAME @files --repo $env:GITHUB_REPOSITORY --title $env:VERSION --notes $notes
           if ($LASTEXITCODE) { throw 'Release failed.' }
