@@ -1,0 +1,2 @@
+# Files reach the build byte for byte, whatever line endings a checkout prefers.
+* -text

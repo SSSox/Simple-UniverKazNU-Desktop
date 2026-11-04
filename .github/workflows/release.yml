@@ -1,0 +1,151 @@
+# Builds, checks and publishes a release from a clean GitHub machine. A tag vX.Y.Z publishes; a manual run only keeps the files.
+# Signing starts once the repository has the SIGNPATH_ORGANIZATION_ID and SIGNPATH_POLICY variables and the SIGNPATH_API_TOKEN secret.
+name: Release
+
+on:
+  push:
+    tags: ['v[0-9]+.[0-9]+.[0-9]+']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    # SignPath accepts open source builds only from GitHub-hosted runners.
+    runs-on: windows-2025
+    # Leaves room to approve both signing requests.
+    timeout-minutes: 350
+    permissions:
+      contents: write
+      actions: read
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        with:
+          dotnet-version: 10.0.x
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 26
+
+      - name: Read the version
+        run: |
+          $version = ([xml](Get-Content -LiteralPath src\Univer.Desktop\Univer.Desktop.csproj -Raw)).Project.PropertyGroup.Version | Where-Object { $_ } | Select-Object -First 1
+          if ($env:GITHUB_REF_TYPE -eq 'tag' -and $env:GITHUB_REF_NAME -cne "v$version") { throw "Tag $env:GITHUB_REF_NAME does not match project version $version." }
+          "VERSION=$version" >> $env:GITHUB_ENV
+
+      - name: Run the tests
+        run: |
+          dotnet restore .\Simple-UniverKazNU.sln --locked-mode
+          if ($LASTEXITCODE) { throw 'Restore failed.' }
+          dotnet test .\tests\Univer.Desktop.Tests\Univer.Desktop.Tests.csproj -c Release
+          if ($LASTEXITCODE) { throw 'Unit tests failed.' }
+          npm ci --ignore-scripts
+          if ($LASTEXITCODE) { throw 'npm ci failed.' }
+          npm test
+          if ($LASTEXITCODE) { throw 'Page tests failed.' }
+          .\scripts\test-localization.ps1
+
+      - name: Build every variant
+        run: .\scripts\build.ps1 -BuildOnly -OutputRoot build\ci
+
+      - name: Start every variant
+        run: |
+          foreach ($flavor in 'Modern', 'Legacy') {
+              foreach ($arch in 'x64', 'x86') { .\scripts\smoke.ps1 -Platform $arch -BrowserFlavor $flavor -OutputRoot build\ci -Only settings }
+          }
+
+      # Only Univer.Desktop.exe is built from this repository; the rest of the folder is upstream Chromium and CefSharp.
+      - name: Collect the application for signing
+        run: |
+          foreach ($flavor in 'modern', 'legacy') {
+              foreach ($arch in 'x64', 'x86') {
+                  New-Item -ItemType Directory -Path "build\unsigned\$flavor\$arch" -Force | Out-Null
+                  Copy-Item -LiteralPath "build\ci\$flavor\$arch\Univer.Desktop.exe" -Destination "build\unsigned\$flavor\$arch"
+              }
+          }
+      - id: unsigned-application
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: unsigned-application
+          path: build/unsigned
+          if-no-files-found: error
+      - name: Sign the application
+        if: vars.SIGNPATH_ORGANIZATION_ID != ''
+        uses: signpath/github-action-submit-signing-request@f6d04783b4569d051e0c80105fe66e82819d0092 # v3.0
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: Simple-UniverKazNU
+          signing-policy-slug: ${{ vars.SIGNPATH_POLICY }}
+          artifact-configuration-slug: application
+          github-artifact-id: ${{ steps.unsigned-application.outputs.artifact-id }}
+          parameters: |
+            version: "${{ env.VERSION }}"
+          wait-for-completion-timeout-in-seconds: 7200
+          output-artifact-directory: build/signed-application
+      - name: Use the signed application
+        if: vars.SIGNPATH_ORGANIZATION_ID != ''
+        env:
+          POLICY: ${{ vars.SIGNPATH_POLICY }}
+        run: .\scripts\apply-signed-files.ps1 -SignedRoot build\signed-application -TargetRoot build\ci -TestCertificate:($env:POLICY -ne 'release-signing')
+
+      - name: Package portable and installers
+        run: |
+          .\scripts\build.ps1 -SkipBuild -OutputRoot build\ci -ArtifactRoot artifacts\ci
+          .\scripts\build-installer.ps1 -ArtifactRoot artifacts\ci
+
+      - id: unsigned-installers
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: unsigned-installers
+          path: artifacts/ci/*-setup.exe
+          if-no-files-found: error
+      - name: Sign the installers
+        if: vars.SIGNPATH_ORGANIZATION_ID != ''
+        uses: signpath/github-action-submit-signing-request@f6d04783b4569d051e0c80105fe66e82819d0092 # v3.0
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: Simple-UniverKazNU
+          signing-policy-slug: ${{ vars.SIGNPATH_POLICY }}
+          artifact-configuration-slug: installers
+          github-artifact-id: ${{ steps.unsigned-installers.outputs.artifact-id }}
+          parameters: |
+            version: "${{ env.VERSION }}"
+          wait-for-completion-timeout-in-seconds: 7200
+          output-artifact-directory: build/signed-installers
+      - name: Use the signed installers
+        if: vars.SIGNPATH_ORGANIZATION_ID != ''
+        env:
+          POLICY: ${{ vars.SIGNPATH_POLICY }}
+        run: .\scripts\apply-signed-files.ps1 -SignedRoot build\signed-installers -TargetRoot artifacts\ci -TestCertificate:($env:POLICY -ne 'release-signing')
+
+      - name: Keep the files of a manual run
+        if: github.ref_type != 'tag'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-files
+          path: |
+            artifacts/ci/*.zip
+            artifacts/ci/*.exe
+            artifacts/ci/*.sha256
+            artifacts/ci/*.json
+          retention-days: 7
+          if-no-files-found: error
+
+      - name: Publish the release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY_URL: ${{ github.server_url }}/${{ github.repository }}
+        run: |
+          $files = @(Get-ChildItem -LiteralPath artifacts\ci -File | Where-Object Extension -in '.zip', '.exe', '.sha256', '.json' | ForEach-Object FullName)
+          $notes = "Which file to download: [README]($env:REPOSITORY_URL#readme). [Code signing policy]($env:REPOSITORY_URL/blob/main/README.en.md#code-signing-policy)."
+          gh release create $env:GITHUB_REF_NAME @files --repo $env:GITHUB_REPOSITORY --title "Simple-UniverKazNU $env:VERSION" --notes $notes
+          if ($LASTEXITCODE) { throw 'Release failed.' }

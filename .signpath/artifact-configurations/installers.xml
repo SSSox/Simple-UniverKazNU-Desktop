@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<artifact-configuration xmlns="http://signpath.io/artifact-configuration/v1">
+  <parameters>
+    <parameter name="version" required="true" />
+  </parameters>
+  <zip-file>
+    <pe-file path="Univer-Desktop-${version}-modern-x64-setup.exe" product-name="Simple-UniverKazNU" product-version="${version}">
+      <authenticode-sign />
+    </pe-file>
+    <pe-file path="Univer-Desktop-${version}-modern-x86-setup.exe" product-name="Simple-UniverKazNU" product-version="${version}">
+      <authenticode-sign />
+    </pe-file>
+    <pe-file path="Univer-Desktop-${version}-legacy-x64-setup.exe" product-name="Simple-UniverKazNU" product-version="${version}">
+      <authenticode-sign />
+    </pe-file>
+    <pe-file path="Univer-Desktop-${version}-legacy-x86-setup.exe" product-name="Simple-UniverKazNU" product-version="${version}">
+      <authenticode-sign />
+    </pe-file>
+  </zip-file>
+</artifact-configuration>

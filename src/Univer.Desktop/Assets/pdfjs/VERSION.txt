@@ -1,0 +1,4 @@
+pdfjs-dist 5.7.284 (Mozilla PDF.js, Apache-2.0), legacy build
+Source: https://registry.npmjs.org/pdfjs-dist/-/pdfjs-dist-5.7.284.tgz
+Integrity: sha512-h4EdYQczmGhbOlqc3PPZwxevn7ApdWPbovAuWXOB/DjIyigSnwfy2oze7c6mRcSr9XgLp3eN3EeL4DyySTPMFw==
+Updated with scripts\update-pdfjs.ps1; do not edit these files by hand.

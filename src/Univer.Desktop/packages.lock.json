@@ -1,0 +1,52 @@
+{
+  "version": 1,
+  "dependencies": {
+    ".NETFramework,Version=v4.5.2": {
+      "CefSharp.WinForms": {
+        "type": "Direct",
+        "requested": "[109.1.110, )",
+        "resolved": "109.1.110",
+        "contentHash": "6szGSjILm69OPh6yprpfii3blIc0O+mfCDk0X2yqq8cTCu5MPo4GUCYqqi1myWjJ6V9uiLCxIKI5FXvFEGCp/A==",
+        "dependencies": {
+          "CefSharp.Common": "[109.1.110]"
+        }
+      },
+      "Microsoft.NETFramework.ReferenceAssemblies": {
+        "type": "Direct",
+        "requested": "[1.0.3, )",
+        "resolved": "1.0.3",
+        "contentHash": "vUc9Npcs14QsyOD01tnv/m8sQUnGTGOw1BCmKcv77LBJY7OxhJ+zJF7UD/sCL3lYNFuqmQEVlkfS4Quif6FyYg==",
+        "dependencies": {
+          "Microsoft.NETFramework.ReferenceAssemblies.net452": "1.0.3"
+        }
+      },
+      "Microsoft.NETFramework.ReferenceAssemblies.net452": {
+        "type": "Direct",
+        "requested": "[1.0.3, )",
+        "resolved": "1.0.3",
+        "contentHash": "kuFOgilYbs29xENHlqQ6aJYa+t56u+OqHx85P7GYLVlo7HL3nsug9IQY2DoPgkOpZ2xb9btYV2EFK7Enll8S3A=="
+      },
+      "cef.redist.x64": {
+        "type": "Transitive",
+        "resolved": "109.1.11",
+        "contentHash": "1r4xM37BypU8xeRbjWQ+g2IYu/EP0w4TX1ocvUmLEFaOBkXGS5kfqrLItL5ZevcplTOcohaEDERhwPs2c3pitg=="
+      },
+      "cef.redist.x86": {
+        "type": "Transitive",
+        "resolved": "109.1.11",
+        "contentHash": "uiybcl2ofiUv4xx/lH2/fNCMQyLsaeLfU6/PHtztp3QM89jhI2hwyVgM0H0iHo1fcfwLeRnNIQM30uYiXKi4OA=="
+      },
+      "CefSharp.Common": {
+        "type": "Transitive",
+        "resolved": "109.1.110",
+        "contentHash": "Rn8mOGJFb9aMDbIWRdgGxfIWpHRXlkXArrQWuCBGT0jm5fIYR7GlTwtnQKkuS89SmaYiTFerZmwx6oamOREPXA==",
+        "dependencies": {
+          "cef.redist.x64": "[109.1.11]",
+          "cef.redist.x86": "[109.1.11]"
+        }
+      }
+    },
+    ".NETFramework,Version=v4.5.2/win-x64": {},
+    ".NETFramework,Version=v4.5.2/win-x86": {}
+  }
+}

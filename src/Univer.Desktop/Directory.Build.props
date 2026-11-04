@@ -1,0 +1,10 @@
+<Project>
+  <PropertyGroup>
+    <BrowserFlavor Condition="'$(BrowserFlavor)' == ''">Modern</BrowserFlavor>
+    <BaseIntermediateOutputPath>obj\$(BrowserFlavor)\</BaseIntermediateOutputPath>
+    <BaseOutputPath>bin\$(BrowserFlavor)\</BaseOutputPath>
+    <NuGetLockFilePath Condition="'$(BrowserFlavor)' == 'Legacy'">$(MSBuildThisFileDirectory)packages.lock.json</NuGetLockFilePath>
+    <NuGetLockFilePath Condition="'$(BrowserFlavor)' != 'Legacy'">$(MSBuildThisFileDirectory)packages.modern.lock.json</NuGetLockFilePath>
+    <DefaultItemExcludes>$(DefaultItemExcludes);obj\**;bin\**</DefaultItemExcludes>
+  </PropertyGroup>
+</Project>

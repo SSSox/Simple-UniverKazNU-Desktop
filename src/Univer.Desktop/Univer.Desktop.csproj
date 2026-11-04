@@ -1,0 +1,72 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework Condition="'$(BrowserFlavor)' == 'Legacy'">net452</TargetFramework>
+    <TargetFramework Condition="'$(BrowserFlavor)' != 'Legacy'">net462</TargetFramework>
+    <DefineConstants Condition="'$(BrowserFlavor)' == 'Legacy'">$(DefineConstants);LEGACY_ENGINE</DefineConstants>
+    <!-- Authorized review build: -p:QaReview=true (a global DefineConstants would drop LEGACY_ENGINE). -->
+    <DefineConstants Condition="'$(QaReview)' == 'true'">$(DefineConstants);QA_REVIEW</DefineConstants>
+    <UseWindowsForms>true</UseWindowsForms>
+    <LangVersion>7.3</LangVersion>
+    <PlatformTarget Condition="'$(Platform)' == 'x86'">x86</PlatformTarget>
+    <PlatformTarget Condition="'$(Platform)' != 'x86'">x64</PlatformTarget>
+    <Platforms>x64;x86</Platforms>
+    <RuntimeIdentifiers>win-x64;win-x86</RuntimeIdentifiers>
+    <AssemblyName>Univer.Desktop</AssemblyName>
+    <Version>0.13.0</Version>
+    <Product>Simple-UniverKazNU</Product>
+    <!-- SignPath compares the product version; a build from Git would otherwise append the commit hash. -->
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+    <Description>Неофициальная оболочка Windows для univer.kaznu.kz</Description>
+    <RootNamespace>Univer.Desktop</RootNamespace>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>app.ico</ApplicationIcon>
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+    <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
+    <GenerateBindingRedirectsOutputType>true</GenerateBindingRedirectsOutputType>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="System.Net.Http" />
+    <Reference Include="System.IO.Compression" />
+    <Reference Include="System.IO.Compression.FileSystem" />
+    <Reference Include="System.Security" />
+    <Reference Include="System.Web.Extensions" />
+    <Reference Include="System.Runtime.Serialization" />
+    <Reference Include="System.Xml" />
+    <Reference Include="System.Xml.Linq" />
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies.net452" Version="1.0.3" PrivateAssets="all" Condition="'$(BrowserFlavor)' == 'Legacy'" />
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies.net462" Version="1.0.3" PrivateAssets="all" Condition="'$(BrowserFlavor)' != 'Legacy'" />
+    <PackageReference Include="CefSharp.WinForms" Version="109.1.110" Condition="'$(BrowserFlavor)' == 'Legacy'" />
+    <PackageReference Include="CefSharp.WinForms" Version="152.0.150" Condition="'$(BrowserFlavor)' != 'Legacy'" />
+    <None Update="Assets\**\*" CopyToOutputDirectory="Always" />
+    <EmbeddedResource Include="app.ico" LogicalName="Univer.Desktop.app.ico" />
+  </ItemGroup>
+  <!-- Chromium loads one locale pack (CefSettings.Locale: ru or en-GB, with en-US as its fallback); the other
+       ~200 packs are never read. dxcompiler/dxil only serve WebGPU's D3D12 shaders, which the site does not use;
+       page rendering, canvas and CSS effects go through ANGLE with d3dcompiler_47, and SwiftShader stays for
+       machines without a usable GPU. Removing them is CEF's documented optional-component trim. -->
+  <PropertyGroup>
+    <ChromiumLocales>;en-US;en-GB;ru;</ChromiumLocales>
+  </PropertyGroup>
+  <Target Name="TrimChromiumRuntime" BeforeTargets="AssignTargetPaths">
+    <!-- CefSharp adds the runtime as Content for PackageReference projects and as None otherwise. -->
+    <ItemGroup>
+      <Content Remove="@(Content)" Condition="'%(Content.Link)' != '' And $([System.String]::Copy('%(Content.Link)').Replace('/', '\').StartsWith('locales\')) And !$(ChromiumLocales.Contains(';$([System.String]::Copy('%(Content.Filename)').Split('_')[0]);'))" />
+      <Content Remove="@(Content)" Condition="'%(Content.Filename)%(Content.Extension)' == 'dxcompiler.dll' Or '%(Content.Filename)%(Content.Extension)' == 'dxil.dll'" />
+      <None Remove="@(None)" Condition="'%(None.Link)' != '' And $([System.String]::Copy('%(None.Link)').Replace('/', '\').StartsWith('locales\')) And !$(ChromiumLocales.Contains(';$([System.String]::Copy('%(None.Filename)').Split('_')[0]);'))" />
+      <None Remove="@(None)" Condition="'%(None.Filename)%(None.Extension)' == 'dxcompiler.dll' Or '%(None.Filename)%(None.Extension)' == 'dxil.dll'" />
+    </ItemGroup>
+  </Target>
+  <!-- An output folder from an earlier, untrimmed build is cleaned the same way, so it never ships stale packs. -->
+  <Target Name="RemoveTrimmedChromiumFiles" AfterTargets="CopyFilesToOutputDirectory">
+    <ItemGroup>
+      <_TrimmedChromiumFile Include="$(OutDir)locales\*.pak" />
+      <_TrimmedChromiumFile Remove="@(_TrimmedChromiumFile)" Condition="$(ChromiumLocales.Contains(';$([System.String]::Copy('%(_TrimmedChromiumFile.Filename)').Split('_')[0]);'))" />
+      <_TrimmedChromiumFile Include="$(OutDir)dxcompiler.dll;$(OutDir)dxil.dll" />
+    </ItemGroup>
+    <Delete Files="@(_TrimmedChromiumFile)" />
+  </Target>
+  <Target Name="ValidateBrowserFlavor" BeforeTargets="PrepareForBuild">
+    <Error Condition="'$(BrowserFlavor)' != 'Modern' And '$(BrowserFlavor)' != 'Legacy'" Text="BrowserFlavor must be Modern or Legacy." />
+  </Target>
+</Project>

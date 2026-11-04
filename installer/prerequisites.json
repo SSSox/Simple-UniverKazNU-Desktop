@@ -1,0 +1,50 @@
+[
+  {
+    "Name": "net462",
+    "Url": "https://download.microsoft.com/download/8/b/7/8b79adc2-162c-4cf4-a200-3aeaadc455bf/NDP462-KB3151800-x86-x64-AllOS-ENU.exe",
+    "SHA256": "8550E370DB2400AEDB4397E9958F12041DEF3BB63C03CC7625CE07E09F42303E",
+    "Version": "4.6.01590.00",
+    "Bytes": 62024904,
+    "Publisher": "CN=Microsoft Corporation, O=Microsoft Corporation, L=Redmond, S=Washington, C=US"
+  },
+  {
+    "Name": "net452",
+    "Url": "https://download.microsoft.com/download/e/2/1/e21644b5-2df2-47c2-91bd-63c560427900/NDP452-KB2901907-x86-x64-AllOS-ENU.exe",
+    "SHA256": "6C2C589132E830A185C5F40F82042BEE3022E721A216680BD9B3995BA86F3781",
+    "Version": "4.5.51209.34209",
+    "Bytes": 69999448,
+    "Publisher": "CN=Microsoft Corporation, OU=MOPR, O=Microsoft Corporation, L=Redmond, S=Washington, C=US"
+  },
+  {
+    "Name": "modern-x64",
+    "Url": "https://download.visualstudio.microsoft.com/download/pr/bd1c8d9d-ba95-4eee-bc6e-df1fcc876373/CC0FF0EB1DC3F5188AE6300FAEF32BF5BEEBA4BDD6E8E445A9184072096B713B/VC_redist.x64.exe",
+    "SHA256": "CC0FF0EB1DC3F5188AE6300FAEF32BF5BEEBA4BDD6E8E445A9184072096B713B",
+    "Version": "14.44.35211.0",
+    "Bytes": 25635768,
+    "Publisher": "CN=Microsoft Corporation, O=Microsoft Corporation, L=Redmond, S=Washington, C=US"
+  },
+  {
+    "Name": "modern-x86",
+    "Url": "https://download.visualstudio.microsoft.com/download/pr/bd1c8d9d-ba95-4eee-bc6e-df1fcc876373/0C09F2611660441084CE0DF425C51C11E147E6447963C3690F97E0B25C55ED64/VC_redist.x86.exe",
+    "SHA256": "0C09F2611660441084CE0DF425C51C11E147E6447963C3690F97E0B25C55ED64",
+    "Version": "14.44.35211.0",
+    "Bytes": 13953392,
+    "Publisher": "CN=Microsoft Corporation, O=Microsoft Corporation, L=Redmond, S=Washington, C=US"
+  },
+  {
+    "Name": "legacy-x64",
+    "Url": "https://download.visualstudio.microsoft.com/download/pr/b6c6fac1-c78c-4c3c-9461-d8e2c68ac8b4/6AFAE68A783F11292149175844AED0E2CE3F247BC0250F6CB18C931295B3F399/VC_redist.x64.exe",
+    "SHA256": "6AFAE68A783F11292149175844AED0E2CE3F247BC0250F6CB18C931295B3F399",
+    "Version": "14.29.30157.0",
+    "Bytes": 25333272,
+    "Publisher": "CN=Microsoft Corporation, O=Microsoft Corporation, L=Redmond, S=Washington, C=US"
+  },
+  {
+    "Name": "legacy-x86",
+    "Url": "https://download.visualstudio.microsoft.com/download/pr/8a78e61f-9368-484b-b0c1-5628ff392121/38C9437E6E9EF1DB2671B3F0C879FEBEC08521BD2C23231199F626B69AE1C65E/VC_redist.x86.exe",
+    "SHA256": "38C9437E6E9EF1DB2671B3F0C879FEBEC08521BD2C23231199F626B69AE1C65E",
+    "Version": "14.29.30157.0",
+    "Bytes": 13889072,
+    "Publisher": "CN=Microsoft Corporation, O=Microsoft Corporation, L=Redmond, S=Washington, C=US"
+  }
+]
