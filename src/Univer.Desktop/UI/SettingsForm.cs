@@ -25,9 +25,12 @@ namespace Univer.Desktop.UI
         // Light, dark or as Windows: three buttons that act as one choice.
         private readonly ModernButton themeSystem = new ModernButton(), themeLight = new ModernButton(), themeDark = new ModernButton();
         private string theme;
-        private readonly ModernButton accountTab = new ModernButton(), viewTab = new ModernButton();
+        private readonly ModernButton accountTab = new ModernButton(), viewTab = new ModernButton(), updatesTab = new ModernButton();
+        private readonly UpdateService updates;
+        private readonly Label updateStatus = new Label();
+        private readonly ModernButton updateCheck = new ModernButton(), updateInstall = new ModernButton();
         private readonly ModernButton save = new ModernButton(), logout = new ModernButton(), remove = new ModernButton(), cancel = new ModernButton();
-        private readonly Panel accountPanel = new Panel(), viewPanel = new Panel(), content = new Panel();
+        private readonly Panel accountPanel = new Panel(), viewPanel = new Panel(), updatesPanel = new Panel(), content = new Panel();
         private readonly FlowLayoutPanel localActions = new FlowLayoutPanel();
 #if LEGACY_ENGINE
         private readonly LegacyWarningPanel legacyWarning = new LegacyWarningPanel();
@@ -44,6 +47,9 @@ namespace Univer.Desktop.UI
             }
         }
         public SettingsAction Action { get; private set; }
+        // Install was pressed: the window closes and the update window takes over.
+        public bool UpdateRequested { get; private set; }
+        public Action OpenReleasePage { get; set; }
         public Func<SettingsAction, Credentials, string, bool, Task<bool>> ApplyAsync { get; set; }
         public Credentials Credentials { get { return login.Input.Text.Length == 0 && password.Input.Text.Length == 0 ? null : new Credentials { Login = login.Input.Text.Trim(), Password = password.Input.Text }; } }
         public string Language { get { return language.SelectedIndex == 1 ? "kz" : language.SelectedIndex == 2 ? "en" : "ru"; } }
@@ -55,15 +61,28 @@ namespace Univer.Desktop.UI
         internal TextInput LoginInput { get { return login; } }
         internal TextInput PasswordInput { get { return password; } }
         internal void SelectAppearanceForQa() { ShowTab(true); }
+        internal void SelectUpdatesForQa() { ShowPanel(updatesPanel); }
+        internal string UpdateStatusForQa { get { return updateStatus.Text; } }
+        internal ModernButton UpdateCheckForQa { get { return updateCheck; } }
+        internal ModernButton UpdateInstallForQa { get { return updateInstall; } }
+        internal bool UpdateFitsForQa
+        {
+            get
+            {
+                var shown = content.RectangleToClient(updateInstall.RectangleToScreen(updateInstall.ClientRectangle));
+                var status = TextRenderer.MeasureText(updateStatus.Text, updateStatus.Font, new Size(updateStatus.Width, int.MaxValue), TextFormatFlags.WordBreak);
+                return shown.Bottom <= content.ClientSize.Height && status.Height <= updateStatus.Height;
+            }
+        }
         internal bool AboutFitsForQa()
         {
             var shown = content.RectangleToClient(about.RectangleToScreen(about.ClientRectangle));
             var text = TextRenderer.MeasureText(about.Text, about.Font, new Size(about.Width, int.MaxValue), TextFormatFlags.WordBreak);
             return about.Visible && shown.Top >= 0 && shown.Bottom <= content.ClientSize.Height && text.Height <= about.Height && about.Text.Contains(AppInfo.Version + " (" + AppInfo.Flavor + ", Chromium ");
         }
-        public SettingsForm(Credentials credentials, Preferences prefs, bool firstLaunch = false)
+        public SettingsForm(Credentials credentials, Preferences prefs, bool firstLaunch = false, UpdateService updates = null)
         {
-            original = credentials; this.firstLaunch = firstLaunch; paused = prefs.AutoLoginPaused;
+            original = credentials; this.firstLaunch = firstLaunch; paused = prefs.AutoLoginPaused; this.updates = updates;
             Font = Theme.Font(10.5f); BackColor = Theme.Surface; ForeColor = Theme.Ink;
             AutoScaleMode = AutoScaleMode.Dpi; AutoScaleDimensions = new SizeF(96, 96);
             ClientSize = new Size(552, firstLaunch ? 486 : 854); MinimumSize = Size;
@@ -76,8 +95,8 @@ namespace Univer.Desktop.UI
             heading.Font = Theme.Strong(18); heading.Dock = DockStyle.Top; heading.Height = 36; heading.UseMnemonic = false;
             description.Dock = DockStyle.Fill; description.ForeColor = Theme.Muted; header.Controls.Add(description); header.Controls.Add(heading);
             var tabs = new FlowLayoutPanel { Dock = DockStyle.Top, Height = 56, Padding = new Padding(28, 4, 30, 8), WrapContents = false };
-            accountTab.Icon = UiIcon.Person; viewTab.Icon = UiIcon.Eye; accountTab.Width = 200; viewTab.Width = 220; accountTab.Height = viewTab.Height = 40;
-            accountTab.Look = viewTab.Look = ButtonLook.Navigation; tabs.Controls.Add(accountTab); tabs.Controls.Add(viewTab); tabs.Visible = !firstLaunch;
+            accountTab.Icon = UiIcon.Person; viewTab.Icon = UiIcon.Eye; updatesTab.Icon = UiIcon.Downloads; accountTab.Width = 140; viewTab.Width = 186; updatesTab.Width = 150; accountTab.Height = viewTab.Height = updatesTab.Height = 40;
+            accountTab.Look = viewTab.Look = updatesTab.Look = ButtonLook.Navigation; tabs.Controls.Add(accountTab); tabs.Controls.Add(viewTab); tabs.Controls.Add(updatesTab); updatesTab.Visible = updates != null; tabs.Visible = !firstLaunch;
             tabs.Paint += (s, e) => { using (var pen = new Pen(Theme.Border)) e.Graphics.DrawLine(pen, 30, tabs.Height - 1, tabs.Width - 30, tabs.Height - 1); };
             var footer = new Panel { Dock = DockStyle.Bottom, Height = 84, Padding = new Padding(30, 20, 30, 20), BackColor = Theme.Background };
             footer.Paint += (s, e) => { using (var pen = new Pen(Theme.Border)) e.Graphics.DrawLine(pen, 0, 0, footer.Width, 0); };
@@ -85,8 +104,8 @@ namespace Univer.Desktop.UI
             cancel.Look = ButtonLook.Outline; cancel.Width = firstLaunch ? 200 : 130; cancel.Height = 44; cancel.Dock = DockStyle.Left; cancel.BackColor = Theme.Surface;
             footer.Controls.Add(save); footer.Controls.Add(cancel);
             content.Dock = DockStyle.Fill; content.Padding = new Padding(30, 16, 30, 12); content.AutoScroll = true;
-            accountPanel.Dock = viewPanel.Dock = DockStyle.Top; accountPanel.Height = firstLaunch ? 240 : 340; viewPanel.Height = 586;
-            content.Controls.Add(accountPanel); content.Controls.Add(viewPanel);
+            accountPanel.Dock = viewPanel.Dock = updatesPanel.Dock = DockStyle.Top; accountPanel.Height = firstLaunch ? 240 : 340; viewPanel.Height = 586; updatesPanel.Height = 150;
+            content.Controls.Add(accountPanel); content.Controls.Add(viewPanel); content.Controls.Add(updatesPanel);
             Controls.Add(content);
 #if LEGACY_ENGINE
             // Outside the tab content and its scroll area: never hidden by tab switching.
@@ -131,6 +150,17 @@ namespace Univer.Desktop.UI
             about.SetBounds(0, 532, 490, 54); about.ForeColor = Theme.Muted; about.Font = Theme.Font(9); about.UseMnemonic = false;
             foreach (var control in new Control[] { languageLabel, language, languageHint, themeLabel, themeSystem, themeLight, themeDark, themeHint, readable, viewHint, tray, trayHint, animations, animationsHint, about }) viewPanel.Controls.Add(control);
             SelectTheme(theme);
+            updateStatus.SetBounds(0, 0, 490, 84); updateStatus.UseMnemonic = false;
+            updateCheck.Look = ButtonLook.Outline; updateCheck.SetBounds(0, 94, 236, 42); updateCheck.Font = Theme.Font(10);
+            updateInstall.Look = ButtonLook.Primary; updateInstall.SetBounds(246, 94, 244, 42); updateInstall.Font = Theme.Font(10);
+            foreach (var control in new Control[] { updateStatus, updateCheck, updateInstall }) updatesPanel.Controls.Add(control);
+            updateCheck.Click += async (s, e) => await updates.CheckAsync();
+            updateInstall.Click += (s, e) =>
+            {
+                if (!updates.Installed) { OpenReleasePage?.Invoke(); return; }
+                UpdateRequested = true; DialogResult = DialogResult.Cancel;
+            };
+            if (updates != null) { updates.Changed += RenderUpdates; updatesTab.Click += (s, e) => ShowPanel(updatesPanel); }
             accountTab.Click += (s, e) => ShowTab(false); viewTab.Click += (s, e) => ShowTab(true);
             language.SelectedIndexChanged += (s, e) => Localize();
             login.Input.TextChanged += (s, e) => UpdateSaveCaption(); password.Input.TextChanged += (s, e) => UpdateSaveCaption();
@@ -178,14 +208,24 @@ namespace Univer.Desktop.UI
                 pair.Item1.Invalidate();
             }
         }
-        private void ShowTab(bool appearance)
+        private void ShowTab(bool appearance) { ShowPanel(appearance ? viewPanel : accountPanel); }
+        private void ShowPanel(Panel shown)
         {
-            var changed = appearance != viewTab.Selected;
+            var panels = new[] { accountPanel, viewPanel, updatesPanel }; var buttons = new[] { accountTab, viewTab, updatesTab };
+            var from = Array.FindIndex(buttons, button => button.Selected); var to = Array.IndexOf(panels, shown);
             MotionSurface.Stop(this);
-            MotionSurface.Stop(accountPanel); MotionSurface.Stop(viewPanel);
-            viewPanel.Visible = appearance; accountPanel.Visible = !appearance;
-            accountTab.Selected = !appearance; viewTab.Selected = appearance; accountTab.Invalidate(); viewTab.Invalidate();
-            if (changed && Visible) MotionSurface.Reveal(appearance ? viewPanel : accountPanel, appearance ? 1 : -1);
+            foreach (var panel in panels) { MotionSurface.Stop(panel); panel.Visible = panel == shown; }
+            for (var i = 0; i < buttons.Length; i++) { buttons[i].Selected = i == to; buttons[i].Invalidate(); }
+            if (from != to && Visible) MotionSurface.Reveal(shown, to > from ? 1 : -1);
+        }
+        private void RenderUpdates()
+        {
+            if (updates == null || IsDisposed) return;
+            var lang = Language; var idle = updates.Phase == UpdatePhase.Idle;
+            updateStatus.Text = UpdateText.Status(updates, lang);
+            updateCheck.Text = updateCheck.AccessibleName = Strings.Get("updateCheck", lang); updateCheck.Enabled = idle;
+            updateInstall.Text = updateInstall.AccessibleName = Strings.Get(updates.Installed ? "updateInstall" : "updateOpen", lang);
+            updateInstall.Visible = updates.Available != null; updateInstall.Enabled = idle;
         }
         private async Task CommitAsync(SettingsAction action)
         {
@@ -213,7 +253,7 @@ namespace Univer.Desktop.UI
         }
         private void SetBusy()
         {
-            content.Enabled = accountTab.Enabled = viewTab.Enabled = save.Enabled = cancel.Enabled = !busy;
+            content.Enabled = accountTab.Enabled = viewTab.Enabled = updatesTab.Enabled = save.Enabled = cancel.Enabled = !busy;
             save.Text = Strings.Get(busy ? "saving" : SaveKey(), Language); save.Invalidate(); UseWaitCursor = busy;
         }
         private string SaveKey()
@@ -230,7 +270,7 @@ namespace Univer.Desktop.UI
             legacyWarning.SetLanguage(lang);
 #endif
             description.Text = Strings.Get(firstLaunch ? "signInDescription" : "settingsDescription", lang);
-            accountTab.Text = Strings.Get("account", lang); viewTab.Text = Strings.Get("appearance", lang);
+            accountTab.Text = Strings.Get("account", lang); viewTab.Text = Strings.Get("appearance", lang); updatesTab.Text = Strings.Get("updateSection", lang); RenderUpdates();
             loginLabel.Text = Strings.Get("login", lang); passwordLabel.Text = Strings.Get("password", lang);
             login.Input.AccessibleName = loginLabel.Text; password.Input.AccessibleName = passwordLabel.Text; UpdateRevealLabel();
             accountHint.Text = Strings.Get("accountHint", lang); privacy.Text = Strings.Get("privacy", lang);
@@ -243,13 +283,13 @@ namespace Univer.Desktop.UI
             about.Text = string.Format(Strings.Get("about", lang), AppInfo.Version, AppInfo.Flavor, AppInfo.Chromium);
             localHint.Text = Strings.Get("localAccountHint", lang); logout.Text = Strings.Get("logout", lang); remove.Text = Strings.Get("forget", lang);
             cancel.Text = Strings.Get(firstLaunch ? "manualButton" : "cancelChanges", lang); UpdateSaveCaption();
-            foreach (var button in new[] { accountTab, viewTab, save, logout, remove, cancel, themeSystem, themeLight, themeDark }) button.AccessibleName = button.Text;
+            foreach (var button in new[] { accountTab, viewTab, updatesTab, save, logout, remove, cancel, themeSystem, themeLight, themeDark }) button.AccessibleName = button.Text;
         }
         protected override void Dispose(bool disposing)
-        { if (disposing) { appearance?.Cancel(); password.Input.Clear(); login.Input.Clear(); } base.Dispose(disposing); }
+        { if (disposing) { if (updates != null) updates.Changed -= RenderUpdates; appearance?.Cancel(); password.Input.Clear(); login.Input.Clear(); } base.Dispose(disposing); }
         protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
         {
-            Motion.KeyboardInput = true; MotionSurface.Stop(accountPanel); MotionSurface.Stop(viewPanel);
+            Motion.KeyboardInput = true; MotionSurface.Stop(accountPanel); MotionSurface.Stop(viewPanel); MotionSurface.Stop(updatesPanel);
             MotionSurface.Stop(this);
             appearance?.Cancel(); Opacity = 1;
             if (closingAnimation) { animationClosed = true; DialogResult = closeResult; Close(); return true; }

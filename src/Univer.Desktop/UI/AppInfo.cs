@@ -12,6 +12,7 @@ namespace Univer.Desktop.UI
 #else
         public const string Flavor = "Modern";
 #endif
+        public static string Architecture { get { return Environment.Is64BitProcess ? "x64" : "x86"; } }
         // Compiled into CefSharp.Core from the CEF headers; reading it needs no initialized browser.
         public static string Chromium { get { try { return Cef.ChromiumVersion; } catch (Exception) { return "?"; } } }
     }

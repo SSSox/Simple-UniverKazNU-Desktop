@@ -48,8 +48,8 @@ The Inno Setup installer (`installer/Univer.iss`) installs the app for the curre
 - **Files are not signed** with a publisher certificate. Compare the SHA-256 from the `.sha256` file next to each release file.
 - **DPAPI does not protect against programs already running as you.** The encrypted record may end up in Windows profile backups; there is no guaranteed erasure from SSDs or backups. The password stays in the app's memory while it is needed for sign-in.
 - The site's own pages may load resources from other servers, as in any browser; the app does not add them.
-- There are no automatic updates: look for new versions on the Releases page.
+- **Updates come from GitHub.** The app downloads an installer only from `github.com` and `*.githubusercontent.com` over HTTPS, and only after you press Install. While files are unsigned, the SHA-256 from the same release protects against a damaged file, not against a replaced release. A signed version accepts only a file from the same publisher.
 
 ## Checking it yourself
 
-All sources are in this repository; the build is described in [BUILD.en.md](BUILD.en.md). The app's network code is Chromium (the site's pages) and a single `HttpClient` in `Web/SessionHttp.cs` for downloads; searching `src/` for `HttpClient`, `WebRequest`, `Process.Start`, `Registry.` and `SetWindowsHookEx` shows every such place. Other addresses appear in the code only in the self-test's synthetic pages (a copy of the site's "Useful links") and as XML namespace names in Office documents. Privacy and stored data: [PRIVACY.en.md](PRIVACY.en.md).
+All sources are in this repository; the build is described in [BUILD.en.md](BUILD.en.md). The app's network code is Chromium (the site's pages) and two `HttpClient`s: in `Web/SessionHttp.cs` for downloads and in `Core/UpdateClient.cs` for updates; searching `src/` for `HttpClient`, `WebRequest`, `Process.Start`, `Registry.` and `SetWindowsHookEx` shows every such place. Other addresses appear in the code only in the self-test's synthetic pages (a copy of the site's "Useful links") and as XML namespace names in Office documents. Privacy and stored data: [PRIVACY.en.md](PRIVACY.en.md).

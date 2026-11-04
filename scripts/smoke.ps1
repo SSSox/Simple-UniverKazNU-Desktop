@@ -1,7 +1,7 @@
 # -Only runs CEF start-up and one self-test step (settings, shell, document, presentation, form-download, layout-load,
-# downloads, office, zoom, theme, notices, live, logout) for a quick check while working on it; a release run uses every step.
+# downloads, office, zoom, theme, notices, updates, live, logout) for a quick check while working on it; a release run uses every step.
 param([ValidateSet('x64','x86')][string]$Platform = 'x64', [ValidateSet('Modern','Legacy')][string]$BrowserFlavor = 'Modern', [switch]$Live, [string]$OutputRoot,
-    [ValidateSet('settings','shell','document','presentation','form-download','layout-load','downloads','office','zoom','theme','notices','live','logout')][string]$Only)
+    [ValidateSet('settings','shell','document','presentation','form-download','layout-load','downloads','office','zoom','theme','notices','updates','live','logout')][string]$Only)
 $ErrorActionPreference = 'Stop'
 $projectRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $framework = if ($BrowserFlavor -eq 'Legacy') { 'net452' } else { 'net462' }

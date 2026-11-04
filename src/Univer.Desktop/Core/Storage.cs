@@ -36,10 +36,15 @@ namespace Univer.Desktop.Core
         // Sections and useful links pinned to the home screen; older preference files have none.
         public List<PinnedLink> Pins { get; set; } = new List<PinnedLink>();
         public List<string> TileOrder { get; set; } = new List<string>();
+        // What the last update check found, when it ran (UTC ticks), and the version the student chose not to see again.
+        public string UpdateVersion { get; set; } = "";
+        public string UpdateSkipped { get; set; } = "";
+        public long UpdateChecked { get; set; }
         public Preferences Clone()
         {
             return new Preferences { Language = Language, AutoLoginPaused = AutoLoginPaused, Readable = Readable, Sidebar = Sidebar,
                 Profile = Profile, Zoom = Zoom, Window = Window, Tray = Tray, Animations = Animations, LegacyWarningDismissed = LegacyWarningDismissed, Theme = Theme,
+                UpdateVersion = UpdateVersion, UpdateSkipped = UpdateSkipped, UpdateChecked = UpdateChecked,
                 Pins = (Pins ?? new List<PinnedLink>()).Select(p => p?.Clone()).ToList(), TileOrder = (TileOrder ?? new List<string>()).ToList() };
         }
     }
@@ -76,6 +81,9 @@ namespace Univer.Desktop.Core
             if (value.Window == null || !Regex.IsMatch(value.Window, @"^-?\d{1,5},-?\d{1,5},\d{3,5},\d{3,5},[01]$")) value.Window = "";
             value.Pins = Shortcuts.Normalize(value.Pins);
             value.TileOrder = Shortcuts.NormalizeOrder(value.TileOrder);
+            if (!Updates.IsVersion(value.UpdateVersion)) value.UpdateVersion = "";
+            if (!Updates.IsVersion(value.UpdateSkipped)) value.UpdateSkipped = "";
+            if (value.UpdateChecked < 0) value.UpdateChecked = 0;
             return value;
         }
         // Loaded independently, so an unreadable DPAPI record (for example after a Windows password reset) keeps valid settings.

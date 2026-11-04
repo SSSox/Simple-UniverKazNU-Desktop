@@ -8,7 +8,7 @@ Simple Univer for Windows is an unofficial app for the [univer.kaznu.kz](https:/
 
 - analytics, telemetry, usage counters or advertising;
 - crash report uploads;
-- update checks or any other requests to the developer's servers;
+- requests to the developer's servers;
 - data sharing with third parties.
 
 ## Where the app connects
@@ -18,9 +18,10 @@ Simple Univer for Windows is an unofficial app for the [univer.kaznu.kz](https:/
 | `https://univer.kaznu.kz` | Everything you do on the portal, as in an ordinary browser. In addition, the app itself signs in with the saved login and password through the site's form, reads portal sections in the background for notifications and distance courses (read only, at most once every 10 minutes) and downloads the files you chose |
 | Your default browser | External links you clicked, and the move to Moodle from "СДО Moodle": the hand-off address is issued by the Univer site |
 | Servers the site loads resources from | Univer pages may include images, videos or scripts from other sites; the site decides this, as in any browser |
+| `github.com`, `*.githubusercontent.com` | The update check at start, at most once every 6 hours, and the installer download after you press Install. The check cannot be turned off. GitHub sees your IP address and the app's name; your login, password and portal data are not sent there. GitHub's rules: [GitHub Privacy Statement](https://docs.github.com/site-policy/privacy-policies/github-general-privacy-statement) |
 | `download.microsoft.com`, `download.visualstudio.microsoft.com` | Only the installer, and only if the computer lacks .NET Framework or Visual C++ and you agreed to download them |
 
-The built-in Chromium starts with component updates and logging turned off.
+The built-in Chromium starts with component updates and logging turned off. A downloaded update installer stays in `%LOCALAPPDATA%\Univer.Desktop\updates` and is deleted at the next start; the last check's result is kept in the settings.
 
 ## What is stored on the computer
 

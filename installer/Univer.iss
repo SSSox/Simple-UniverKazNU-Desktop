@@ -132,6 +132,7 @@ Name: "{autodesktop}\{#ProductName}"; Filename: "{app}\Univer.Desktop.exe"; Work
 
 [Run]
 Filename: "{app}\Univer.Desktop.exe"; Description: "{cm:Launch}"; Flags: nowait postinstall skipifsilent runasoriginaluser; Check: CanLaunch
+Filename: "{app}\Univer.Desktop.exe"; Flags: nowait skipifnotsilent runasoriginaluser; Check: IsAppUpdate
 
 [Code]
 var
@@ -141,6 +142,25 @@ var
 
 function GetFileAttributesW(Name: String): LongWord;
   external 'GetFileAttributesW@kernel32.dll stdcall';
+
+function AppUpdate: Boolean;
+begin
+  Result := ExpandConstant('{param:UPDATE|0}') = '1';
+end;
+
+// The running app starts this update and closes itself; AppMutex would otherwise find it still open.
+function InitializeSetup: Boolean;
+var
+  Waited: Integer;
+begin
+  Result := True;
+  if not AppUpdate then exit;
+  Waited := 0;
+  while CheckForMutexes(ExpandConstant('Local\Univer.Desktop.{username}')) and (Waited < 120) do begin
+    Sleep(250);
+    Waited := Waited + 1;
+  end;
+end;
 
 function MissingNet: Boolean;
 begin
@@ -299,6 +319,11 @@ end;
 function CanLaunch: Boolean;
 begin
   Result := not RestartPending;
+end;
+
+function IsAppUpdate: Boolean;
+begin
+  Result := AppUpdate and CanLaunch;
 end;
 
 // No UninstallDelete section: only installer-owned files are removed.

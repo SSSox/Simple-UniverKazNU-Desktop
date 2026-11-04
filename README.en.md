@@ -74,9 +74,11 @@ The Visual C++ package must match the variant, not only Windows: Modern x86 need
 
 ## Updating and uninstalling
 
-There are no automatic updates. To update, close Univer (in the tray too) and run the installer of the new version of **the same variant** over the old one. Sign-in, settings and the downloads list are kept. The installer does not let you install an older version over a newer one. Modern, Legacy, x64 and x86 go into different folders and do not interfere with each other, but two variants cannot run at the same time.
+The installed app checks GitHub by itself at start, at most once every 6 hours. When a new version is out, a window offers Later and Install and a "Don't show again" checkbox, which hides the window for that version only. The check always runs; its result and the same buttons are in Settings → Updates. After Install, Univer downloads the installer of its variant, verifies the SHA-256, closes, installs the new version and opens again.
 
-For portable, unpack the new archive into a new folder and delete the old one.
+You can also update by hand: close Univer (in the tray too) and run the installer of the new version of **the same variant** over the old one. Sign-in, settings and the downloads list are kept. The installer does not let you install an older version over a newer one. Modern, Legacy, x64 and x86 go into different folders and do not interfere with each other, but two variants cannot run at the same time.
+
+Portable also tells you about a new version but does not update itself: the button opens the release page. Unpack the new archive into a new folder and delete the old one.
 
 Uninstalling: "Settings → Apps → Univer → Uninstall". The program is removed, while its data stays in `%LOCALAPPDATA%\Univer.Desktop` and downloaded files stay in your Downloads folder. To remove everything:
 
@@ -112,7 +114,7 @@ The app was tested on Windows 11 x64, including the 32-bit builds on the same sy
 
 ## Privacy and security
 
-The app has no server of its own, no analytics, telemetry or crash reports. Its own requests go only to `https://univer.kaznu.kz`; external links open in your browser. The password is stored on this computer, encrypted with Windows DPAPI for your account.
+The app has no server of its own, no analytics, telemetry or crash reports. Its own requests go only to `https://univer.kaznu.kz` and to GitHub, where updates come from; external links open in your browser. The password is stored on this computer, encrypted with Windows DPAPI for your account.
 
 - [PRIVACY.en.md](PRIVACY.en.md): what data is stored, where, and how to delete it.
 - [SECURITY.en.md](SECURITY.en.md): what the app does and does not do, its limitations and how to report a vulnerability.

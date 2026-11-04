@@ -57,8 +57,13 @@ jobs:
       - name: Start every variant
         run: |
           foreach ($flavor in 'Modern', 'Legacy') {
-              foreach ($arch in 'x64', 'x86') { .\scripts\smoke.ps1 -Platform $arch -BrowserFlavor $flavor -OutputRoot build\ci -Only settings }
+              # The layout steps measure text with this machine's fonts, which differ on Windows Server.
+              foreach ($arch in 'x64', 'x86') { .\scripts\smoke.ps1 -Platform $arch -BrowserFlavor $flavor -OutputRoot build\ci -Only updates }
           }
+
+      - name: Show why a variant did not start
+        if: failure()
+        run: Get-ChildItem build\ci -Recurse -Include self-test.failed, self-test.trace | ForEach-Object { $_.FullName; Get-Content -LiteralPath $_.FullName -Tail 20 }
 
       # Only Univer.Desktop.exe is built from this repository; the rest of the folder is upstream Chromium and CefSharp.
       - name: Collect the application for signing

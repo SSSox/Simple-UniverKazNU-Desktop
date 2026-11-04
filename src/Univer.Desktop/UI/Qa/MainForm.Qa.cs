@@ -40,6 +40,7 @@ namespace Univer.Desktop.UI
                     QaStep("zoom", () => ZoomQaAsync(qa, results)),
                     QaStep("theme", () => ThemeQaAsync(qa, results)),
                     QaStep("notices", () => NoticesQaAsync(qa, results)),
+                    QaStep("updates", () => UpdatesQaAsync(qa, results)),
                     QaStep("live", () => liveSmoke ? LiveQaAsync(qa, results) : Task.FromResult(true)),
                     QaStep("logout", () => LogoutQaAsync(results))
                 };

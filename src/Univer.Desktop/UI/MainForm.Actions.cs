@@ -18,18 +18,22 @@ namespace Univer.Desktop.UI
         {
             if (settingsOpen || commandBusy || closing) return;
             settingsOpen = true;
+            var installUpdate = false;
             try
             {
                 var shown = Copy(prefs); shown.AutoLoginPaused |= guard.Stopped;
-                using (var form = new SettingsForm(credentials, shown, first))
+                using (var form = new SettingsForm(credentials, shown, first, updates))
                 {
+                    form.OpenReleasePage = () => External(Updates.ReleasePage(updates.Available));
                     form.ApplyAsync = (action, next, language, readable) => ApplySettingsAsync(action, next, language, readable, form.Tray, form.Animations, form.SelectedTheme);
                     form.ShowDialog(this);
                     // Closing first launch with X also means manual login, never implicit credential saving.
                     if (first && form.Action == SettingsAction.None) await ApplySettingsAsync(SettingsAction.Manual, null, prefs.Language, prefs.Readable);
+                    installUpdate = form.UpdateRequested;
                 }
             }
             finally { settingsOpen = false; }
+            if (installUpdate) ShowUpdate(true);
         }
         private async Task<bool> ApplySettingsAsync(SettingsAction action, Credentials next, string language, bool readable, bool? tray = null, bool? animations = null, string theme = null)
         {

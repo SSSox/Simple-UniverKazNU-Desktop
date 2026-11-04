@@ -13,7 +13,7 @@
     <Platforms>x64;x86</Platforms>
     <RuntimeIdentifiers>win-x64;win-x86</RuntimeIdentifiers>
     <AssemblyName>Univer.Desktop</AssemblyName>
-    <Version>0.13.0</Version>
+    <Version>0.14.0</Version>
     <Product>Simple-UniverKazNU</Product>
     <!-- SignPath compares the product version; a build from Git would otherwise append the commit hash. -->
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
@@ -22,6 +22,8 @@
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>app.ico</ApplicationIcon>
     <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+    <!-- The SDK adds this package only where the targeting pack is missing, so the lock file would fit one machine at a time. -->
+    <AutomaticallyUseReferenceAssemblyPackages>false</AutomaticallyUseReferenceAssemblyPackages>
     <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
     <GenerateBindingRedirectsOutputType>true</GenerateBindingRedirectsOutputType>
   </PropertyGroup>
@@ -34,6 +36,7 @@
     <Reference Include="System.Runtime.Serialization" />
     <Reference Include="System.Xml" />
     <Reference Include="System.Xml.Linq" />
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
     <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies.net452" Version="1.0.3" PrivateAssets="all" Condition="'$(BrowserFlavor)' == 'Legacy'" />
     <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies.net462" Version="1.0.3" PrivateAssets="all" Condition="'$(BrowserFlavor)' != 'Legacy'" />
     <PackageReference Include="CefSharp.WinForms" Version="109.1.110" Condition="'$(BrowserFlavor)' == 'Legacy'" />

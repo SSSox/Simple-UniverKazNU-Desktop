@@ -80,7 +80,7 @@ namespace Univer.Desktop.UI
             if (accountReview) prefs.Readable = true;
             if (!selfTest && !accountReview) zoomPercent = prefs.Zoom;
             Icon = LoadAppIcon() ?? Icon;
-            BuildShell(); BuildTray(); CreateSession(); Localize(); HookTheme();
+            BuildShell(); BuildTray(); CreateSession(); Localize(); HookTheme(); BuildUpdates();
             timer.Tick += async (s, e) =>
             {
                 if (rotating || closing || commandBusy) return;
@@ -104,7 +104,7 @@ namespace Univer.Desktop.UI
                 await automation.TickAsync(Active, credentials, prefs, document != null);
                 UpdateHistoryButtons();
             };
-            Resize += (s, e) => UpdatePollingRate(); VisibleChanged += (s, e) => UpdatePollingRate();
+            Resize += (s, e) => UpdatePollingRate(); VisibleChanged += (s, e) => UpdatePollingRate(); Activated += (s, e) => EnterUpdates();
             FormClosing += (s, e) =>
             {
                 // Chromium 109 may post a delayed WM_CLOSE while a child browser is disposed.
@@ -122,7 +122,7 @@ namespace Univer.Desktop.UI
             {
                 System.Net.NetworkInformation.NetworkChange.NetworkAvailabilityChanged -= NetworkAvailabilityChanged;
                 Microsoft.Win32.SystemEvents.PowerModeChanged -= PowerModeChanged;
-                ctrlWheel.Dispose(); DisposeTray(); downloads?.Dispose(); CloseBrowsers(); context?.Dispose(); Web.SingleSignOn.CleanUp(TimeSpan.Zero);
+                ctrlWheel.Dispose(); DisposeTray(); updates?.Dispose(); downloads?.Dispose(); CloseBrowsers(); context?.Dispose(); Web.SingleSignOn.CleanUp(TimeSpan.Zero);
             };
             var restored = false;
             // Restore before the first paint so the window does not jump after appearing.
@@ -148,6 +148,7 @@ namespace Univer.Desktop.UI
                 if (storageFailed) SetStatus("storageError");
                 else if (credentialsUnreadable) SetStatus("credentialsUnreadable");
                 else if (credentials == null && !prefs.AutoLoginPaused) await OpenSettingsAsync(true);
+                updatesReady = true; EnterUpdates();
             };
         }
         private void BuildShell()

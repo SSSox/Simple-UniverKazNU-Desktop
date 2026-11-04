@@ -113,6 +113,8 @@ Public releases are built by `.github/workflows/release.yml` on a clean GitHub m
 
 Signing turns on when the repository has the `SIGNPATH_ORGANIZATION_ID` and `SIGNPATH_POLICY` variables and the `SIGNPATH_API_TOKEN` secret. The build then waits twice for manual approval in SignPath: first for `Univer.Desktop.exe`, then for the installers, which already contain the signed application. The signing settings are in `.signpath/artifact-configurations/`.
 
+The installed app looks in the latest release for `Univer-Desktop-<version>-<variant>-<bits>-setup.exe` and its `.sha256` under the tag `vX.Y.Z`. If these names change, installed apps cannot update.
+
 ## Build for the owner's review
 
 The crawler of the real portal (`UI/Qa/MainForm.Review.cs` and the files next to it) is not part of the normal build. It is built only explicitly and only for the owner's local review, and is never shared:
