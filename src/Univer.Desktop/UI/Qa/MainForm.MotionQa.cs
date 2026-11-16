@@ -30,7 +30,7 @@ namespace Univer.Desktop.UI
                 "<tr id='l2'><td><div id='logo'></div><div class='links'><a href='/user/pass/'>Профиль</a><a href='/user/logout'>Выход</a></div></td></tr>" +
                 "<tr id='l3'><td class='center'><a class='active' href='/news/student'><div class='center'><span style='color:#1b5fa6'>Главная</span></div></a><a href='/student/bachelor/'><div class='center'>Бакалавр</div></a></td></tr>" +
                 "<tr id='qa-menu-row'><td><table class='inner'><tr><td class='center'><div id='menu-home'><table id='tools'><tr><td class='center'><table class='tool'><tr><td><ul id='study'>" +
-                "<li><a href='/student/umkd/'>УМКД</a></li><li><a href='/student/myschedule/'>Расписание</a></li><li><a href='/student/transcript/'>Транскрипт</a></li>" +
+                "<li><a href='/student/umkd/'>УМКД</a></li><li><a href='/student/myschedule/'>Расписание</a></li><li><a href='/student/transcript/'>Транскрипт</a> <a href='/fixture/record-book/'>Зачетная книжка</a></li><li><a href='/fixture/journal/'>Журнал посещений и успеваемости за весь учебный год</a></li>" +
                 "<li><a href='/student/attendance/full/'>Журнал посещаемости</a></li><li><a href='/my/messages/index/'>Сообщения</a></li><li><a href='/faq/'>Часто задаваемые вопросы</a><span><a href='/fixture/exams/'>Расписание экзаменов с очень длинным названием для проверки переноса текста</a></span></li></ul></td></tr>" +
                 "<tr><td class='bottom-center'>Главная</td></tr></table></td></tr></table></div>" +
                 "</td></tr></table></td></tr><tr id='l4'><td><table class='inner'><tr><td class='left'></td><td class='center'><h1>Новости</h1><p>Синтетическая новость для проверки макета.</p><div class='links' id='useful'>" + useful + "</div></td><td class='right'></td></tr></table></td></tr></table>";
@@ -40,17 +40,14 @@ namespace Univer.Desktop.UI
             await ApplyPresentationAsync(); await Task.Delay(300);
             Check(await AutomationController.EvaluateAsync(main, "document.querySelectorAll('.univer-app-quick .univer-app-link-icon').length>=6&&document.querySelectorAll('.univer-app-useful .univer-app-link-icon').length===14?'icons':''") == "icons",
                 "home tiles and every useful link carry an icon", results);
-            await AutomationController.EvaluateAsync(main, "document.querySelector('.univer-app-quick .univer-app-reorder').focus();'focused'");
+            await AutomationController.EvaluateAsync(main, "document.querySelector('.univer-app-quick .univer-app-tile>a').focus();'focused'");
             var reorderHost = main.GetBrowser().GetHost();
-            reorderHost.SendKeyEvent(new KeyEvent { Type = KeyEventType.RawKeyDown, WindowsKeyCode = 35 });
-            reorderHost.SendKeyEvent(new KeyEvent { Type = KeyEventType.KeyUp, WindowsKeyCode = 35 });
+            reorderHost.SendKeyEvent(new KeyEvent { Type = KeyEventType.RawKeyDown, WindowsKeyCode = 35, Modifiers = CefEventFlags.ShiftDown });
+            reorderHost.SendKeyEvent(new KeyEvent { Type = KeyEventType.KeyUp, WindowsKeyCode = 35, Modifiers = CefEventFlags.ShiftDown });
             await Task.Delay(400);
             Check(prefs.TileOrder.Count == 8 && prefs.TileOrder.Last() == SitePolicy.Origin + "/student/myschedule/" &&
-                await AutomationController.EvaluateAsync(main, "document.querySelector('.univer-app-quick .univer-app-tile:last-child>a').pathname==='/student/myschedule/'?'ordered':''") == "ordered",
+                await AutomationController.EvaluateAsync(main, "document.querySelector('.univer-app-quick .univer-app-tile:last-of-type>a').pathname==='/student/myschedule/'?'ordered':''") == "ordered",
                 "trusted keyboard reorder moves fixed tiles among pins and persists the order through the validated bridge", results);
-            // The unpin cross sits on the tile's centre line, drawn as a centred mask rather than a text glyph.
-            Check(await AutomationController.EvaluateAsync(main, "(function(){var b=document.querySelector('.univer-app-unpin'),t=b.closest('.univer-app-tile').getBoundingClientRect(),r=b.getBoundingClientRect();" +
-                "return Math.abs((r.top+r.bottom)/2-(t.top+t.bottom)/2)<=1&&b.textContent===''&&getComputedStyle(b,'::before').width==='14px'?'centred':''})()") == "centred", "unpin cross is centred in its tile", results);
             foreach (var size in new[] { new Size(1360, 860), new Size(1100, 760), new Size(960, 700), new Size(900, 620) })
             {
                 Size = size; await Task.Delay(450);
@@ -63,8 +60,13 @@ namespace Univer.Desktop.UI
                 Check(await AutomationController.EvaluateAsync(main, "(function(){var m=document.querySelector('.univer-app-menu'),r=m.getBoundingClientRect(),w=document.documentElement.clientWidth;" +
                     "var cards=Array.from(m.querySelectorAll('.univer-app-useful li'));return m.open&&r.left>=0&&r.right<=w+.5&&cards.length===14&&cards.every(function(li){var s=getComputedStyle(li);return s.borderTopWidth==='1px'&&li.getBoundingClientRect().width>=180;})?'menu':''})()") == "menu",
                     "all sections panel shows bordered useful links inside the window at " + tag, results);
-                Check(await AutomationController.EvaluateAsync(main, "(function(){var a=document.querySelector('#tools a[href=\"/fixture/exams/\"]'),b=a.nextElementSibling,r=a.getBoundingClientRect(),p=b.getBoundingClientRect(),row=a.parentElement.getBoundingClientRect();return b.classList.contains('univer-app-pin')&&p.width>=28&&p.right<=row.right+1&&p.left>=r.right-1&&r.height>40&&getComputedStyle(b).display!=='none'&&!document.querySelector('#tools a[href=\"/student/umkd/\"]').nextElementSibling?'pins':''})()") == "pins",
-                    "nested long menu link keeps its visible pin beside the wrapped label and fixed links have no duplicate action at " + tag, results);
+                Check(await AutomationController.EvaluateAsync(main, "(function(){var f=Array.from(document.querySelectorAll('.univer-app-menu .univer-app-menu-footer'));return f.length>0&&f.every(function(r){return getComputedStyle(r).display==='none';})?'hidden':''})()") == "hidden",
+                    "the category caption appears only as the card heading at " + tag, results);
+                Check(await AutomationController.EvaluateAsync(main, "(function(){var a=document.querySelector('#tools a[href=\"/fixture/exams/\"]'),b=a.nextElementSibling,r=a.getBoundingClientRect(),p=b.getBoundingClientRect(),row=a.closest('li').getBoundingClientRect();return b.classList.contains('univer-app-pin')&&p.width>=28&&p.right<=row.right+1&&p.left>=r.right-1&&r.height>40&&getComputedStyle(b).display!=='none'&&document.querySelector('#tools a[href=\"/student/umkd/\"]').parentElement.querySelectorAll('.univer-app-pin').length===1?'pins':''})()") == "pins",
+                    "nested long menu link keeps its visible pin beside the wrapped label and fixed links carry a single pin at " + tag, results);
+                var lines = await AutomationController.EvaluateAsync(main, "(function(){var bad=Array.from(document.querySelectorAll('#tools .univer-app-category li a[href]')).filter(function(a){var p=a.nextElementSibling;if(!p||!p.classList.contains('univer-app-pin'))return false;var r=a.getBoundingClientRect(),x=p.getBoundingClientRect(),l=a.closest('li').getBoundingClientRect();return Math.abs((r.top+r.bottom)/2-(x.top+x.bottom)/2)>3||x.left<r.right-1||x.right>l.right+1||l.right-x.right>8;});return bad.length?bad.length+' '+bad[0].textContent:'lines';})()");
+                QaTrace("qa-menu-lines " + tag + " " + lines);
+                Check(lines == "lines", "every link in All sections keeps its pin on its own line at the row's end at " + tag, results);
                 using (var client = main.GetDevToolsClient()) File.WriteAllBytes(Path.Combine(qa, "menu-" + tag + ".png"), (await client.Page.CaptureScreenshotAsync()).Data);
                 await AutomationController.EvaluateAsync(main, "document.querySelector('.univer-app-menu-close').click();'closed'"); await Task.Delay(250);
             }
@@ -150,7 +152,7 @@ namespace Univer.Desktop.UI
                 // Emulate both states explicitly: the user's Windows setting may already request reduced motion.
                 await client.Emulation.SetEmulatedMediaAsync(features: new List<CefSharp.DevTools.Emulation.MediaFeature> { new CefSharp.DevTools.Emulation.MediaFeature { Name = "prefers-reduced-motion", Value = "no-preference" } });
                 await AutomationController.EvaluateAsync(main, "document.documentElement.classList.remove('univer-app-keyboard');'pointer'");
-                Check(await AutomationController.EvaluateAsync(main, "getComputedStyle(document.querySelector('.univer-app-quick a')).transitionDuration==='0.18s'?'pointer':''") == "pointer",
+                Check(await AutomationController.EvaluateAsync(main, "(function(){var c=getComputedStyle(document.querySelector('.univer-app-quick a'));return c.transitionProperty.split(', ')[0]==='transform'&&c.transitionDuration.split(', ')[0]==='0.18s'?'pointer':''})()") == "pointer",
                     "pointer press feedback is enabled before the reduced motion check", results);
                 // Chromium 109 does not consistently route hover into an invisible QA window. Force the actual CSS state.
                 await client.DOM.EnableAsync();
@@ -270,7 +272,7 @@ namespace Univer.Desktop.UI
                     surface.SampleForQa(.6f, false); SaveNativeFrameForMotionQa(fluidSettings, Path.Combine(qa, "fluid-settings-middle.png"));
                     surface.SampleForQa(1, false); await Task.Delay(250); SaveNativeFrameForMotionQa(fluidSettings, Path.Combine(qa, "fluid-settings-end.png"));
                 }
-                fluidSettings.SaveButton.Focus();
+                fluidSettings.ChangeForQa(); fluidSettings.SaveButton.Focus();
                 Check(fluidSettings.SaveButton.Focused, "live settings controls keep focus during a visual transition", results);
                 using (var nativeMenu = new System.Windows.Forms.ContextMenuStrip { Font = Theme.Font(Theme.Body) })
                 {

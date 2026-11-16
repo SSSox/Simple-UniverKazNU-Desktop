@@ -28,7 +28,7 @@ function page(html, url, { routes = {}, scripts = [read('notices.js')] } = {}) {
   w.HTMLElement.prototype.getClientRects = function () { return [{ width: 100, height: 30 }]; };
   w.jQuery = () => ({ bind() {} });
   w.TextDecoder = TextDecoder;
-  w.__univerNativeNotify = value => sent.push(value);
+  w.__univerNative = value => sent.push(value);
   w.fetch = address => {
     requests.push(address);
     const body = routes[address];

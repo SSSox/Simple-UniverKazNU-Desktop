@@ -14,7 +14,10 @@
     };
     var enabled = false, language = 'ru', style = null, generation = 0, forwarded = false;
     var added = [], marked = new Set(), wrapped = [], courses = null, course = null, scriptText = null;
-    var CACHE_MS = 10 * 60 * 1000, PARALLEL = 3;
+    var CACHE_MS = 10 * 60 * 1000, PARALLEL = 3, WEEKS = 24;
+    // One background read: how long it may take and how large its page may be (characters).
+    var WAIT_MS = 15000, PAGE = 4 * 1024 * 1024;
+    var controllers = new Set(), waiting = [], reading = 0;
 
     function own(node) { added.push(node); return node; }
     function element(tag, className, content) {
@@ -26,23 +29,25 @@
     function plural(n, one, few, many) { var a = n % 10, b = n % 100; return a === 1 && b !== 11 ? one : a >= 2 && a <= 4 && (b < 12 || b > 14) ? few : many; }
     function text() {
         if (language === 'en') return {heading:'Assignments', checking:function (d, t) { return 'Checking courses: ' + d + ' of ' + t; },
-            scope:"From each course's previous, current and next week", none:'No current assignments', noneCourse:'This course has no assignments yet',
+            scope:'From every week of each course', none:'No open assignments', noneClosed:'No closed assignments', noneCourse:'This course has no assignments yet',
+            openTab:'Open', closedTab:'Closed', show:'Which assignments to show', openCount:function (n) { return 'Open: ' + n; }, closedCount:function (n) { return 'Closed: ' + n; },
             failed:'Could not check: ', loading:'Loading assignments…', refresh:'Refresh', open:'Open', openPlan:'Open weeks: ', openWeek:'Open week ', openTask:'Open assignment: ', week:function (n) { return 'Week ' + n; },
             current:'This week', due:function (d) { return 'due ' + d; }, opens:function (d) { return 'opens ' + d; }, today:'last day today',
-            left:function (n) { return n === 1 ? '1 day left' : n + ' days left'; }, closed:'closed', count:function (n) { return n === 1 ? '1 assignment' : n + ' assignments'; },
+            left:function (n) { return n === 1 ? '1 day left' : n + ' days left'; }, closed:'closed',
             materials:function (n) { return 'Materials: ' + n; }, reply:'Write a reply', description:'Task'};
         if (language === 'kz') return {heading:'Тапсырмалар', checking:function (d, t) { return 'Пәндер тексерілуде: ' + d + ' / ' + t; },
-            scope:'Әр пәннің өткен, ағымдағы және келесі аптасы бойынша', none:'Ағымдағы тапсырмалар жоқ', noneCourse:'Бұл пәнде әзірге тапсырма жоқ',
+            scope:'Әр пәннің барлық апталары бойынша', none:'Ашық тапсырмалар жоқ', noneClosed:'Жабық тапсырмалар жоқ', noneCourse:'Бұл пәнде әзірге тапсырма жоқ',
+            openTab:'Ашық', closedTab:'Жабық', show:'Қай тапсырмаларды көрсету', openCount:function (n) { return 'Ашық: ' + n; }, closedCount:function (n) { return 'Жабық: ' + n; },
             failed:'Тексеру мүмкін болмады: ', loading:'Тапсырмалар жүктелуде…', refresh:'Жаңарту', open:'Ашу', openPlan:'Апталарды ашу: ', openWeek:'Аптаны ашу: ', openTask:'Тапсырманы ашу: ', week:function (n) { return n + '-апта'; },
             current:'Ағымдағы апта', due:function (d) { return d + ' дейін'; }, opens:function (d) { return d + ' ашылады'; }, today:'бүгін соңғы күн',
-            left:function (n) { return n + ' күн қалды'; }, closed:'мерзімі өтті', count:function (n) { return n + ' тапсырма'; },
+            left:function (n) { return n + ' күн қалды'; }, closed:'мерзімі өтті',
             materials:function (n) { return 'Материалдар: ' + n; }, reply:'Жауап жазу', description:'Тапсырма'};
         return {heading:'Задания', checking:function (d, t) { return 'Проверяю дисциплины: ' + d + ' из ' + t; },
-            scope:'По прошлой, текущей и следующей неделе каждой дисциплины', none:'Текущих заданий нет', noneCourse:'В этой дисциплине пока нет заданий',
+            scope:'По всем неделям каждой дисциплины', none:'Открытых заданий нет', noneClosed:'Закрытых заданий нет', noneCourse:'В этой дисциплине пока нет заданий',
+            openTab:'Открытые', closedTab:'Закрытые', show:'Какие задания показать', openCount:function (n) { return 'Открыто: ' + n; }, closedCount:function (n) { return 'Закрыто: ' + n; },
             failed:'Не удалось проверить: ', loading:'Загружаю задания…', refresh:'Обновить', open:'Открыть', openPlan:'Открыть недели: ', openWeek:'Открыть неделю ', openTask:'Открыть задание: ', week:function (n) { return 'Неделя ' + n; },
             current:'Текущая неделя', due:function (d) { return 'до ' + d; }, opens:function (d) { return 'откроется ' + d; }, today:'сегодня последний день',
             left:function (n) { return plural(n, 'остался ', 'осталось ', 'осталось ') + n + ' ' + plural(n, 'день', 'дня', 'дней'); }, closed:'срок прошёл',
-            count:function (n) { return n + ' ' + plural(n, 'задание', 'задания', 'заданий'); },
             materials:function (n) { return 'Материалы: ' + n; }, reply:'Написать ответ', description:'Задание'};
     }
 
@@ -64,19 +69,41 @@
     function number(cell) { var value = parseInt(clean(cell), 10); return isNaN(value) ? 0 : value; }
 
     // Background reads: same origin, GET only, no redirects (an expired session redirects to the login page).
+    // No more than PARALLEL of them are on the wire at once, whichever list asked: a course list reads each course's
+    // curricula, weeks and task lists, and without one shared gate those multiply into dozens of requests at a time.
     function load(url, run) {
         if (!url) return Promise.reject(new Error('route'));
-        return fetch(url, {credentials:'same-origin', redirect:'error'}).then(function (response) {
+        return new Promise(function (resolve, reject) { waiting.push({url:url, run:run, resolve:resolve, reject:reject}); pump(); });
+    }
+    function pump() {
+        while (reading < PARALLEL && waiting.length) {
+            var next = waiting.shift();
+            // The page that asked has been released: its reads are not started.
+            if (next.run !== generation) { next.reject(new Error('stale')); continue; }
+            reading++;
+            read(next.url, next.run).then(next.resolve, next.reject).then(function () { reading--; pump(); });
+        }
+    }
+    // A read that the server leaves unanswered ends after WAIT_MS, the body included, so its course is reported as
+    // not checked instead of holding the count and a place in the gate for good.
+    async function read(url, run) {
+        var abort = new AbortController(), timer;
+        var late = new Promise(function (resolve, reject) { timer = setTimeout(function () { abort.abort(); reject(new Error('timeout')); }, WAIT_MS); });
+        controllers.add(abort);
+        try {
+            var response = await Promise.race([fetch(url, {credentials:'same-origin', redirect:'error', signal:abort.signal}), late]);
             if (run !== generation) throw new Error('stale');
             var path = new URL(response.url || url, location.href);
             if (!response.ok || path.origin !== location.origin || path.pathname.replace(/\/$/, '') !== url.replace(/\/$/, '')) throw new Error('response');
-            return response.text();
-        }).then(function (html) {
+            var html = await Promise.race([common.boundedText(response, PAGE), late]);
             if (run !== generation) throw new Error('stale');
             var doc = new DOMParser().parseFromString(html, 'text/html');
             if (doc.querySelector('#login_frm') || !doc.querySelector('table.mt')) throw new Error('page');
             return {html:html, doc:doc};
-        });
+        } catch (error) {
+            // A read cut short by release() belongs to a page that is gone, whatever the error says.
+            throw run !== generation ? new Error('stale') : error;
+        } finally { clearTimeout(timer); abort.abort(); controllers.delete(abort); }
     }
     function queue(jobs, limit) {
         var next = 0;
@@ -134,15 +161,20 @@
                 return load(url, run).then(function (tasks) {
                     var preview = template(tasks.html, 'task\\/preview');
                     return links(tasks.doc).filter(function (row) { return row.cells.length >= 4; }).map(function (row) { return taskRow(row, week.number, preview); });
+                }, function (error) {
+                    // One unread week does not hide the others; the course is still named as not fully checked.
+                    if (error && error.message === 'stale') throw error;
+                    weeks.partial = true; return [];
                 });
             }));
         }).then(function (groups) { return [].concat.apply([], groups); });
     }
-    function near(rows) {
-        var current = rows.find(function (w) { return w.current; });
-        if (!current) return [];
-        return rows.filter(function (w) { return w.tasks > 0 && Math.abs(w.number - current.number) <= 1; });
+    // Every week that has assignments, the ones nearest to the current week first; a course is read up to WEEKS of them.
+    function busy(rows) {
+        var now = (rows.find(function (w) { return w.current; }) || {number:0}).number;
+        return rows.filter(function (w) { return w.tasks > 0; }).sort(function (a, b) { return Math.abs(a.number - now) - Math.abs(b.number - now); }).slice(0, WEEKS);
     }
+    function isOpen(item) { return status(at(item.start), at(item.end)).order < 3; }
 
     // One list of assignments, nearest deadline first, closed ones last.
     function list(items, withCourse) {
@@ -180,8 +212,38 @@
             head.appendChild(refresh);
         }
         box.dataset.busy = busy ? 'true' : 'false'; box.appendChild(head);
-        if (record.items.length) box.appendChild(list(record.items, !record.course));
-        else if (!busy) box.appendChild(element('p', 'univer-app-tasks-empty', record.course ? t.noneCourse : t.none));
+        if (record.course) {
+            if (record.items.length) box.appendChild(list(record.items, false));
+            else if (!busy) box.appendChild(element('p', 'univer-app-tasks-empty', t.noneCourse));
+        } else {
+            // The course list keeps open and closed assignments apart: the open ones are what needs doing.
+            var groups = {open:record.items.filter(isOpen), closed:record.items.filter(function (item) { return !isOpen(item); })};
+            var body = element('div', 'univer-app-tasks-body');
+            var show = function () {
+                var shown = groups[record.view] || groups.open; body.textContent = '';
+                if (shown.length) body.appendChild(list(shown, true));
+                else if (!busy) body.appendChild(element('p', 'univer-app-tasks-empty', record.view === 'closed' ? t.noneClosed : t.none));
+            };
+            if (record.items.length) {
+                var filter = element('div', 'univer-app-attendance-filters univer-app-tasks-filter'); filter.setAttribute('role', 'group'); filter.setAttribute('aria-label', t.show);
+                [['open', t.openTab], ['closed', t.closedTab]].forEach(function (entry) {
+                    var button = element('button', '', entry[1]); button.type = 'button'; button.dataset.view = entry[0];
+                    button.appendChild(element('span', 'univer-app-tasks-count', String(groups[entry[0]].length)));
+                    button.setAttribute('aria-pressed', String((record.view || 'open') === entry[0]));
+                    button.addEventListener('click', function (event) {
+                        if (record.view === entry[0]) return;
+                        record.view = entry[0];
+                        filter.querySelectorAll('button').forEach(function (other) { other.setAttribute('aria-pressed', String(other === button)); });
+                        show();
+                        // A pointer's choice brings the other list in the way the page's other blocks arrive; keys switch at once.
+                        if (event.detail > 0) window.__univerMotionUI?.reveal(body, 'content');
+                    });
+                    filter.appendChild(button);
+                });
+                box.appendChild(filter);
+            }
+            show(); box.appendChild(body);
+        }
         if (record.failed.length && !busy) box.appendChild(element('p', 'univer-app-tasks-note', t.failed + record.failed.join(', ')));
     }
     function stored(key) { try { var value = JSON.parse(sessionStorage.getItem(key) || 'null'); return value && Date.now() - value.at < CACHE_MS ? value : null; } catch (_) { return null; } }
@@ -199,9 +261,9 @@
         if (!anchor) return;
         if (!courses) {
             var key = 'univer-app-course-tasks:' + plans.prefix + plans.suffix;
-            courses = {key:key, done:0, total:rows.length, items:[], failed:[], weeks:{}, open:{}, course:'', refresh:function () { try { sessionStorage.removeItem(key); } catch (_) {} courses = null; apply(language); }};
+            courses = {key:key, done:0, total:rows.length, items:[], failed:[], weeks:{}, open:{}, closed:{}, view:'open', course:'', refresh:function () { try { sessionStorage.removeItem(key); } catch (_) {} courses = null; apply(language); }};
             var cached = stored(key);
-            if (cached) { courses.done = courses.total = cached.total; courses.items = cached.items; courses.failed = cached.failed; courses.weeks = cached.weeks; courses.open = cached.open; }
+            if (cached && cached.closed) { courses.done = courses.total = cached.total; courses.items = cached.items; courses.failed = cached.failed; courses.weeks = cached.weeks; courses.open = cached.open; courses.closed = cached.closed; }
             else collect(courses, rows, plans);
         }
         panel(anchor, courses);
@@ -210,7 +272,8 @@
     function collect(record, rows, plans) {
         var run = generation, order = rows.map(function (row) { return courseName(row.cells[1]); });
         var jobs = rows.map(function (row) {
-            var name = courseName(row.cells[1]);
+            var name = courseName(row.cells[1]), partial = false;
+            var fail = function () { record.failed.push(name); record.failed.sort(function (a, b) { return order.indexOf(a) - order.indexOf(b); }); };
             return function () {
                 return load(build(plans, row.id, routes.plans) || '', run).then(function (page) {
                     var weeksTemplate = template(page.html, 'acpos\\/week\\/list');
@@ -220,38 +283,41 @@
                         if (!url) return [];
                         if (plansRows.length === 1) record.weeks[row.id] = url;
                         var weeks = [];
-                        return tasksOf(url, weeks, near, run).then(function (tasks) {
-                            record.open[row.id] = tasks.filter(function (task) { return status(at(task.start), at(task.end)).order < 3; }).length;
+                        return tasksOf(url, weeks, busy, run).then(function (tasks) {
+                            var open = tasks.filter(isOpen).length; if (weeks.partial) partial = true;
+                            record.open[row.id] = (record.open[row.id] || 0) + open; record.closed[row.id] = (record.closed[row.id] || 0) + tasks.length - open;
                             return tasks;
                         });
                     }));
                 }).then(function (groups) {
                     [].concat.apply([], groups).forEach(function (task) { task.course = name; record.items.push(task); });
+                    if (partial) fail();
                 }, function (error) {
                     if (error && error.message === 'stale') throw error;
-                    record.failed.push(name); record.failed.sort(function (a, b) { return order.indexOf(a) - order.indexOf(b); });
+                    fail();
                 }).then(function () {
                     if (run !== generation) return;
                     record.done++;
-                    if (record.done === record.total) store(record.key, {at:Date.now(), total:record.total, items:record.items, failed:record.failed, weeks:record.weeks, open:record.open});
+                    if (record.done === record.total) store(record.key, {at:Date.now(), total:record.total, items:record.items, failed:record.failed, weeks:record.weeks, open:record.open, closed:record.closed});
                     if (enabled) apply(language);
                 });
             };
         });
         queue(jobs, PARALLEL);
     }
-    // The course row gets "N assignments", a link straight to its weeks.
+    // The course row says how many of its assignments are open and how many are closed; each count leads to its weeks.
     function chip(row, record) {
-        var cell = row.cells[1], count = record.open[row.id] || 0, url = record.weeks[row.id];
-        var existing = cell.querySelector(':scope>.univer-app-course-tasks');
-        if (!count) { if (existing) existing.remove(); return; }
-        var label = text().count(count);
-        if (existing && existing.textContent === label) return;
-        if (existing) existing.remove();
-        var link = own(element(url ? 'a' : 'span', 'univer-app-course-tasks', label));
-        if (url) { link.href = url; link.addEventListener('click', function (event) { event.stopPropagation(); }); }
-        var button = cell.querySelector(':scope>.univer-app-course-open');
-        cell.insertBefore(link, button || null);
+        var cell = row.cells[1], url = record.weeks[row.id], t = text();
+        [['open', record.open[row.id] || 0, t.openCount], ['closed', record.closed[row.id] || 0, t.closedCount]].forEach(function (entry) {
+            var existing = cell.querySelector(':scope>.univer-app-course-tasks[data-state=' + entry[0] + ']');
+            if (!entry[1]) { if (existing) existing.remove(); return; }
+            var label = entry[2](entry[1]);
+            if (existing && existing.textContent === label) return;
+            var link = own(element(url ? 'a' : 'span', 'univer-app-course-tasks', label)); link.dataset.state = entry[0];
+            if (url) { link.href = url; link.addEventListener('click', function (event) { event.stopPropagation(); }); }
+            if (existing) existing.replaceWith(link);
+            else cell.insertBefore(link, (entry[0] === 'open' && cell.querySelector(':scope>.univer-app-course-tasks')) || cell.querySelector(':scope>.univer-app-course-open'));
+        });
     }
 
     // Curriculum: with a single row, coming from the course list, go straight to its weeks (the entry is replaced, so
@@ -451,25 +517,25 @@
     function css() {
         return `
 /* Assignments: one calm panel, each assignment a row with its deadline on the right. */
-:root.univer-mobile #l4 .univer-app-tasks { box-sizing:border-box; margin:0 0 18px; padding:16px 18px 18px; border:1px solid var(--u-line); border-radius:14px; background:#fff; color:var(--u-text); }
+:root.univer-mobile #l4 .univer-app-tasks { box-sizing:border-box; margin:0 0 18px; padding:16px 18px 18px; border:1px solid var(--u-line); border-radius:12px; background:#fff; color:var(--u-text); }
 :root.univer-mobile #l4 .univer-app-tasks-head { display:flex; align-items:center; flex-wrap:wrap; gap:6px 14px; margin:0 0 12px; }
-:root.univer-mobile #l4 .univer-app-tasks-title { margin:0!important; padding:0!important; color:var(--u-ink)!important; font-size:var(--u-fs-section)!important; font-weight:700!important; line-height:1.3!important; }
+:root.univer-mobile #l4 .univer-app-tasks-title { margin:0!important; padding:0!important; color:var(--u-ink)!important; font-size:var(--u-fs-section)!important; font-weight:600!important; line-height:1.3!important; }
 :root.univer-mobile #l4 .univer-app-tasks-state { color:var(--u-muted); font-size:var(--u-fs-meta); }
 :root.univer-mobile #l4 .univer-app-tasks[data-busy=true] .univer-app-tasks-state::before { content:''; display:inline-block; width:10px; height:10px; margin-right:8px; border:2px solid var(--u-brand-line); border-top-color:var(--u-brand); border-radius:50%; vertical-align:-1px; animation:univer-app-spin .9s linear infinite; }
 @keyframes univer-app-spin { to { transform:rotate(360deg); } }
 @media (prefers-reduced-motion:reduce) { :root.univer-mobile #l4 .univer-app-tasks[data-busy=true] .univer-app-tasks-state::before { animation:none; } }
 :root.univer-mobile #l4 button.univer-app-tasks-refresh { margin-left:auto!important; min-height:30px!important; padding:4px 12px!important; border:1px solid var(--u-line)!important; border-radius:8px!important; background:#fff!important; color:var(--u-muted)!important; font:600 13px var(--u-font)!important; cursor:pointer; }
-:root.univer-mobile #l4 button.univer-app-tasks-refresh:hover { border-color:var(--u-brand-line)!important; background:var(--u-brand-soft)!important; color:var(--u-brand)!important; }
+:root.univer-mobile #l4 button.univer-app-tasks-refresh:hover { border-color:var(--u-brand-line)!important; background:var(--u-brand-soft)!important; color:var(--u-ink)!important; }
 :root.univer-mobile #l4 .univer-app-task-list { display:grid; gap:8px; margin:0!important; padding:0!important; list-style:none; }
 :root.univer-mobile #l4 .univer-app-task-item { margin:0!important; padding:0!important; }
-:root.univer-mobile #l4 .univer-app-task-link { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:3px 16px; box-sizing:border-box; padding:11px 14px!important; border:1px solid var(--u-line)!important; border-radius:12px!important; background:#fff!important; color:var(--u-text)!important; text-decoration:none!important; }
+:root.univer-mobile #l4 .univer-app-task-link { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:2px 16px; box-sizing:border-box; padding:12px 16px!important; border:1px solid var(--u-line)!important; border-radius:12px!important; background:#fff!important; color:var(--u-text)!important; text-decoration:none!important; }
 :root.univer-mobile #l4 a.univer-app-task-link:hover { border-color:var(--u-brand-line)!important; background:var(--u-brand-soft)!important; }
 :root.univer-mobile #l4 a.univer-app-task-link:focus-visible { outline:2px solid var(--u-brand); outline-offset:2px; }
-:root.univer-mobile #l4 .univer-app-task-title { grid-column:1; color:var(--u-ink); font-size:var(--u-fs-body); font-weight:600; line-height:1.4; overflow-wrap:anywhere; }
+:root.univer-mobile #l4 .univer-app-task-title { grid-column:1; color:var(--u-ink); font-size:var(--u-fs-body); font-weight:500; line-height:1.4; overflow-wrap:anywhere; }
 :root.univer-mobile #l4 .univer-app-task-meta { grid-column:1; color:var(--u-muted); font-size:var(--u-fs-meta); line-height:1.4; }
 :root.univer-mobile #l4 .univer-app-task-link>.univer-app-task-status { grid-column:2; grid-row:1 / span 2; }
 :root.univer-mobile #l4 .univer-app-task-item[data-state=past] .univer-app-task-title { color:var(--u-muted); font-weight:500; }
-:root.univer-mobile #l4 .univer-app-task-status { display:inline-flex; align-items:center; box-sizing:border-box; min-height:24px; padding:2px 10px; border-radius:999px; background:var(--u-brand-soft); color:var(--u-brand); font-size:12.5px; font-weight:600; line-height:1.3; white-space:nowrap; }
+:root.univer-mobile #l4 .univer-app-task-status { display:inline-flex; align-items:center; box-sizing:border-box; min-height:24px; padding:2px 10px; border-radius:6px; background:var(--u-brand-soft); color:var(--u-ink); font-size:13px; font-weight:500; line-height:1.3; white-space:nowrap; }
 :root.univer-mobile #l4 .univer-app-task-status[data-state=urgent] { background:#fdf3dd; color:#80540a; }
 :root.univer-mobile #l4 .univer-app-task-status:is([data-state=past],[data-state=soon]) { background:var(--u-surface-2); color:var(--u-muted); }
 :root.univer-mobile #l4 .univer-app-tasks-empty, :root.univer-mobile #l4 .univer-app-tasks-note { margin:0!important; color:var(--u-muted); font-size:var(--u-fs-meta); }
@@ -479,42 +545,49 @@
  :root.univer-mobile #l4 .univer-app-task-link>.univer-app-task-status { grid-column:1; grid-row:auto; justify-self:start; margin-top:4px; }
 }
 /* Course list: "N assignments" next to the name opens the course's weeks. */
-:root.univer-mobile #l4 .univer-app-course-tasks { display:inline-flex; align-items:center; min-height:22px; margin-left:10px; padding:1px 10px; border-radius:999px; background:#fdf3dd; color:#80540a!important; font-size:12px; font-weight:700; text-decoration:none!important; white-space:nowrap; vertical-align:1px; }
+:root.univer-mobile #l4 .univer-app-course-tasks { display:inline-flex; align-items:center; min-height:24px; margin-left:8px; padding:0 10px; border-radius:6px; background:#fdf3dd; color:#80540a!important; font-size:12px; font-weight:600; font-variant-numeric:tabular-nums; text-decoration:none!important; white-space:nowrap; vertical-align:1px; }
 :root.univer-mobile #l4 a.univer-app-course-tasks:hover { background:#f8e6b8; }
+:root.univer-mobile #l4 .univer-app-course-tasks[data-state=closed] { background:var(--u-surface-2); color:var(--u-muted)!important; font-weight:500; }
+:root.univer-mobile #l4 a.univer-app-course-tasks[data-state=closed]:hover { background:var(--u-brand-soft); color:var(--u-ink)!important; }
+:root.univer-mobile #l4 a.univer-app-course-tasks:focus-visible { outline:2px solid var(--u-brand); outline-offset:2px; }
+/* Open and closed assignments are two views of one list. */
+:root.univer-mobile #l4 .univer-app-tasks-filter { margin:0 0 12px; }
+:root.univer-mobile #l4 .univer-app-tasks-filter button { display:inline-flex; align-items:center; gap:8px; }
+:root.univer-mobile #l4 .univer-app-tasks-count { color:var(--u-muted); font-size:12px; font-weight:500; font-variant-numeric:tabular-nums; }
 /* Weeks: the whole list, the current week labelled, counts as quiet badges. */
 :root.univer-mobile #l4 div.univer-app-weeks-box { height:auto!important; max-height:none!important; overflow:visible!important; }
 :root.univer-mobile #l4 .univer-app-week>td { vertical-align:middle; }
 :root.univer-mobile #l4 tr.univer-app-week.normal>td { background:#e8f4ef!important; }
-:root.univer-mobile #l4 tr.univer-app-week:not(.normal) .univer-app-row-open { border:1px solid var(--u-brand-line)!important; background:#fff!important; color:var(--u-brand)!important; }
+:root.univer-mobile #l4 tr.univer-app-week:not(.normal) .univer-app-row-open { border:1px solid var(--u-brand-line)!important; background:#fff!important; color:var(--u-ink)!important; }
 :root.univer-mobile #l4 tr.univer-app-week:not(.normal) .univer-app-row-open:hover { background:var(--u-brand-soft)!important; }
 :root.univer-mobile #l4 .univer-app-open-cell { position:relative; padding-right:120px!important; }
 :root.univer-mobile #l4 .univer-app-open-cell>.univer-app-row-open { position:absolute; right:12px; top:50%; transform:translateY(-50%); min-width:0!important; min-height:30px!important; padding:4px 14px!important; }
-:root.univer-mobile #l4 .univer-app-week-count { display:inline-flex; align-items:center; justify-content:center; min-width:26px; height:22px; box-sizing:border-box; padding:0 8px; border-radius:999px; background:var(--u-surface-2); color:var(--u-muted); font-size:12px; font-weight:600; }
-:root.univer-mobile #l4 .univer-app-week-count[data-state=has] { background:var(--u-brand-soft); color:var(--u-brand); font-weight:700; }
-:root.univer-mobile #l4 .univer-app-week-current { display:inline-flex; align-items:center; min-height:22px; margin-left:10px; padding:0 10px; border-radius:999px; background:var(--u-teal-soft); color:var(--u-teal); font-size:12px; font-weight:700; white-space:nowrap; }
-:root.univer-mobile #l4 a.univer-app-week-materials { margin-left:10px; color:var(--u-brand)!important; font-size:12.5px; font-weight:600; }
+:root.univer-mobile #l4 .univer-app-week-count { display:inline-flex; align-items:center; justify-content:center; min-width:26px; height:22px; box-sizing:border-box; padding:0 8px; border-radius:6px; background:var(--u-surface-2); color:var(--u-muted); font-size:12px; font-weight:500; }
+:root.univer-mobile #l4 .univer-app-week-count[data-state=has] { background:var(--u-brand-soft); color:var(--u-ink); font-weight:600; }
+:root.univer-mobile #l4 .univer-app-week-current { display:inline-flex; align-items:center; min-height:22px; margin-left:10px; padding:0 10px; border-radius:6px; background:var(--u-teal-soft); color:var(--u-teal); font-size:12px; font-weight:600; white-space:nowrap; }
+:root.univer-mobile #l4 a.univer-app-week-materials { margin-left:10px; color:var(--u-ink)!important; font-size:13px; font-weight:500; }
 @media (max-width:899px) {
  :root.univer-mobile #l4 .univer-app-open-cell { padding-right:0!important; }
  :root.univer-mobile #l4 .univer-app-open-cell>.univer-app-row-open { position:static; transform:none; margin:8px 0 0 auto!important; }
 }
 /* The task: one card, the name as a heading, facts as chips, the description at a readable width. */
 :root.univer-mobile #l4 .univer-app-task-source { display:none!important; }
-:root.univer-mobile #l4 .univer-app-task-card { box-sizing:border-box; max-width:980px; margin:4px 0 20px; padding:22px 24px 24px; border:1px solid var(--u-line); border-radius:16px; background:#fff; color:var(--u-text); text-align:start; }
-:root.univer-mobile #l4 .univer-app-task-kicker { margin:0 0 6px!important; color:var(--u-muted); font-size:var(--u-fs-meta); font-weight:600; }
-:root.univer-mobile #l4 .univer-app-task-name { margin:0 0 14px!important; padding:0!important; color:var(--u-ink)!important; font-size:var(--u-fs-title)!important; font-weight:700!important; line-height:1.35!important; overflow-wrap:anywhere; }
+:root.univer-mobile #l4 .univer-app-task-card { box-sizing:border-box; max-width:980px; margin:4px 0 20px; padding:22px 24px 24px; border:1px solid var(--u-line); border-radius:12px; background:#fff; color:var(--u-text); text-align:start; }
+:root.univer-mobile #l4 .univer-app-task-kicker { margin:0 0 6px!important; color:var(--u-muted); font-size:var(--u-fs-meta); font-weight:500; }
+:root.univer-mobile #l4 .univer-app-task-name { margin:0 0 14px!important; padding:0!important; color:var(--u-ink)!important; font-size:var(--u-fs-title)!important; font-weight:600!important; line-height:1.35!important; overflow-wrap:anywhere; }
 :root.univer-mobile #l4 .univer-app-task-facts { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin:0 0 20px; }
 :root.univer-mobile #l4 .univer-app-task-facts>.univer-app-task-status { min-height:30px; padding:4px 12px; font-size:13px; }
-:root.univer-mobile #l4 .univer-app-task-fact { display:inline-flex; align-items:baseline; flex-wrap:wrap; gap:6px; box-sizing:border-box; min-height:30px; padding:5px 12px; border-radius:10px; background:var(--u-surface-2); color:var(--u-text); font-size:13px; line-height:1.45; }
-:root.univer-mobile #l4 .univer-app-task-fact>b { color:var(--u-muted); font-weight:600; }
+:root.univer-mobile #l4 .univer-app-task-fact { display:inline-flex; align-items:baseline; flex-wrap:wrap; gap:6px; box-sizing:border-box; min-height:30px; padding:4px 12px; border-radius:10px; background:var(--u-surface-2); color:var(--u-text); font-size:13px; line-height:1.45; }
+:root.univer-mobile #l4 .univer-app-task-fact>b { color:var(--u-muted); font-weight:500; }
 :root.univer-mobile #l4 .univer-app-task-body { padding-top:16px; border-top:1px solid var(--u-line); }
-:root.univer-mobile #l4 .univer-app-task-heading { margin:0 0 8px!important; color:var(--u-muted)!important; font-size:var(--u-fs-meta)!important; font-weight:700!important; letter-spacing:.02em; }
+:root.univer-mobile #l4 .univer-app-task-heading { margin:0 0 8px!important; color:var(--u-muted)!important; font-size:var(--u-fs-meta)!important; font-weight:600!important;  }
 :root.univer-mobile #l4 .univer-app-task-text { max-width:76ch; color:var(--u-text); font-size:var(--u-fs-strong); line-height:1.65; overflow-wrap:anywhere; }
 :root.univer-mobile #l4 .univer-app-task-text p { margin:0 0 10px!important; }
 :root.univer-mobile #l4 .univer-app-task-text ol { margin:4px 0 12px!important; padding-left:1.6em!important; }
 :root.univer-mobile #l4 .univer-app-task-text li { display:list-item!important; height:auto!important; min-height:0!important; margin:0 0 6px!important; padding:0 0 0 4px!important; border:0!important; background:none!important; line-height:1.6!important; list-style:decimal!important; }
-:root.univer-mobile #l4 .univer-app-task-intro { font-weight:600; color:var(--u-ink); }
+:root.univer-mobile #l4 .univer-app-task-intro { font-weight:500; color:var(--u-ink); }
 :root.univer-mobile #l4 .univer-app-task-actions { margin-top:18px; }
-:root.univer-mobile #l4 button.univer-app-task-reply { min-height:36px!important; padding:7px 16px!important; border:0!important; border-radius:8px!important; background:var(--u-brand)!important; color:#fff!important; font:600 14px var(--u-font)!important; cursor:pointer; }
+:root.univer-mobile #l4 button.univer-app-task-reply { min-height:36px!important; padding:8px 16px!important; border:0!important; border-radius:8px!important; background:var(--u-brand)!important; color:#fff!important; font:600 14px var(--u-font)!important; cursor:pointer; }
 :root.univer-mobile #l4 button.univer-app-task-reply:hover { background:var(--u-brand-strong)!important; }
 @media (max-width:599px) { :root.univer-mobile #l4 .univer-app-task-card { padding:16px; border-radius:12px; } }
 `;
@@ -535,6 +608,8 @@
     function release() {
         if (!enabled && !style) return;
         enabled = false; generation++; courses = null; course = null;
+        controllers.forEach(function (abort) { abort.abort(); }); controllers.clear();
+        waiting.splice(0).forEach(function (read) { read.reject(new Error('stale')); });
         style?.remove(); style = null;
         added.forEach(function (node) { node.remove(); }); added = [];
         wrapped.forEach(function (span) { if (span.parentNode) { var parent = span.parentNode; span.replaceWith(...span.childNodes); parent.normalize(); } }); wrapped = [];

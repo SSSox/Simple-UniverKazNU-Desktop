@@ -15,11 +15,24 @@ namespace Univer.Desktop.Core
     {
         public string Login { get; set; }
         public string Password { get; set; }
+        // The plain DPAPI file holds only the login: the password is sealed under the app PIN (Core/AppLock.cs) and is
+        // known once the PIN is entered. Older files have no such mark.
+        public bool Sealed { get; set; }
+        // The account can sign in: its password is known. A sealed account before the PIN has a login only.
+        public bool Usable() { return !string.IsNullOrEmpty(Login) && Password != null; }
+        // Automatic sign-in runs for a saved account whose password is known and that the student has not paused. A
+        // password still sealed under the PIN is a wait: nothing is tried, so no attempt of the budget is spent.
+        public static bool SignInActive(Credentials credentials, Preferences prefs) { return credentials != null && credentials.Usable() && !prefs.AutoLoginPaused; }
+        public Credentials LoginOnly() { return new Credentials { Login = Login, Sealed = true }; }
     }
     internal sealed class Preferences
     {
         public string Language { get; set; } = "ru";
         public bool AutoLoginPaused { get; set; }
+        // A logout or an account change has begun, and the browser profiles it leaves may still hold the session. Saved
+        // with the pause and cleared with the new profile names; a start that finds it finishes the change
+        // (Storage.FinishSessionClear). Older preference files have none.
+        public bool SessionClearPending { get; set; }
         public bool Readable { get; set; } = true;
         public bool Sidebar { get; set; } = true;
         public string Profile { get; set; } = Guid.NewGuid().ToString("N");
@@ -36,26 +49,40 @@ namespace Univer.Desktop.Core
         // Sections and useful links pinned to the home screen; older preference files have none.
         public List<PinnedLink> Pins { get; set; } = new List<PinnedLink>();
         public List<string> TileOrder { get; set; } = new List<string>();
+        public List<string> HiddenTiles { get; set; } = new List<string>();
         // What the last update check found, when it ran (UTC ticks), and the version the student chose not to see again.
         public string UpdateVersion { get; set; } = "";
         public string UpdateSkipped { get; set; } = "";
         public long UpdateChecked { get; set; }
+        // Web links open in the app's own browser window unless the student asks for the system browser. That window keeps
+        // its cookies in a profile of its own (WebProfile), apart from the Univer session.
+        public bool ExternalLinks { get; set; }
+        public string WebProfile { get; set; } = Guid.NewGuid().ToString("N");
+        // The one-time suggestion to protect the app with a PIN has been shown.
+        public bool PinOffered { get; set; }
         public Preferences Clone()
         {
-            return new Preferences { Language = Language, AutoLoginPaused = AutoLoginPaused, Readable = Readable, Sidebar = Sidebar,
+            return new Preferences { Language = Language, AutoLoginPaused = AutoLoginPaused, SessionClearPending = SessionClearPending, Readable = Readable, Sidebar = Sidebar,
                 Profile = Profile, Zoom = Zoom, Window = Window, Tray = Tray, Animations = Animations, LegacyWarningDismissed = LegacyWarningDismissed, Theme = Theme,
                 UpdateVersion = UpdateVersion, UpdateSkipped = UpdateSkipped, UpdateChecked = UpdateChecked,
-                Pins = (Pins ?? new List<PinnedLink>()).Select(p => p?.Clone()).ToList(), TileOrder = (TileOrder ?? new List<string>()).ToList() };
+                ExternalLinks = ExternalLinks, WebProfile = WebProfile, PinOffered = PinOffered,
+                Pins = (Pins ?? new List<PinnedLink>()).Select(p => p?.Clone()).ToList(), TileOrder = (TileOrder ?? new List<string>()).ToList(), HiddenTiles = (HiddenTiles ?? new List<string>()).ToList() };
         }
     }
     internal sealed class StoredState
     {
         public Preferences Preferences { get; set; }
         public Credentials Credentials { get; set; }
-        // The settings file could not be read; defaults are in use and only a readable saved sign-in keeps signing in.
+        // The settings file could not be read; defaults are in use and automatic sign-in waits for explicit re-entry.
         public bool Failed { get; set; }
         // A saved sign-in exists but cannot be decrypted for this Windows user; the settings themselves are fine.
         public bool CredentialsUnreadable { get; set; }
+        // The password was sealed under a PIN whose record is now missing: the account and its session have to end.
+        public bool SealedOrphan { get; set; }
+        // credentials.dpapi is on disk: it holds the plain password, or is left beside a sealed login (its removal failed
+        // or was cut short, maybe with an older account's password). With a PIN, the next unlock seals what is known and
+        // removes it.
+        public bool PlainFile { get; set; }
     }
     internal sealed class Storage
     {
@@ -81,9 +108,11 @@ namespace Univer.Desktop.Core
             if (value.Window == null || !Regex.IsMatch(value.Window, @"^-?\d{1,5},-?\d{1,5},\d{3,5},\d{3,5},[01]$")) value.Window = "";
             value.Pins = Shortcuts.Normalize(value.Pins);
             value.TileOrder = Shortcuts.NormalizeOrder(value.TileOrder);
+            value.HiddenTiles = Shortcuts.NormalizeHidden(value.HiddenTiles);
             if (!Updates.IsVersion(value.UpdateVersion)) value.UpdateVersion = "";
             if (!Updates.IsVersion(value.UpdateSkipped)) value.UpdateSkipped = "";
             if (value.UpdateChecked < 0) value.UpdateChecked = 0;
+            if (!IsProfileName(value.WebProfile)) value.WebProfile = Guid.NewGuid().ToString("N");
             return value;
         }
         // Loaded independently, so an unreadable DPAPI record (for example after a Windows password reset) keeps valid settings.
@@ -94,14 +123,54 @@ namespace Univer.Desktop.Core
             catch (Exception) { state.Preferences = new Preferences { AutoLoginPaused = true }; state.Failed = true; }
             try { state.Credentials = LoadCredentials(); }
             catch (Exception) { state.CredentialsUnreadable = true; }
-            // Damaged settings cannot say the student signed out; the saved sign-in still opens the session.
-            if (state.Failed && state.Credentials != null) state.Preferences.AutoLoginPaused = false;
+            state.PlainFile = PlainFileLeft();
+            // A password sealed under the PIN whose record is gone (not merely unreadable) cannot come back: the account
+            // ends here, and the start replaces the browser profiles so the deleted PIN does not open the old session.
+            var sealedLogin = state.Credentials != null && state.Credentials.Sealed && state.Credentials.Password == null;
+            if ((sealedLogin || PinMarked) && !LockExists)
+            {
+                state.SealedOrphan = true;
+                if (state.Credentials != null) { state.Credentials = null; state.CredentialsUnreadable = true; }
+            }
+            // An unreadable or missing settings file cannot revoke a previous explicit logout. Keep the protected
+            // record available for an explicit re-entry, without silently using it to start a new session.
+            if (state.Credentials != null && !File.Exists(Path.Combine(root, "preferences.json"))) state.Preferences.AutoLoginPaused = true;
             return state;
         }
-        public void SavePreferences(Preferences preferences) { AtomicFile.Write(Path.Combine(root, "preferences.json"), Encoding.UTF8.GetBytes(json.Serialize(preferences))); }
+        public void SavePreferences(Preferences preferences) { AtomicFile.Write(Path.Combine(root, "preferences.json"), Encoding.UTF8.GetBytes(json.Serialize(preferences)), durable: true); }
+        // The previous run began a logout or an account change and ended before the browser profiles were replaced, so
+        // they may still hold that session. This start leaves them behind: the settings name new, empty profiles (the old
+        // ones are deleted as obsolete profiles), the stored notifications of that account go, and automatic sign-in
+        // stays paused. Returns whether there was such a change to finish. A review run changes nothing on disk.
+        public bool FinishSessionClear(Preferences preferences, bool save = true)
+        {
+            if (!preferences.SessionClearPending) return false;
+            preferences.Profile = Guid.NewGuid().ToString("N"); preferences.WebProfile = Guid.NewGuid().ToString("N");
+            preferences.AutoLoginPaused = true; preferences.SessionClearPending = false;
+            if (!save) return true;
+            try { File.Delete(Path.Combine(root, "notices.json")); }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+            // A failed write leaves the mark on disk, and the next start finishes the change again.
+            SavePreferences(preferences);
+            return true;
+        }
+        // A plain account lives in credentials.dpapi. A login whose password is sealed under the PIN lives in account.dpapi,
+        // which older builds (and the installed app, sharing this folder) do not read: they would send its missing password
+        // to the site. Each kind is written before the other file goes, so a crash (or a file another process holds) can
+        // leave both: the newer one is the account, the plain one on a tie. A plain file left beside a sealed login still
+        // holds a password, so its removal must succeed and the caller tries again (PlainFileLeft); the sealed login left
+        // beside a plain save holds no secret, and its removal is best effort.
         public Credentials LoadCredentials()
         {
-            var path = Path.Combine(root, "credentials.dpapi");
+            var plain = Path.Combine(root, "credentials.dpapi");
+            var sealedLogin = Path.Combine(root, "account.dpapi");
+            if (!File.Exists(plain)) return ReadCredentials(sealedLogin);
+            if (File.Exists(sealedLogin) && File.GetLastWriteTimeUtc(sealedLogin) > File.GetLastWriteTimeUtc(plain)) return ReadCredentials(sealedLogin);
+            return ReadCredentials(plain);
+        }
+        private Credentials ReadCredentials(string path)
+        {
             if (!File.Exists(path)) return null;
             var bytes = ProtectedData.Unprotect(File.ReadAllBytes(path), Entropy, DataProtectionScope.CurrentUser);
             try { return json.Deserialize<Credentials>(Encoding.UTF8.GetString(bytes)); }
@@ -109,11 +178,55 @@ namespace Univer.Desktop.Core
         }
         public void SaveCredentials(Credentials credentials)
         {
+            var sealedLogin = credentials.Sealed && credentials.Password == null;
             var bytes = Encoding.UTF8.GetBytes(json.Serialize(credentials));
-            try { AtomicFile.Write(Path.Combine(root, "credentials.dpapi"), ProtectedData.Protect(bytes, Entropy, DataProtectionScope.CurrentUser)); }
+            try { AtomicFile.Write(Path.Combine(root, sealedLogin ? "account.dpapi" : "credentials.dpapi"), ProtectedData.Protect(bytes, Entropy, DataProtectionScope.CurrentUser), durable: true); }
+            finally { Array.Clear(bytes, 0, bytes.Length); }
+            if (sealedLogin) { File.Delete(Path.Combine(root, "credentials.dpapi")); return; }
+            try { File.Delete(Path.Combine(root, "account.dpapi")); }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+        }
+        public bool PlainFileLeft() { return File.Exists(Path.Combine(root, "credentials.dpapi")); }
+        public void RemoveCredentials() { File.Delete(Path.Combine(root, "credentials.dpapi")); File.Delete(Path.Combine(root, "account.dpapi")); }
+        // The app PIN's check and guess counter (Core/AppLock.cs), protected like the credentials under an entropy of its own.
+        private static readonly byte[] LockEntropy = Encoding.UTF8.GetBytes("Univer.Desktop.lock.v1");
+        public bool LockExists { get { return File.Exists(Path.Combine(root, "lock.dpapi")); } }
+        // lock.pin marks that a PIN is set (it holds nothing secret). It is written after lock.dpapi and deleted before it,
+        // so the app itself never leaves the mark without the record: a mark without lock.dpapi means the PIN file was
+        // deleted from outside, and the start ends the session (Storage.Load, SealedOrphan). Older installs get the mark
+        // with the next write of the record (any PIN entered).
+        public bool PinMarked { get { return File.Exists(Path.Combine(root, "lock.pin")); } }
+        public ILockStore LockStore { get { return new FileLockStore(this); } }
+        public LockRecord LoadLock()
+        {
+            var path = Path.Combine(root, "lock.dpapi");
+            if (!File.Exists(path)) return null;
+            var bytes = ProtectedData.Unprotect(File.ReadAllBytes(path), LockEntropy, DataProtectionScope.CurrentUser);
+            try { return json.Deserialize<LockRecord>(Encoding.UTF8.GetString(bytes)) ?? throw new InvalidDataException("Empty lock record"); }
             finally { Array.Clear(bytes, 0, bytes.Length); }
         }
-        public void RemoveCredentials() { File.Delete(Path.Combine(root, "credentials.dpapi")); }
+        public void SaveLock(LockRecord record)
+        {
+            Directory.CreateDirectory(root);
+            var bytes = Encoding.UTF8.GetBytes(json.Serialize(record));
+            try { AtomicFile.Write(Path.Combine(root, "lock.dpapi"), ProtectedData.Protect(bytes, LockEntropy, DataProtectionScope.CurrentUser), durable: true); }
+            finally { Array.Clear(bytes, 0, bytes.Length); }
+            // The mark is best effort: the record is already saved, and a missing mark only leaves the deleted-file check off.
+            try { if (!PinMarked) AtomicFile.Write(Path.Combine(root, "lock.pin"), new byte[0], durable: true); }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+        }
+        // The mark goes first: a failure there keeps the record, and the PIN stays as it was.
+        public void RemoveLock() { if (PinMarked) File.Delete(Path.Combine(root, "lock.pin")); File.Delete(Path.Combine(root, "lock.dpapi")); }
+        private sealed class FileLockStore : ILockStore
+        {
+            private readonly Storage storage;
+            public FileLockStore(Storage storage) { this.storage = storage; }
+            public LockRecord Load() { return storage.LoadLock(); }
+            public void Save(LockRecord record) { storage.SaveLock(record); }
+            public void Remove() { storage.RemoveLock(); }
+        }
         public Task SavePreferencesAsync(Preferences preferences)
         {
             // Capture before waiting: a later UI edit cannot change an already queued write.
@@ -122,7 +235,7 @@ namespace Univer.Desktop.Core
         }
         public Task SaveCredentialsAsync(Credentials credentials)
         {
-            var snapshot = new Credentials { Login = credentials.Login, Password = credentials.Password };
+            var snapshot = new Credentials { Login = credentials.Login, Password = credentials.Password, Sealed = credentials.Sealed };
             return writes.RunAsync(() => Task.Run(() => SaveCredentials(snapshot)));
         }
         public Task RemoveCredentialsAsync() { return writes.RunAsync(() => Task.Run((Action)RemoveCredentials)); }
@@ -150,6 +263,35 @@ namespace Univer.Desktop.Core
         {
             if (!IsProfileName(profile)) throw new ArgumentException("Invalid profile");
             return Path.Combine(BrowserRoot, profile);
+        }
+        // The in-app browser's profile for other sites: web-{name} beside the Univer profiles, which their cleanup never takes.
+        public const string WebPrefix = "web-";
+        public string WebProfilePath(string profile)
+        {
+            if (!IsProfileName(profile)) throw new ArgumentException("Invalid profile");
+            return Path.Combine(BrowserRoot, WebPrefix + profile);
+        }
+        // Whether preferences.json already holds this profile name: only then may other web profiles be cleaned at start-up.
+        public bool WebProfileSaved(string profile)
+        {
+            try { var path = Path.Combine(root, "preferences.json"); return IsProfileName(profile) && File.Exists(path) && File.ReadAllText(path).Contains(profile); }
+            catch (IOException) { return false; }
+            catch (UnauthorizedAccessException) { return false; }
+        }
+        public Task CleanOldWebProfilesAsync(string active) { return writes.RunAsync(() => Task.Run(() => CleanOldWebProfiles(active))); }
+        // Only obsolete in-app browser profiles, by the same rules as the Univer ones.
+        public void CleanOldWebProfiles(string active)
+        {
+            if (!Directory.Exists(BrowserRoot) || !ProfileCleanup.IsPlainPath(BrowserRoot)) return;
+            var prefix = Path.GetFullPath(BrowserRoot) + Path.DirectorySeparatorChar;
+            foreach (var path in Directory.GetDirectories(BrowserRoot))
+            {
+                var name = Path.GetFileName(path);
+                if (!name.StartsWith(WebPrefix, StringComparison.Ordinal) || name == WebPrefix + active || !IsProfileName(name.Substring(WebPrefix.Length))) continue;
+                if (!Path.GetFullPath(path).StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) continue;
+                if (!ProfileCleanup.IsPlainTree(path)) continue;
+                try { Directory.Delete(path, true); } catch (IOException) { } catch (UnauthorizedAccessException) { }
+            }
         }
         // Only obsolete session profiles within this application's own Browser directory.
         public void CleanOldProfiles(string active)

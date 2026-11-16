@@ -15,7 +15,8 @@ namespace Univer.Desktop.UI
         private readonly CueBanner cue;
         private readonly Label count = new Label();
         private readonly ModernButton previous = new ModernButton(), next = new ModernButton(), close = new ModernButton();
-        private readonly float scale;
+        private readonly float baseScale;
+        private float scale;
         private ChromiumWebBrowser target;
         private string language = "ru", searched = "";
         private bool document, pending;
@@ -31,9 +32,9 @@ namespace Univer.Desktop.UI
         internal Action<string> Trace;
         public FindBar(float scale)
         {
-            this.scale = scale; cue = new CueBanner(query);
+            baseScale = this.scale = scale; cue = new CueBanner(query);
             SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw | ControlStyles.UserPaint, true);
-            Visible = false; BackColor = Theme.Surface; AccessibleRole = AccessibleRole.Grouping; Size = new Size(D(440), D(48)); Theme.Tips(tips);
+            Visible = false; BackColor = Theme.Surface; AccessibleRole = AccessibleRole.Grouping; Size = new Size(D(420), D(44)); Theme.Tips(tips);
             query.Font = Theme.Font(Theme.Body); count.Font = Theme.Font(Theme.Meta);
             count.ForeColor = Theme.Muted; count.BackColor = Theme.Surface; count.TextAlign = ContentAlignment.MiddleRight; count.UseMnemonic = false; count.AutoEllipsis = true;
             previous.Icon = UiIcon.Up; next.Icon = UiIcon.Down; close.Icon = UiIcon.Close;
@@ -55,6 +56,7 @@ namespace Univer.Desktop.UI
             language = value;
             SetLabels();
         }
+        public void SetZoom(float zoom) { scale = baseScale * zoom; UiZoom.ApplyFonts(this, zoom); Arrange(); Invalidate(); }
         private void SetLabels()
         {
             var name = Strings.Get(document ? "findInDocument" : "findOnPage", language);
@@ -69,7 +71,7 @@ namespace Univer.Desktop.UI
             if (browser == null || browser.IsDisposed) return;
             if (target != browser) { Stop(); target = browser; }
             if (document != inDocument) { document = inDocument; SetLabels(); }
-            Visible = true; BringToFront();
+            if (Visible) BringToFront(); else { Placing?.Invoke(); floating.Show(this, 0, () => Region = null); }
             query.Focus(); query.SelectAll();
             if (query.TextLength > 0 && searched.Length == 0) Search();
         }
@@ -83,10 +85,12 @@ namespace Univer.Desktop.UI
             if (pending && DateTime.UtcNow - pendingSince < TimeSpan.FromSeconds(2)) { queued += forward ? 1 : -1; return; }
             Send(forward, true);
         }
+        public Action Placing;
+        private readonly FloatingSurface floating = new FloatingSurface();
         public void Close()
         {
             if (!Visible) return;
-            var browser = target; Stop(); target = null; Visible = false;
+            var browser = target; Stop(); target = null; floating.Hide(this, 0);
             if (browser != null && !browser.IsDisposed && browser.Visible) browser.Focus();
         }
         // The page behind the bar went away (navigation, closed document or preview): its matches are gone with it.
@@ -132,7 +136,7 @@ namespace Univer.Desktop.UI
         }
         private void Arrange()
         {
-            var button = D(32); var top = (Height - button) / 2; var x = Width - D(8) - button;
+            var button = D(28); var top = (Height - button) / 2; var x = Width - D(8) - button;
             close.SetBounds(x, top, button, button); x -= D(10) + button;
             next.SetBounds(x, top, button, button); x -= D(2) + button;
             previous.SetBounds(x, top, button, button); x -= D(6) + D(84);
@@ -143,7 +147,7 @@ namespace Univer.Desktop.UI
         protected override void OnPaint(PaintEventArgs e)
         {
             base.OnPaint(e); var g = e.Graphics; g.SmoothingMode = SmoothingMode.AntiAlias;
-            using (var path = Theme.Rounded(new RectangleF(0.5f, 0.5f, Width - 1.5f, Height - 1.5f), D(10)))
+            using (var path = Theme.Rounded(new RectangleF(0.5f, 0.5f, Width - 1.5f, Height - 1.5f), D(Kit.RadiusLarge)))
             using (var pen = new Pen(query.Focused ? Theme.AccentInk : Theme.Border, query.Focused ? 1.6f : 1)) g.DrawPath(pen, path);
             Icons.Draw(g, UiIcon.Search, new RectangleF(D(12), (Height - D(20)) / 2f, D(20), D(20)), Theme.Muted);
             using (var pen = new Pen(Theme.Border)) g.DrawLine(pen, close.Left - D(5), D(12), close.Left - D(5), Height - D(12));

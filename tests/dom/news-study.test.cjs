@@ -101,7 +101,7 @@ test('filtered pages are packed to the source limit and retain filters and selec
   const p=context(html,'/news/student',news); p.w.fetch=async path=>response(path,second);
   p.w.__univerNewsV1.apply('ru'); input(p,'from','2026-10-06'); await wait(260);
   assert.deepEqual(results(p),['One','Two']);
-  const links=Array.from(p.d.querySelector('.univer-app-news-pager').querySelectorAll('a'));
+  const links=Array.from(p.d.querySelector('.univer-app-news-pager').querySelectorAll('a:not(.univer-app-news-step)'));
   assert.deepEqual(links.map(a=>a.textContent),['1','2']); links[1].click();
   assert.deepEqual(results(p),['Three','Four']);
   assert.equal(p.d.querySelector('.univer-app-news-from').value,'2026-10-06');
@@ -150,7 +150,11 @@ test('unfiltered news expose direct first five and last pages with gaps, and cac
   p.w.fetch=async path=>{const n=+path.split('/').pop();calls.push(n);return response(path,newsPage(n<=20?[newsRow('08','Page '+n)]:[],n,n<20));};
   p.w.__univerNewsV1.apply('ru');await wait(480);
   const pager=p.d.querySelector('.univer-app-news-pager-top');
-  assert.deepEqual(Array.from(pager.querySelectorAll('a')).map(a=>a.textContent),['1','2','3','4','5','20']);
+  assert.deepEqual(Array.from(pager.querySelectorAll('a:not(.univer-app-news-step)')).map(a=>a.textContent),['1','2','3','4','5','20']);
+  // Page 1: the step back is shown but disabled, the step forward is a real link with a spoken name.
+  const back=pager.querySelector('.univer-app-news-previous'),next=pager.querySelector('.univer-app-news-next');
+  assert.equal(back.tagName,'SPAN');assert.equal(back.getAttribute('aria-disabled'),'true');
+  assert.equal(next.getAttribute('href'),'/news/student/2');assert.ok(next.getAttribute('aria-label'));
   assert.equal(pager.querySelector('a[href="/news/student/3"]').textContent,'3');assert.equal(pager.querySelector('.univer-app-news-gap').textContent,'…');
   assert.equal(pager.querySelector('input').max,'20');assert.ok(calls.length<=10);
   const cache=JSON.parse(p.w.sessionStorage.getItem('univer.desktop.news-page-count.v1'));assert.equal(cache.count,20);assert.deepEqual(Object.keys(cache).sort(),['count','time']);
@@ -160,7 +164,7 @@ test('unfiltered discovery handles a two-page feed and never overwrites a date s
   const p=context(newsPage([newsRow('09','One')],1,true),'/news/student',news);
   p.w.fetch=async path=>{const n=+path.split('/').pop();return response(path,newsPage(n===2?[newsRow('08','Two')]:[],n,false));};
   p.w.__univerNewsV1.apply('ru');await wait(470);
-  assert.deepEqual(Array.from(p.d.querySelector('.univer-app-news-pager-top').querySelectorAll('a')).map(a=>a.textContent),['1','2']);p.close();
+  assert.deepEqual(Array.from(p.d.querySelector('.univer-app-news-pager-top').querySelectorAll('a:not(.univer-app-news-step)')).map(a=>a.textContent),['1','2']);p.close();
   const q=context(newsPage([newsRow('09','One')],1,true),'/news/student',news);let finish;
   q.w.fetch=()=>new Promise(resolve=>finish=resolve);q.w.__univerNewsV1.apply('ru');await wait(420);
   input(q,'from','2026-10-09');q.w.fetch=async path=>response(path,newsPage([newsRow('08','Two')],2,false));

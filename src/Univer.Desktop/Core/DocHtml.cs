@@ -13,6 +13,12 @@ namespace Univer.Desktop.Core
     {
         private const long FileLimit = 64L * 1024 * 1024;
         private const int CharacterLimit = 4 * 1024 * 1024, StyleDepth = 32;
+        // Character styles applied on the way to one run's look, and fields open inside one another: real documents use a
+        // few of each, so a file that asks for more gets no more work than this.
+        private const int StyleFollows = 64, FieldDepth = 64;
+        // Bytes of character styles read on the way to one run's look. A style's own properties take a few dozen bytes;
+        // one that fills its 64 KB would otherwise be read in full for every run of the text.
+        private const int StyleWork = 4096;
         private static readonly Encoding Compressed = Encoding.GetEncoding(1252);
         private static readonly string[] Ico = { null, "#000000", "#0000ff", "#00ffff", "#00ff00", "#ff00ff", "#ff0000", "#ffff00", "#ffffff",
             "#000080", "#008080", "#008000", "#800080", "#800000", "#808000", "#808080", "#c0c0c0" };
@@ -28,6 +34,8 @@ namespace Univer.Desktop.Core
         }
         private sealed class ListLevel { public int Start = 1, Format; public string Text = ""; public byte[] Paragraph; }
         private sealed class Field { public bool Result, Link; public StringBuilder Code = new StringBuilder(); }
+        // The fields open at a place in the text, and how many more were opened past FieldDepth and are not followed.
+        private sealed class Fields : Stack<Field> { public int Ignored; }
         private sealed class Document
         {
             public byte[] Word, Table, Data; public int Blob; public CancellationToken Cancellation;
@@ -37,6 +45,8 @@ namespace Univer.Desktop.Core
             public Dictionary<int, int?[]> Counters = new Dictionary<int, int?[]>();
             public PreviewImages Images = new PreviewImages();
             public PreviewOptions Options;
+            // Character styles being applied one inside another right now, and those applied since the outermost began.
+            public int StyleNesting, StyleCount, StyleBytes;
             public int Fc(int index) { return I32(Word, Blob + index * 8); }
             public int Lcb(int index) { return I32(Word, Blob + index * 8 + 4); }
         }
@@ -48,15 +58,21 @@ namespace Univer.Desktop.Core
         public static PreviewDocument Convert(byte[] file, PreviewOptions options, CancellationToken cancellation = default(CancellationToken))
         {
             // Every structure comes from the file; any inconsistency the explicit checks miss is still a damaged document.
-            try { return Build(file, options, cancellation); }
+            return Guarded(() => { var container = new CompoundFile(file); return Build(container.Stream("WordDocument"), container.Stream, options, cancellation); });
+        }
+        // The streams of the compound file, already taken out of it: WordDocument, then the others by name.
+        internal static PreviewDocument Convert(byte[] word, Func<string, byte[]> stream, PreviewOptions options, CancellationToken cancellation)
+        { return Guarded(() => Build(word, stream, options, cancellation)); }
+        private static PreviewDocument Guarded(Func<PreviewDocument> build)
+        {
+            try { return build(); }
             catch (IndexOutOfRangeException) { throw new InvalidDataException("Damaged document"); }
             catch (ArgumentException) { throw new InvalidDataException("Damaged document"); }
             catch (OverflowException) { throw new InvalidDataException("Damaged document"); }
         }
-        private static PreviewDocument Build(byte[] file, PreviewOptions options, CancellationToken cancellation)
+        private static PreviewDocument Build(byte[] word, Func<string, byte[]> stream, PreviewOptions options, CancellationToken cancellation)
         {
-            var container = new CompoundFile(file);
-            var word = container.Stream("WordDocument") ?? throw new InvalidDataException("Not a Word document");
+            if (word == null) throw new InvalidDataException("Not a Word document");
             if (U16(word, 0) != 0xA5EC) throw new InvalidDataException("Not a Word document");
             var flags = U16(word, 0x0A);
             if ((flags & 0x0100) != 0) throw new InvalidDataException("Encrypted document");
@@ -65,8 +81,8 @@ namespace Univer.Desktop.Core
             if (pairs < 75 || U16(word, lw - 2) < 4) throw new InvalidDataException("Unsupported Word version");
             var document = new Document
             {
-                Word = word, Blob = blob, Cancellation = cancellation, Data = container.Stream("Data"), Options = options,
-                Table = container.Stream((flags & 0x0200) != 0 ? "1Table" : "0Table") ?? throw new InvalidDataException("Missing table stream")
+                Word = word, Blob = blob, Cancellation = cancellation, Data = stream("Data"), Options = options,
+                Table = stream((flags & 0x0200) != 0 ? "1Table" : "0Table") ?? throw new InvalidDataException("Missing table stream")
             };
             var length = I32(word, lw + 12);
             if (length < 0) throw new InvalidDataException("Damaged document");
@@ -98,19 +114,24 @@ namespace Univer.Desktop.Core
             if (plc < 4 || (plc - 4) % 12 != 0 || (long)start + plc > table.Length) throw new InvalidDataException("Damaged document");
             var count = (plc - 4) / 12;
             var text = new char[length]; positions = new int[length];
+            // Pieces follow one another. One that starts before the end of those already read adds only what lies past
+            // them, so overlapping pieces copy each character once.
+            var covered = 0;
             for (var i = 0; i < count; i++)
             {
                 var first = I32(table, start + i * 4); var last = I32(table, start + (i + 1) * 4);
                 var raw = U32(table, start + (count + 1) * 4 + i * 8 + 2);
                 var compressed = (raw & 0x40000000) != 0;
                 var origin = compressed ? (raw & 0x3FFFFFFF) / 2 : raw;
-                for (var cp = Math.Max(0, first); cp < Math.Min(length, last); cp++)
+                if ((i & 0xFFF) == 0) document.Cancellation.ThrowIfCancellationRequested();
+                for (var cp = Math.Max(covered, first); cp < Math.Min(length, last); cp++)
                 {
                     var at = (long)origin + (long)(cp - first) * (compressed ? 1 : 2);
                     if (at < 0 || at + (compressed ? 1 : 2) > word.Length) throw new InvalidDataException("Damaged document");
                     text[cp] = compressed ? Compressed.GetChars(word, (int)at, 1)[0] : (char)U16(word, (int)at);
                     positions[cp] = (int)at;
                 }
+                covered = Math.Max(covered, Math.Min(length, last));
             }
             return text;
         }
@@ -323,10 +344,13 @@ namespace Univer.Desktop.Core
             format = result; listFormat = list; listLevel = level;
         }
         // Applies character properties (0x80 keeps the style's value, 0x81 inverts it). A character style is followed only as
-        // deep as base styles: a style naming itself would otherwise overflow the stack and end the process.
-        private static RunStyle ApplyRun(Document document, byte[] sprms, int from, int to, RunStyle format, RunStyle style, int depth = 0)
+        // deep as base styles, and only StyleFollows times for one run: styles naming one another would otherwise overflow
+        // the stack, which ends the process, or multiply the work at every level. Both counts live with the document,
+        // because resolving a style on the way starts a new chain of calls.
+        private static RunStyle ApplyRun(Document document, byte[] sprms, int from, int to, RunStyle format, RunStyle style)
         {
             var result = format;
+            if (document.StyleNesting == 0) document.StyleCount = document.StyleBytes = 0;
             Sprms(sprms, from, to, (sprm, at) =>
             {
                 var value = sprms[at];
@@ -346,8 +370,16 @@ namespace Univer.Desktop.Core
                     case 0x6870: result.Color = sprms[at + 3] == 0xFF ? null : DocumentMarkup.TextColor(sprms[at], sprms[at + 1], sprms[at + 2]); break;
                     case 0x2A0C: result.Highlight = value > 0 && value < Ico.Length ? Ico[value] : null; break;
                     case 0x4A30:
-                        var character = StyleAt(document, U16(sprms, at));
-                        if (depth < StyleDepth && character?.Character != null) result = ApplyRun(document, character.Character, 0, character.Character.Length, result, result, depth + 1);
+                        if (document.StyleNesting >= StyleDepth || document.StyleCount >= StyleFollows) break;
+                        document.Cancellation.ThrowIfCancellationRequested();
+                        document.StyleNesting++; document.StyleCount++;
+                        try
+                        {
+                            var character = StyleAt(document, U16(sprms, at));
+                            if (character?.Character != null && (document.StyleBytes += character.Character.Length) <= StyleWork)
+                                result = ApplyRun(document, character.Character, 0, character.Character.Length, result, result);
+                        }
+                        finally { document.StyleNesting--; }
                         break;
                 }
             });
@@ -379,7 +411,7 @@ namespace Univer.Desktop.Core
         }
         private static void Render(Document document, PreviewMarkup html, char[] text, int[] positions, List<Paragraph> paragraphs, FkpLookup characters)
         {
-            var fields = new Stack<Field>();
+            var fields = new Fields();
             TableModel table = null; var row = new List<TableModel.Cell>(); var bounds = new List<int[]>(); PreviewMarkup cell = null;
             Action flush = () =>
             {
@@ -480,7 +512,7 @@ namespace Univer.Desktop.Core
                 above = current;
             }
         }
-        private static PreviewMarkup Inline(Document document, char[] text, int[] positions, Paragraph paragraph, FkpLookup characters, Stack<Field> fields, CancellationToken cancellation)
+        private static PreviewMarkup Inline(Document document, char[] text, int[] positions, Paragraph paragraph, FkpLookup characters, Fields fields, CancellationToken cancellation)
         {
             var html = new PreviewMarkup(cancellation);
             var run = new StringBuilder(); string close = null; RunStyle current = default(RunStyle); var low = -1; var high = -1; RunStyle format = paragraph.Runs;
@@ -491,10 +523,10 @@ namespace Univer.Desktop.Core
             for (var i = paragraph.Start; i < paragraph.End; i++)
             {
                 var c = text[i];
-                if (c == '\u0013') { fields.Push(new Field()); continue; }
+                if (c == '\u0013') { if (fields.Count >= FieldDepth) fields.Ignored++; else fields.Push(new Field()); continue; }
                 if (c == '\u0014')
                 {
-                    if (fields.Count == 0) continue;
+                    if (fields.Ignored > 0 || fields.Count == 0) continue;
                     var field = fields.Peek(); field.Result = true;
                     var link = fields.Count == 1 ? DocxHtml.Hyperlink(field.Code.ToString()) : null;
                     if (link != null) { end(); html.Append("<a href=\"").Append(WebUtility.HtmlEncode(link)).Append("\">"); field.Link = true; }
@@ -502,6 +534,7 @@ namespace Univer.Desktop.Core
                 }
                 if (c == '\u0015')
                 {
+                    if (fields.Ignored > 0) { fields.Ignored--; continue; }
                     if (fields.Count == 0) continue;
                     var field = fields.Pop();
                     if (field.Link) { end(); html.Append("</a>"); }

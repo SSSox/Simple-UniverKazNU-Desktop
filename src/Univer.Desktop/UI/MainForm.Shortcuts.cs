@@ -13,11 +13,12 @@ namespace Univer.Desktop.UI
         {
             if (closing || rotating) return;
             var order = Shortcuts.ApplyOrder(payload);
-            var updated = order == null ? Shortcuts.Apply(prefs.Pins, payload) : null;
-            if (updated == null && order == null) SetStatus("pinFailed");
-            else { if (order != null) prefs.TileOrder = order; else prefs.Pins = updated; await SavePreferencesAsync(); await RefreshDocumentScriptsAsync(); }
+            var hidden = order == null ? Shortcuts.ApplyHidden(payload) : null;
+            var updated = order == null && hidden == null ? Shortcuts.Apply(prefs.Pins, payload) : null;
+            if (updated == null && order == null && hidden == null) SetStatus("pinFailed");
+            else { if (order != null) prefs.TileOrder = order; else if (hidden != null) prefs.HiddenTiles = hidden; else prefs.Pins = updated; await SavePreferencesAsync(); await RefreshDocumentScriptsAsync(); }
             if (closing || browser.IsDisposed || browser != Active) return;
-            await AutomationController.EvaluateAsync(browser, "window.__univerShortcutsV1&&window.__univerShortcutsV1.configure(" + Shortcuts.ToJson(prefs.Pins) + "," + Shortcuts.OrderJson(prefs.TileOrder) + ");'pins'");
+            await AutomationController.EvaluateAsync(browser, "window.__univerShortcutsV1&&window.__univerShortcutsV1.configure(" + Shortcuts.ToJson(prefs.Pins) + "," + Shortcuts.OrderJson(prefs.TileOrder) + "," + Shortcuts.HiddenJson(prefs.HiddenTiles) + ");'pins'");
         }
     }
 }

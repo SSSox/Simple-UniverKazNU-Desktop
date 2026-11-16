@@ -93,6 +93,7 @@ namespace Univer.Desktop.UI
             page(CourseRoute + "task/list/57101/7101/2026/1/9/", CourseTaskListFixture(7101, 9, "Синтетическое задание по истории", -3, 1));
             page(CourseRoute + "task/list/57101/7101/2026/1/7/", CourseTaskListFixture(7101, 7, "Прошлое синтетическое задание", -17, -12));
             page(CourseRoute + "task/list/57103/7103/2026/1/9/", CourseTaskListFixture(7103, 9, "Эссе о социальных институтах", -1, 6));
+            page(CourseRoute + "task/list/57103/7103/2026/1/7/", CourseTaskListFixture(7103, 7, "Прошлый конспект по социологии", -18, -13));
             page(CourseRoute + "task/preview/909/57101/7101/2026/1/9/0/0/0/", CourseTaskFixture());
             // Политология (7102) has no registered curriculum: its read fails and the panel says so.
         }
@@ -112,12 +113,23 @@ namespace Univer.Desktop.UI
             prefs.Readable = false; await ApplyPresentationAsync(); prefs.Readable = true; await ApplyPresentationAsync();
             var panel = await WaitForAsync("(function(){var b=document.querySelector('#l4 .univer-app-tasks');return b&&b.dataset.busy==='false'?'done':''})()");
             Check(panel == "done" && await AutomationController.EvaluateAsync(main, "(function(){var items=Array.from(document.querySelectorAll('#l4 .univer-app-task-item'));var first=items[0]&&items[0].querySelector('a');" +
-                "var chip=document.getElementById('7101').querySelector('.univer-app-course-tasks'),note=document.querySelector('#l4 .univer-app-tasks-note');" +
+                "var chips=Array.from(document.getElementById('7101').querySelectorAll('.univer-app-course-tasks')),chip=chips[0],note=document.querySelector('#l4 .univer-app-tasks-note');" +
                 "return items.length===2&&items[0].dataset.state==='urgent'&&first.getAttribute('href')==='/student/discussion/task/preview/909/57101/7101/2026/1/9/0/0/0/'&&" +
-                "chip&&chip.textContent==='1 задание'&&chip.getAttribute('href')==='/student/discussion/acpos/week/list/57101/7101/2026/1/'&&note&&/Политология/.test(note.textContent)&&" +
-                "document.querySelectorAll('#l4 .univer-app-course-tasks').length===2?'tasks':JSON.stringify({items:items.length})})()") == "tasks",
-                "course list shows current assignments read in the background, each linked to its task, and a failed course by name", results);
+                "chips.length===2&&chip.textContent==='Открыто: 1'&&chips[1].textContent==='Закрыто: 1'&&chip.getAttribute('href')==='/student/discussion/acpos/week/list/57101/7101/2026/1/'&&note&&/Политология/.test(note.textContent)&&!/Социология|История/.test(note.textContent)&&" +
+                "document.querySelectorAll('#l4 .univer-app-course-tasks').length===4?'tasks':JSON.stringify({items:items.length,chips:chips.map(function(c){return c.textContent}),note:note&&note.textContent})})()") == "tasks",
+                "course list shows open assignments read in the background, each linked to its task, open and closed counts on the course and a failed course by name", results);
             using (var client = main.GetDevToolsClient()) File.WriteAllBytes(Path.Combine(qa, "course-tasks-index.png"), (await client.Page.CaptureScreenshotAsync()).Data);
+            // Closed assignments are one click away, and the segment's thumb follows the choice.
+            Check(await AutomationController.EvaluateAsync(main, "(function(){var f=document.querySelector('#l4 .univer-app-tasks-filter'),b=f&&f.querySelectorAll('button');if(!b||b.length!==2)return 'no filter';" +
+                "var open=b[0].textContent==='Открытые2'&&b[0].getAttribute('aria-pressed')==='true';window.qaMotion=window.__univerMotion;window.__univerMotion=false;b[1].click();var items=Array.from(document.querySelectorAll('#l4 .univer-app-task-item'));" +
+                "return open&&b[1].textContent==='Закрытые2'&&b[1].getAttribute('aria-pressed')==='true'&&items.length===2&&items.every(function(i){return i.dataset.state==='past'})?'closed':JSON.stringify({open:open,items:items.length,text:b[1].textContent})})()") == "closed",
+                "the course list switches between open and closed assignments", results);
+            await Task.Delay(350);
+            Check(await AutomationController.EvaluateAsync(main, "(function(){var f=document.querySelector('#l4 .univer-app-tasks-filter'),t=f.querySelector('.univer-kit-thumb'),b=f.querySelector('button[aria-pressed=true]');if(!t)return 'no thumb';" +
+                "var a=t.getBoundingClientRect(),c=b.getBoundingClientRect();return Math.abs(a.left-c.left)<=1&&Math.abs(a.width-c.width)<=1?'thumb':JSON.stringify([a.left,c.left,a.width,c.width])})()") == "thumb",
+                "the open/closed segment's thumb stands on the chosen view", results);
+            using (var client = main.GetDevToolsClient()) File.WriteAllBytes(Path.Combine(qa, "course-tasks-closed.png"), (await client.Page.CaptureScreenshotAsync()).Data);
+            await AutomationController.EvaluateAsync(main, "document.querySelector('#l4 .univer-app-tasks-filter button').click();window.__univerMotion=window.qaMotion;'open'");
             Width = 900; await Task.Delay(250);
             Check(await AutomationController.EvaluateAsync(main, "(function(){var b=document.querySelector('#l4 .univer-app-tasks').getBoundingClientRect(),s=document.querySelector('#l4 .univer-app-task-status').getBoundingClientRect();" +
                 "return document.documentElement.scrollWidth<=innerWidth+1&&s.right<=b.right&&s.width>40?'narrow':''})()") == "narrow", "narrow course list keeps assignments and their deadlines inside the window", results);

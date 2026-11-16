@@ -92,6 +92,25 @@ namespace Univer.Desktop.Core
             }
             catch (Exception) { return null; }
         }
+        // Fixed tiles the student took off the home screen. Only those tiles qualify, so nothing else can vanish from it.
+        public static List<string> NormalizeHidden(IEnumerable<string> urls)
+        { return (urls ?? Enumerable.Empty<string>()).Where(FixedHomeLink).Distinct(StringComparer.Ordinal).Take(8).ToList(); }
+        // Payload: {"hidden":["https://…"]}. Returns null for anything malformed.
+        public static List<string> ApplyHidden(string payload)
+        {
+            try
+            {
+                var message = new JavaScriptSerializer { MaxJsonLength = 8192 }.Deserialize<Dictionary<string, object>>(payload ?? "");
+                object value;
+                if (message == null || !message.TryGetValue("hidden", out value) || !(value is System.Collections.IEnumerable) || value is string) return null;
+                var list = ((System.Collections.IEnumerable)value).Cast<object>().ToList();
+                if (list.Count > 8 || list.Any(item => !(item is string) || !FixedHomeLink((string)item))) return null;
+                return NormalizeHidden(list.Cast<string>());
+            }
+            catch (Exception) { return null; }
+        }
+        public static string HiddenJson(IEnumerable<string> urls)
+        { return new JavaScriptSerializer().Serialize(NormalizeHidden(urls)); }
         public static string OrderJson(IEnumerable<string> order)
         { return new JavaScriptSerializer().Serialize(NormalizeOrder(order)); }
         private static bool Same(string a, string b) { return string.Equals(a, b, StringComparison.Ordinal); }

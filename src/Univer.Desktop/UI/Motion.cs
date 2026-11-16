@@ -27,7 +27,7 @@ namespace Univer.Desktop.UI
         private static readonly List<Tween> running = new List<Tween>();
         private static readonly Stopwatch clock = Stopwatch.StartNew();
         private static Timer timer;
-        public const int Fast = 140, Normal = 220;
+        public const int Fast = 150, Normal = 220, Slide = 300;
         public static Tween Run(int duration, Action<float> step, Action done = null)
         {
             var tween = new Tween(step, done, duration, clock.ElapsedMilliseconds);
@@ -85,9 +85,15 @@ namespace Univer.Desktop.UI
             };
             menu.Disposed += (s, e) => { fade?.Cancel(); visual?.Dispose(); pending?.Dispose(); pending = null; originalClip?.Dispose(); originalClip = null; };
         }
-        // Same cubic-bezier(.23,1,.32,1) as the page's motion token; solve x before evaluating y.
+        // The kit's curves, also the page's motion tokens. Settling feedback; solve x before evaluating y.
         public static float EaseOut(float t)
-        { return Curve(t, .23f, 1, .32f, 1); }
+        { return Curve(t, .22f, 1, .36f, 1); }
+        // Something going from one place to another: a departure, clear travel and a soft arrival.
+        public static float Travel(float t)
+        { return Curve(t, .45f, 0, .1f, 1); }
+        // Something arriving from nowhere.
+        public static float Arrive(float t)
+        { return Curve(t, .25f, .8f, .25f, 1); }
         public static float EaseInOut(float t)
         { return Curve(t, .77f, 0, .175f, 1); }
         private static float Curve(float t, float x1, float y1, float x2, float y2)
@@ -135,8 +141,10 @@ namespace Univer.Desktop.UI
         {
             foreach (Control child in root.Controls)
             {
-                var type = child.GetType().Name;
-                if (type == "ChromiumWebBrowser" || type == "PreviewHost") continue;
+                if (child is CefSharp.WinForms.ChromiumWebBrowser || child is PreviewHost || child is DownloadRow) continue;
+                var button = child as ModernButton; if (button != null) button.Zoom = factor;
+                var toggle = child as Toggle; if (toggle != null) toggle.Zoom = factor;
+                var input = child as TextInput; if (input != null) input.Zoom = factor;
                 // A font inherited from a parent scaled in this pass already follows it; scaling it again would compound the zoom.
                 object recorded;
                 if (rootScaled && !original.TryGetValue(child, out recorded) && ReferenceEquals(child.Font, root.Font)) { ApplyFonts(child, factor, true); continue; }
@@ -152,63 +160,20 @@ namespace Univer.Desktop.UI
     {
         public SmoothPanel() { SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.AllPaintingInWmPaint | ControlStyles.ResizeRedraw, true); }
     }
-    // A drop-down list drawn by the app, closed and open: Windows draws the closed box light (light blue with focus)
-    // even in dark mode. Arrows keep the standard selection; Alt+Down and F4 open the app's list.
-    internal sealed class FadeComboBox : ComboBox
+    // Chromium presents through the GPU, so the part of the window's own surface under the website is never drawn and stays
+    // almost black. Anything that opens over the website shows that black until it paints. This panel does not clip its
+    // children, so it fills the surface under Chromium with the page colour; drawn controls are left out of the fill.
+    internal sealed class BackdropPanel : Panel
     {
-        private readonly ContextMenuStrip list = new ContextMenuStrip { ShowImageMargin = false, ShowCheckMargin = true, Renderer = new ToolStripProfessionalRenderer(new MenuColors()) };
-        private bool hovered;
-        public FadeComboBox()
-        {
-            Motion.FadeIn(list);
-            SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
-        }
-        protected override void WndProc(ref Message m)
-        {
-            const int down = 0x0201, doubleClick = 0x0203;
-            if ((m.Msg == down || m.Msg == doubleClick) && Enabled && Items.Count > 0) { Motion.KeyboardInput = false; Focus(); ShowList(); return; }
-            base.WndProc(ref m);
-        }
-        protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
-        {
-            if ((keyData == (Keys.Alt | Keys.Down) || keyData == (Keys.Alt | Keys.Up) || keyData == Keys.F4) && Enabled && Items.Count > 0) { Motion.KeyboardInput = true; ShowList(); return true; }
-            return base.ProcessCmdKey(ref msg, keyData);
-        }
-        protected override void OnMouseEnter(EventArgs e) { hovered = true; Invalidate(); base.OnMouseEnter(e); }
-        protected override void OnMouseLeave(EventArgs e) { hovered = false; Invalidate(); base.OnMouseLeave(e); }
-        protected override void OnGotFocus(EventArgs e) { Invalidate(); base.OnGotFocus(e); }
-        protected override void OnLostFocus(EventArgs e) { Invalidate(); base.OnLostFocus(e); }
-        protected override void OnSelectedIndexChanged(EventArgs e) { Invalidate(); base.OnSelectedIndexChanged(e); }
+        public BackdropPanel() { SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.UserPaint | ControlStyles.ResizeRedraw, true); }
+        protected override CreateParams CreateParams { get { var value = base.CreateParams; value.Style &= ~0x02000000; return value; } }
+        // The stock background fill would run over every child, which then stays blank until something repaints it.
+        protected override void OnPaintBackground(PaintEventArgs e) { }
+        internal void PaintForQa(Graphics g, Rectangle area) { using (var e = new PaintEventArgs(g, area)) { OnPaintBackground(e); OnPaint(e); } }
         protected override void OnPaint(PaintEventArgs e)
         {
-            var g = e.Graphics; g.Clear(Theme.Behind(this)); g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
-            var scale = g.DpiX / 96f; var ink = Enabled ? Theme.Ink : Theme.Current.Disabled;
-            using (var path = Theme.Rounded(new RectangleF(1, 1, Width - 3, Height - 3), 7))
-            {
-                using (var fill = new SolidBrush(hovered && Enabled ? Theme.Hover : Theme.Surface)) g.FillPath(fill, path);
-                using (var pen = new Pen(Focused ? Theme.AccentInk : Theme.Border, Focused ? 1.8f : 1)) g.DrawPath(pen, path);
-            }
-            var arrow = 16 * scale; var inset = (int)(12 * scale);
-            Icons.Draw(g, UiIcon.Down, new RectangleF(Width - inset - arrow, (Height - arrow) / 2, arrow, arrow), Enabled ? Theme.Muted : ink);
-            var text = SelectedIndex >= 0 ? GetItemText(SelectedItem) : Text;
-            TextRenderer.DrawText(g, text, Font, new Rectangle(inset, 0, Math.Max(1, Width - inset * 2 - (int)arrow - inset / 2), Height), ink,
-                TextFormatFlags.VerticalCenter | TextFormatFlags.Left | TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
+            foreach (Control child in Controls) if (child.Visible && !(child is CefSharp.WinForms.ChromiumWebBrowser)) e.Graphics.ExcludeClip(child.Bounds);
+            using (var fill = new SolidBrush(BackColor)) e.Graphics.FillRectangle(fill, ClientRectangle);
         }
-        private void ShowList()
-        {
-            list.Items.Clear(); list.Font = Font; Theme.Style(list);
-            for (var i = 0; i < Items.Count; i++)
-            {
-                var index = i;
-                var item = new ToolStripMenuItem(GetItemText(Items[i])) { Checked = i == SelectedIndex, AutoSize = false, Width = Width, Height = Math.Max(32, Height - 4) };
-                item.Click += (s, e) => { SelectedIndex = index; Focus(); };
-                list.Items.Add(item);
-            }
-            list.MinimumSize = new Size(Width, 0);
-            list.Show(this, new Point(0, Height));
-            // Opened from the keyboard, the arrows start at the current choice.
-            if (Motion.KeyboardInput && SelectedIndex >= 0 && SelectedIndex < list.Items.Count) list.Items[SelectedIndex].Select();
-        }
-        protected override void Dispose(bool disposing) { if (disposing) list.Dispose(); base.Dispose(disposing); }
     }
 }

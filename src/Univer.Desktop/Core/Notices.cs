@@ -159,6 +159,10 @@ namespace Univer.Desktop.Core
         }
         // The scan in a page result (section false) or a background message (section true) of this generation, or null for
         // anything malformed. Links outside the trusted origin, files and oversized values are dropped.
+        // The one new notification's heading to announce, or null for "N new notifications": while the PIN lock is up
+        // the tray and the window never say what a notification is about.
+        public static string Announced(int count, string heading, bool locked)
+        { return count == 1 && !locked && !string.IsNullOrEmpty(heading) ? heading : null; }
         public static NoticeScan Parse(string message, bool section, string generation)
         {
             if (message == null || message.Length > MaxMessage) return null;

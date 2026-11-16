@@ -13,7 +13,7 @@ namespace Univer.Desktop.UI
         {
             this.detailed = detailed;
             BackColor = Theme.Current.LegacyFill; ForeColor = Theme.Ink;
-            heading.Font = Theme.Strong(detailed ? 17 : 10);
+            heading.Font = detailed ? Theme.Display(12.75f) : Theme.Strong(Theme.Body);
             heading.Height = detailed ? 40 : 26; heading.Dock = DockStyle.Top;
             heading.UseMnemonic = body.UseMnemonic = false;
             body.Font = Theme.Font(detailed ? 10.5f : 9.5f); body.Dock = DockStyle.Fill;

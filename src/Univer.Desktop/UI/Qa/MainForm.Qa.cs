@@ -38,10 +38,15 @@ namespace Univer.Desktop.UI
                     QaStep("downloads", () => DownloadsQaAsync(qa, results)),
                     QaStep("office", () => OfficeQaAsync(qa, results)),
                     QaStep("zoom", () => ZoomQaAsync(qa, results)),
+                    QaStep("polish", () => PolishQaAsync(qa, results)),
+                    QaStep("top", () => TopQaAsync(qa, results)),
+                    QaStep("product", () => ProductQaAsync(qa, results)),
                     QaStep("theme", () => ThemeQaAsync(qa, results)),
                     QaStep("notices", () => NoticesQaAsync(qa, results)),
                     QaStep("updates", () => UpdatesQaAsync(qa, results)),
+                    QaStep("update-entry", () => UpdateEntryQaAsync(results)),
                     QaStep("live", () => liveSmoke ? LiveQaAsync(qa, results) : Task.FromResult(true)),
+                    QaStep("lock", () => LockQaAsync(qa, results)),
                     QaStep("logout", () => LogoutQaAsync(results))
                 };
                 if (only != null && !steps.Exists(step => step.Key == only)) throw new ArgumentException("Unknown self-test step: " + only);
@@ -49,7 +54,7 @@ namespace Univer.Desktop.UI
                 {
                     if (only != null && step.Key != only) continue;
                     await RestoreQaWindowAsync();
-                    QaTrace(step.Key + "-start"); await step.Value(); QaTrace(step.Key + "-done");
+                    var clock = System.Diagnostics.Stopwatch.StartNew(); QaTrace(step.Key + "-start"); await step.Value(); QaTrace(step.Key + "-done " + clock.ElapsedMilliseconds + " ms");
                 }
                 File.WriteAllLines(Path.Combine(output, "self-test.ok"), results);
             }
@@ -86,6 +91,7 @@ namespace Univer.Desktop.UI
             Check(await ApplySettingsAsync(SettingsAction.Save, null, "en", false), "appearance save succeeds", results);
             Check(main == initialBrowser && prefs.Profile == initialProfile, "appearance preserves browser and profile", results);
             Check(!storage.LoadPreferences().Readable && storage.LoadPreferences().Language == "en", "preferences durably saved", results);
+            await WebSettingsQaAsync(results);
             Check(await ApplySettingsAsync(SettingsAction.Manual, null, prefs.Language, prefs.Readable) && storage.LoadPreferences().AutoLoginPaused && storage.LoadCredentials() == null,
                 "manual login choice persists without saved credentials", results);
 #if LEGACY_ENGINE
@@ -110,13 +116,18 @@ namespace Univer.Desktop.UI
                     Check(!form.LegacyWarningVisible, "modern sign in has no legacy warning " + lang, results);
 #endif
                     SaveBitmap(form, Path.Combine(qa, "signin-" + lang + ".png"));
+                    if (lang == "ru")
+                    {
+                        form.StageForQa.SaveSheetForQa(Path.Combine(qa, "stage-welcome.png"), new[] { 0, 1100, 2400, 3500, 4300, 6100, 9000, 9900 }, 4);
+                        using (var conveyor = new StageView(StageScene.Downloads) { Size = new Size(D(520), D(148)) }) { conveyor.SetLanguage("ru"); conveyor.SaveSheetForQa(Path.Combine(qa, "stage-downloads.png"), new[] { 100, 400, 800, 3100, 3500, 6500 }, 2); }
+                    }
                     form.SaveButton.PerformClick();
                     Check(!form.IsDisposed && form.LoginInput.Invalid && form.PasswordInput.Invalid, "empty sign in validation " + lang, results);
                     SaveBitmap(form, Path.Combine(qa, "signin-error-" + lang + ".png")); form.Close();
                 }
                 using (var form = new SettingsForm(new Credentials { Login = "QA student", Password = "synthetic fixture" }, prefs))
                 {
-                    form.Opacity = 0; form.ShowInTaskbar = false; form.Show(this); await Task.Delay(40);
+                    form.Load += (s, e) => form.ScaleWidthsForQa(1.5f); form.Opacity = 0; form.ShowInTaskbar = false; form.Show(this); await Task.Delay(40);
 #if LEGACY_ENGINE
                     Check(form.LegacyWarningVisible && prefs.LegacyWarningDismissed, "settings warning visible after startup suppression " + lang, results);
 #else
@@ -127,7 +138,17 @@ namespace Univer.Desktop.UI
                     form.PasswordInput.Reveal.PerformClick(); Check(form.PasswordInput.Input.UseSystemPasswordChar, "password mask restored " + lang, results);
                     SaveBitmap(form, Path.Combine(qa, "account-" + lang + ".png"));
                     form.SelectAppearanceForQa(); SaveBitmap(form, Path.Combine(qa, "appearance-" + lang + ".png"));
+                    form.SelectUpdatesForQa(); SaveBitmap(form, Path.Combine(qa, "app-" + lang + ".png"));
                     Check(form.AboutFitsForQa(), "about line shows version, engine and unofficial notice without clipping " + lang, results);
+                    var overflow = form.OverflowForQa(); if (overflow.Length > 0) QaTrace("qa-settings-overflow " + lang + " " + string.Join(" | ", overflow));
+                    Check(overflow.Length == 0, "every setting keeps its name and short line on one line " + lang, results);
+                    Check(form.TabsFitForQa, "tabs keep the width of their words after the window's scale " + lang, results);
+                    Check(form.HugsFitForQa, "buttons keep the width of their words after the window's scale " + lang, results);
+                    var spoken = form.Language; var option = Array.IndexOf(new[] { "ru", "kz", "en" }, spoken); var neighbour = (option + 1) % 3;
+                    form.SelectAppearanceForQa(); form.PressForQa(form.LanguageForQa(option), Keys.Right);
+                    Check(form.Language != spoken && form.LanguageForQa(neighbour).TabStop && !form.LanguageForQa(option).TabStop, "an arrow chooses the next language and the group stays one Tab stop " + lang, results);
+                    form.PressForQa(form.LanguageForQa(neighbour), Keys.Left);
+                    Check(form.Language == spoken, "the opposite arrow chooses it back " + lang, results);
 #if LEGACY_ENGINE
                     Check(form.LegacyWarningVisible, "legacy warning survives settings tab switch " + lang, results);
 #else
@@ -135,33 +156,56 @@ namespace Univer.Desktop.UI
 #endif
                     var pending = new TaskCompletionSource<bool>(); var calls = 0;
                     form.ApplyAsync = (action, next, language, readable) => { calls++; return pending.Task; };
-                    form.SaveButton.PerformClick(); form.SaveButton.PerformClick();
+                    form.ChangeForQa(); form.SaveButton.PerformClick(); form.SaveButton.PerformClick();
                     Check(calls == 1 && !form.SaveButton.Enabled, "save blocks duplicate operation " + lang, results);
                     form.Close(); Check(!form.IsDisposed, "close waits for save " + lang, results);
                     pending.SetResult(false); await Task.Delay(40);
                     Check(!form.IsDisposed && form.SaveButton.Enabled, "save failure stays editable " + lang, results);
+                    Check(form.SaveButton.AccessibleName == form.SaveButton.Text && form.CancelForQa.AccessibleName == form.CancelForQa.Text, "the footer's accessible names follow its words " + lang, results);
                     SaveBitmap(form, Path.Combine(qa, "save-error-" + lang + ".png")); form.Close();
                 }
             }
             prefs.Language = "ru"; Localize();
         }
+        // Settings > App: the system-browser choice is saved and read back; Clear gives the in-app browser a new profile and
+        // removes the old folder, and the button reports it.
+        private async Task WebSettingsQaAsync(List<string> results)
+        {
+            Check(await ApplySettingsAsync(SettingsAction.Save, null, prefs.Language, prefs.Readable, externalLinks: true) && prefs.ExternalLinks && storage.LoadPreferences().ExternalLinks,
+                "the system-browser choice for links is saved", results);
+            Check(await ApplySettingsAsync(SettingsAction.Save, null, prefs.Language, prefs.Readable, externalLinks: false) && !prefs.ExternalLinks && !storage.LoadPreferences().ExternalLinks,
+                "links go back inside the app when the choice is turned off", results);
+            var before = prefs.WebProfile; var oldFolder = storage.WebProfilePath(before);
+            Directory.CreateDirectory(oldFolder); File.WriteAllText(Path.Combine(oldFolder, "Cookies"), "synthetic fixture");
+            using (var form = new SettingsForm(null, prefs))
+            {
+                form.ClearWebData = ClearWebDataAsync; form.Opacity = 0; form.ShowInTaskbar = false; form.Show(this); form.SelectUpdatesForQa(); await Task.Delay(40);
+                form.WebDataClearForQa.PerformClick();
+                var until = DateTime.UtcNow.AddSeconds(10);
+                while (DateTime.UtcNow < until && form.WebDataHintForQa != Strings.Get("webDataCleared", form.Language)) await Task.Delay(100);
+                Check(form.WebDataHintForQa == Strings.Get("webDataCleared", form.Language) && form.WebDataClearForQa.Enabled, "Clear reports that other sites' data is gone", results);
+                form.Close();
+            }
+            Check(prefs.WebProfile != before && storage.LoadPreferences().WebProfile == prefs.WebProfile && !Directory.Exists(oldFolder),
+                "Clear saves a new in-app profile and removes the old folder", results);
+        }
         // The sidebar and toolbar in a narrow window: icons only, the toggle that shows names, no overlaps.
         private async Task ShellQaAsync(string qa, List<string> results)
         {
             Width = 900; prefs.Language = "ru"; prefs.Sidebar = true; manualExpanded = false; Localize();
-            Check(sidebar.Width == D(68) && !university.Visible && !brand.Visible, "narrow window compacts navigation", results);
+            Check(sidebar.Width == D(64) && !university.Visible && !brand.Visible, "narrow window compacts navigation", results);
             Check(!pageTitle.Bounds.IntersectsWith(mode.Bounds), "narrow toolbar has no overlap", results);
             Check(pageState.Visible == (pageState.Text.Length > 0) && (!pageState.Visible || pageState.Top >= pageTitle.Bottom - D(2)), "toolbar subtitle never covers the title", results);
             Check(menu.AccessibleName == Strings.Get("expandSidebar", "ru") && tips.GetToolTip(scheduleButton).Contains(Strings.Get("scheduleHint", "ru")) && tips.GetToolTip(scheduleButton).StartsWith(scheduleButton.Text),
                 "compact rail names each section and what it contains", results);
             SaveBitmap(this, Path.Combine(qa, "workspace-narrow.png"));
             await ToggleSidebarAsync();
-            Check(sidebar.Width == D(232) && portalGroup.Visible && appGroup.Visible && menu.AccessibleName == Strings.Get("collapseSidebar", "ru") && prefs.Sidebar && tips.GetToolTip(scheduleButton) == Strings.Get("scheduleHint", "ru"),
+            Check(sidebar.Width == D(240) && portalGroup.Visible && appGroup.Visible && menu.AccessibleName == Strings.Get("collapseSidebar", "ru") && prefs.Sidebar && tips.GetToolTip(scheduleButton) == Strings.Get("scheduleHint", "ru"),
                 "toolbar button shows section names in a narrow window", results);
             Check(!pageTitle.Bounds.IntersectsWith(mode.Bounds) && downloadsButton.Top > appGroup.Bottom && appGroup.Top > materialsButton.Bottom, "expanded sidebar groups do not overlap", results);
             SaveBitmap(this, Path.Combine(qa, "workspace-narrow-expanded.png"));
             await ToggleSidebarAsync();
-            Check(sidebar.Width == D(68) && !prefs.Sidebar && !portalGroup.Visible, "toolbar button folds the sidebar back to icons", results);
+            Check(sidebar.Width == D(64) && !prefs.Sidebar && !portalGroup.Visible, "toolbar button folds the sidebar back to icons", results);
             prefs.Sidebar = true; manualExpanded = false; ArrangeShell();
             Width = 1360; Localize();
         }
@@ -285,21 +329,30 @@ namespace Univer.Desktop.UI
         private async Task LogoutQaAsync(List<string> results)
         {
             var initialBrowser = main; var initialProfile = prefs.Profile;
+#if LEGACY_ENGINE
+            var warningDismissed = prefs.LegacyWarningDismissed;
+#endif
             await context.GetCookieManager(null).SetCookieAsync(SitePolicy.Origin, new CefSharp.Cookie { Name = "qa_cookie", Value = Guid.NewGuid().ToString("N"), Path = "/", Secure = true });
             await EndSessionAsync(false);
             Check(prefs.AutoLoginPaused && storage.LoadPreferences().AutoLoginPaused, "logout durably pauses automation", results);
+            Check(!prefs.SessionClearPending && !storage.LoadPreferences().SessionClearPending, "a finished logout leaves no session for the next start to clear", results);
             Check(main != initialBrowser && prefs.Profile != initialProfile, "logout replaces session profile", results);
             var afterLogout = await context.GetCookieManager(null).VisitUrlCookiesAsync(SitePolicy.Origin, true);
             Check(!afterLogout.Exists(cookie => cookie.Name == "qa_cookie"), "logout removes previous session cookie", results);
             ShowDownloads();
             Check(downloadsView.Parent == canvas && DownloadsVisible, "downloads remain attached and available after logout", results);
 #if LEGACY_ENGINE
-            Check(prefs.LegacyWarningDismissed && storage.LoadPreferences().LegacyWarningDismissed, "legacy warning choice survives actual logout and session rotation", results);
+            Check(prefs.LegacyWarningDismissed == warningDismissed && storage.LoadPreferences().LegacyWarningDismissed == warningDismissed,
+                "legacy warning choice survives actual logout and session rotation", results);
 #endif
             HideDownloads();
-            var beforeFault = main; var faultProfile = prefs.Profile; var faulted = false;
-            rotationFaultForQa = () => { throw new TimeoutException("QA rotation fault"); };
+            var beforeFault = main; var faultProfile = prefs.Profile; var faultWebProfile = prefs.WebProfile; var faulted = false; var remembered = false;
+            rotationFaultForQa = () => { remembered = storage.LoadPreferences().SessionClearPending; throw new TimeoutException("QA rotation fault"); };
             try { await EndSessionAsync(false); } catch (TimeoutException) { faulted = true; } finally { rotationFaultForQa = null; }
+            Check(remembered, "a logout in progress is remembered on disk until the session is replaced", results);
+            for (var wait = DateTime.UtcNow.AddSeconds(5); storage.LoadPreferences().SessionClearPending && DateTime.UtcNow < wait;) await Task.Delay(50);
+            Check(!prefs.SessionClearPending && !storage.LoadPreferences().SessionClearPending && prefs.WebProfile != faultWebProfile,
+                "the session recovered from an interrupted logout replaces both profiles and clears the reminder", results);
             Check(faulted && main != null && main != beforeFault && context != null && prefs.Profile != faultProfile && prefs.AutoLoginPaused && !rotating,
                 "an interrupted session rotation starts a fresh paused session instead of leaving a stale or missing browser", results);
             // Preparation runs through the session's own dispatcher, so it completes only when the new browser's events are current.

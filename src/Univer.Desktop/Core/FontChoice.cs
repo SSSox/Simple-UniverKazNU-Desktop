@@ -8,13 +8,19 @@ namespace Univer.Desktop.Core
     internal sealed class FontChoice
     {
         private static readonly string[] Preferred = { "Segoe UI Variable Text", "Segoe UI", "Tahoma", "Arial" };
+        // Every family here ships with Windows and carries Cyrillic; the first also has all Kazakh letters.
+        private static readonly string[] Serifs = { "Cambria", "Constantia", "Georgia", "Times New Roman" };
         public string Regular { get; private set; }
         public string Strong { get; private set; }
+        public string Display { get; private set; }
         public static FontChoice Pick(ICollection<string> installed, Func<string, bool> substituted)
         {
             var choice = new FontChoice { Regular = "Segoe UI" };
             foreach (var name in Preferred)
                 if (installed.Contains(name) && !substituted(name)) { choice.Regular = name; break; }
+            choice.Display = choice.Regular;
+            foreach (var name in Serifs)
+                if (installed.Contains(name) && !substituted(name)) { choice.Display = name; break; }
             // A separate semibold family avoids synthetic bold; null means Regular with FontStyle.Bold.
             var strong = choice.Regular + " Semibold";
             if (choice.Regular == "Segoe UI Variable Text" && installed.Contains(strong) && !substituted(strong)) choice.Strong = strong;

@@ -221,7 +221,7 @@ namespace Univer.Desktop.Core
                             var reference = reader.GetAttribute("ref") ?? ""; var parts = reference.Split(':');
                             int top, left, bottom, right;
                             if (parts.Length == 2 && SheetMarkup.Reference(parts[0], out top, out left) && SheetMarkup.Reference(parts[1], out bottom, out right) && bottom >= top && right >= left)
-                                sheet.Merges.Add(new SheetRange { Top = top, Left = left, Bottom = bottom, Right = right });
+                                sheet.Merge(book, top, left, bottom, right);
                             break;
                     }
                 }

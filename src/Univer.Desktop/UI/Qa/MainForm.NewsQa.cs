@@ -14,7 +14,7 @@ namespace Univer.Desktop.UI
         private static string NewsQaRow(string day, string title, string body = "")
         { return "<tr class='news'><td><div class='date'><span class='day'>" + day + "</span> 10.2026</div></td><td><p>" + title + "</p>" + body + "</td></tr>"; }
         private static string NewsQaPage(string rows, bool next, int page = 1)
-        { return "<table class='wrappertable'><tr id='l4'><td><table class='inner'><tr><th>Дата</th><th>Новость</th></tr>" + rows + "</table><table><tr><td class='tb'>Страница " + page + (next ? "<a href='/my/news/" + (page + 1) + "'>" + (page + 1) + "</a>" : "") + "</td></tr></table></td></tr></table>"; }
+        { return "<table class='wrappertable'><tr id='l4'><td><div class='inner' style='overflow:auto;position:relative'><table class='inner'><tr><th>Дата</th><th>Новость</th></tr>" + rows + "</table><table><tr><td class='tb'>Страница " + page + (next ? "<a href='/my/news/" + (page + 1) + "'>" + (page + 1) + "</a>" : "") + "</td></tr></table></div></td></tr></table>"; }
         private async Task NewsQaAsync(string qa, List<string> results, string heading)
         {
             var json = new JavaScriptSerializer();
@@ -81,7 +81,7 @@ namespace Univer.Desktop.UI
             main.LoadHtml(heading + fetch + many, SitePolicy.Origin + "/news/student"); await WaitQaPresentationAsync();
             var countUntil = DateTime.UtcNow.AddSeconds(4);
             while (DateTime.UtcNow < countUntil && await AutomationController.EvaluateAsync(main, "document.querySelector('.univer-app-news-jump input')?.max==='20'?'ready':''") != "ready") await Task.Delay(100);
-            Check(await AutomationController.EvaluateAsync(main, "Array.from(document.querySelectorAll('.univer-app-news-pager-top>a')).map(a=>a.textContent).join(',')==='1,2,3,4,5,20'&&document.querySelector('.univer-app-news-gap')&&document.querySelector('.univer-app-news-pager-top a[href=\"/news/student/3\"]')?'direct':''") == "direct", "unfiltered news offer direct first-five and last-page links with an ellipsis", results);
+            Check(await AutomationController.EvaluateAsync(main, "Array.from(document.querySelectorAll('.univer-app-news-pager-top>a:not(.univer-app-news-step)')).map(a=>a.textContent).join(',')==='1,2,3,4,5,20'&&document.querySelector('.univer-app-news-gap')&&document.querySelector('.univer-app-news-pager-top a[href=\"/news/student/3\"]')?'direct':''") == "direct", "unfiltered news offer direct first-five and last-page links with an ellipsis", results);
             using (var client = main.GetDevToolsClient()) File.WriteAllBytes(Path.Combine(qa, "news-unfiltered.png"), (await client.Page.CaptureScreenshotAsync()).Data);
             var second = NewsQaPage(NewsQaRow("07", "Новость QA 3") + NewsQaRow("06", "Новость QA 4"), false, 2);
             var empty = NewsQaPage("", false);
@@ -91,10 +91,12 @@ namespace Univer.Desktop.UI
             await AutomationController.EvaluateAsync(main, "var from=document.querySelector('.univer-app-news-from');from.value='2026-10-06';from.dispatchEvent(new Event('input'));'filtered'");
             var until = DateTime.UtcNow.AddSeconds(4);
             while (DateTime.UtcNow < until && await AutomationController.EvaluateAsync(main, "document.querySelector('.univer-app-news-count').textContent.endsWith('из 4')?'ready':''") != "ready") await Task.Delay(100);
-            Check(await AutomationController.EvaluateAsync(main, "document.querySelectorAll('.univer-app-news-pager-top a').length===2?'two':''") == "two", "filtered news have exactly two result pages in Chromium", results);
+            Check(await AutomationController.EvaluateAsync(main, "document.querySelectorAll('.univer-app-news-pager-top a:not(.univer-app-news-step)').length===2?'two':''") == "two", "filtered news have exactly two result pages in Chromium", results);
             await AutomationController.EvaluateAsync(main, "document.querySelector('.univer-app-news-pager-top a:last-of-type').click();'second'");
             Check(await AutomationController.EvaluateAsync(main, "document.querySelector('[data-univer-results]').textContent.includes('Новость QA 3')&&document.querySelector('.univer-app-news-from').value==='2026-10-06'?'retained':''") == "retained", "second news page retains the selected dates", results);
             using (var client = main.GetDevToolsClient()) File.WriteAllBytes(Path.Combine(qa, "news-two-pages.png"), (await client.Page.CaptureScreenshotAsync()).Data);
+            var newsSizes = await AutomationController.EvaluateAsync(main, EvenControlsQa); QaTrace("qa-even-news " + newsSizes);
+            Check(newsSizes == "even", "every control of the news page has one size", results);
             await AutomationController.EvaluateAsync(main, "var from=document.querySelector('.univer-app-news-from');from.value='2026-10-08';from.dispatchEvent(new Event('input'));'narrowed'");
             await Task.Delay(400);
             Check(await AutomationController.EvaluateAsync(main, "Array.from(document.querySelectorAll('.univer-app-news-pager')).every(n=>getComputedStyle(n).display==='none')&&getComputedStyle(document.querySelector('.univer-app-news-all')).display==='none'?'hidden':''") == "hidden", "single-page filtered news hide both pagers and the all-pages button", results);

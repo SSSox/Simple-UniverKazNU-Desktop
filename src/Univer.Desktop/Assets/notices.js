@@ -138,7 +138,7 @@
         } finally { clearTimeout(timer); }
     }
     function send(result) {
-        if (typeof window.__univerNativeNotify === 'function') window.__univerNativeNotify(PREFIX + JSON.stringify(result));
+        if (typeof __univerNative === 'function') __univerNative(PREFIX + JSON.stringify(result));
     }
     // Each section, then the lists the counts point to that no read has described yet (at most three in all).
     // The last message says how many pages were read and how many failed.
@@ -183,7 +183,7 @@
         var page = location.pathname + location.search;
         var current = read(document, location.href, page, 'page', String(generation));
         current.fetching = false;
-        if (fetchSections && !fetching && typeof window.__univerNativeNotify === 'function') {
+        if (fetchSections && !fetching && typeof __univerNative === 'function') {
             var sections = [];
             document.querySelectorAll('#l3 a[href],.univer-app-tabs a[href]').forEach(function (a) {
                 var path = sitePath(a.getAttribute('href'), location.href);

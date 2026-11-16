@@ -21,7 +21,7 @@ namespace Univer.Desktop.UI
             if (selfTest || accountReview) return;
             trayMenu = new ContextMenuStrip { Font = Theme.Font(10), ShowImageMargin = false }; Theme.Style(trayMenu);
             Motion.FadeIn(trayMenu);
-            trayIcon = new NotifyIcon { Icon = Icon, Text = "Univer · КазНУ", ContextMenuStrip = trayMenu, Visible = true };
+            trayIcon = new NotifyIcon { Icon = Icon, Text = Strings.Get("appTitle", prefs.Language), ContextMenuStrip = trayMenu, Visible = true };
             trayIcon.MouseClick += (s, e) => { if (e.Button == MouseButtons.Left) RestoreFromTray(); };
             trayIcon.BalloonTipClicked += (s, e) => { var notice = noticeBalloon; noticeBalloon = false; RestoreFromTray(); if (notice) ShowNotices(); };
             trayIcon.BalloonTipClosed += (s, e) => noticeBalloon = false;
@@ -31,6 +31,7 @@ namespace Univer.Desktop.UI
         {
             if (trayMenu == null) return;
             var lang = prefs.Language;
+            trayIcon.Text = Strings.Get("appTitle", lang);
             trayMenu.Items.Clear();
             var open = new ToolStripMenuItem(Strings.Get("trayOpen", lang)) { Font = Theme.Strong(10) };
             open.Click += (s, e) => RestoreFromTray();
@@ -100,6 +101,8 @@ namespace Univer.Desktop.UI
         {
             if (m.Msg == 0x00A1) Motion.KeyboardInput = false;
             if (m.Msg == ShowWindowMessage && ShowWindowMessage != 0) { RestoreFromTray(); return; }
+            // WM_SYSCOMMAND/SC_MINIMIZE: the PIN cover goes up before the window shrinks.
+            if (m.Msg == 0x0112 && ((long)m.WParam & 0xFFF0) == 0xF020) CoverBeforeMinimize();
             // WM_SYSCOMMAND/SC_CLOSE raises FormClosing synchronously inside the default handling.
             if (m.Msg == 0x0112 && ((long)m.WParam & 0xFFF0) == 0xF060)
             {

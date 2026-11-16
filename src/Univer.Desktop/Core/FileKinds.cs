@@ -48,19 +48,31 @@ namespace Univer.Desktop.Core
             return (unit == 0 ? value.ToString("0") : value.ToString(value < 10 ? "0.0" : "0")) + " " + units[unit];
         }
         // Search ignores case and treats "ё" as "е", like the site menu and document filters.
-        public static bool Matches(DownloadRecord item, string query, FileKind? kind, string source = null)
+        // Files saved from the site's own pages rather than from a course; the course filter lists them apart.
+        public static bool PageSource(string source)
+        {
+            return System.Text.RegularExpressions.Regex.IsMatch((source ?? "").Trim(), @"^(журнал посещ|журнал успев|новост|сегодня|мой кабинет|сообщени|информационный бюллетень|жаңалық|бүгін|менің кабинетім|хабарлама|ақпараттық бюллетень|news|today|my account|messages|information bulletin|attendance)", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        }
+        private static string Fold(string text) { return (text ?? "").ToLowerInvariant().Replace('ё', 'е'); }
+        // A search as its words, split once for a whole list; an empty search has none.
+        public static string[] Words(string query)
+        {
+            var folded = Fold(query).Trim();
+            return folded.Length == 0 ? new string[0] : Regex.Split(folded, @"\s+");
+        }
+        // A filter's kind: Other also holds the types without a chip of their own.
+        public static bool Is(FileKind actual, FileKind wanted)
+        {
+            return wanted == FileKind.Other ? actual == FileKind.Other || actual == FileKind.Text || actual == FileKind.Archive || actual == FileKind.Html : actual == wanted;
+        }
+        public static bool Matches(DownloadRecord item, string query, FileKind? kind, string source = null) { return Matches(item, Words(query), kind, source); }
+        public static bool Matches(DownloadRecord item, string[] words, FileKind? kind, string source = null)
         {
             if (source != null && !string.Equals((item.Source ?? "").Trim(), source, StringComparison.CurrentCultureIgnoreCase)) return false;
-            if (kind.HasValue)
-            {
-                var actual = Of(item.FileName);
-                if (kind == FileKind.Other ? actual != FileKind.Other && actual != FileKind.Text && actual != FileKind.Archive && actual != FileKind.Html : actual != kind) return false;
-            }
-            if (string.IsNullOrWhiteSpace(query)) return true;
-            Func<string, string> fold = s => (s ?? "").ToLowerInvariant().Replace('ё', 'е');
-            var words = Regex.Split(fold(query).Trim(), @"\s+");
-            var text = fold(item.FileName + " " + item.Source);
-            return words.All(w => text.Contains(w));
+            if (kind.HasValue && !Is(Of(item.FileName), kind.Value)) return false;
+            if (words.Length == 0) return true;
+            var text = Fold(item.FileName + " " + item.Source);
+            return words.All(word => text.Contains(word));
         }
     }
 }

@@ -22,6 +22,27 @@ namespace Univer.Desktop.Tests
             guard.Retry(); Assert.True(guard.TryLogin("d", 700001));
         }
         [Fact]
+        public void Retry_WithAWrongPassword_NeverExceedsThreeLoginsInTenMinutes()
+        {
+            var guard = new SessionGuard(); guard.TryLogin("a", 0); guard.LoginVisible("b", 1000);
+            guard.TryLogin("b", 61000); guard.LoginVisible("c", 62000); Assert.True(guard.Stopped);
+            // Retry lifts the stop for one more try; that refusal stops again at once, without a minute's grace.
+            guard.Retry(); Assert.True(guard.TryLogin("c", 63000)); guard.LoginVisible("d", 64000); Assert.True(guard.Stopped);
+            var sent = 0;
+            for (var press = 0; press < 10; press++) { guard.Retry(); if (guard.TryLogin("e" + press, 65000 + press)) sent++; }
+            Assert.Equal(0, sent);
+            // The budget refills only as old attempts leave the ten-minute window.
+            Assert.True(guard.TryLogin("f", 600001));
+        }
+        [Fact]
+        public void Retry_KeepsTheReauthenticationBudget()
+        {
+            var guard = new SessionGuard();
+            for (var i = 0; i < 3; i++) { Assert.True(guard.TryReauth("c" + i, "d", i * 10)); guard.ReauthResult("c" + i, true); }
+            guard.Retry(); Assert.False(guard.TryReauth("c9", "d", 100));
+            Assert.True(guard.TryReauth("c9", "d", 60001));
+        }
+        [Fact]
         public void LoginVisible_RefusalAfterAConfirmedSignIn_StartsCountingAgain()
         {
             var guard = new SessionGuard(); guard.TryLogin("a", 0); guard.LoginVisible("b", 1000);

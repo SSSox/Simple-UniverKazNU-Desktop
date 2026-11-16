@@ -17,7 +17,7 @@ function page(content, url) {
   Object.defineProperty(w.document, 'readyState', { value: 'complete', configurable: true });
   w.HTMLElement.prototype.getClientRects = function () { return this.closest('[hidden]') ? [] : [{ width: 100, height: 30 }]; };
   w.jQuery = () => ({ bind() {} });
-  w.__univerNativeNotify = () => {};
+  w.__univerNative = () => {};
   scripts.forEach(script => w.eval(script));
   return { w, d: w.document, close: () => w.close() };
 }
@@ -63,7 +63,7 @@ test('grade summary opens the matching course; completed lessons switch to the n
   assert.match(body.textContent,/Алгебра/); assert.doesNotMatch(body.textContent,/Физика/);
   instant=new Date(2026,9,12,9,50).getTime(); await tick();
   assert.match(body.textContent,/Сегодняшние пары закончились/); assert.match(body.textContent,/Физика/); assert.doesNotMatch(body.textContent,/Алгебра/);
-  const list=body.querySelector('ol'); await tick(); assert.equal(body.querySelector('ol'),list); assert.equal(reads,2);
+  const list=body.querySelector('ol'); await tick(); assert.equal(body.querySelector('ol'),list); assert.equal(reads,3);
   apply(p,false); assert.equal(tick,null); p.close();
 });
 
@@ -88,13 +88,13 @@ test('overview completion fades once; Show all reveals immediately and cancels o
   p.w.HTMLElement.prototype.animate=function(frames,options){const r={node:this,frames,options,cancel(){this.cancelled=true;this.oncancel?.();}};records.push(r);return r;};
   apply(p); await new Promise(r=>setTimeout(r,30));
   const body=p.d.querySelector('.univer-app-overview-grades .univer-app-overview-body');
-  const ready=records.filter(r=>r.node===body); assert.equal(ready.length,1); assert.match(ready[0].frames[0].transform,/translateY.*scale/);
+  const ready=records.filter(r=>r.node===body); assert.equal(ready.length,1); assert.match(ready[0].frames[0].transform,/translateY/);
   apply(p); await new Promise(r=>setTimeout(r,20)); assert.equal(records.filter(r=>r.node===body).length,1);
   const button=body.querySelector('button'),items=Array.from(body.querySelectorAll('li')),extra=items.filter(li=>li.hidden);
   button.focus(); button.dispatchEvent(new p.w.MouseEvent('click',{bubbles:true,detail:1}));
   assert.ok(extra.length); assert.ok(items.every(li=>!li.hidden)); assert.equal(p.d.activeElement,button);
   const entries=records.filter(r=>extra.includes(r.node)); assert.equal(entries.length,extra.length);
-  assert.ok(entries.every(r=>/translateY.*scale/.test(r.frames[0].transform)&&r.options.duration+r.options.delay<300));
+  assert.ok(entries.every(r=>/translateY/.test(r.frames[0].transform)&&r.options.duration+r.options.delay<300));
   button.dispatchEvent(new p.w.MouseEvent('click',{bubbles:true,detail:1})); assert.ok(extra.every(li=>li.hidden)); assert.ok(entries.every(r=>r.cancelled));
   const before=records.length; button.click(); assert.ok(items.every(li=>!li.hidden)); assert.equal(records.length,before);
   apply(p,false); assert.equal(ready[0].cancelled,true); assert.equal(p.d.querySelector('.univer-app-overview-grid'),null); p.close();
@@ -349,7 +349,7 @@ test('services navigation builds nothing on a services page without the content 
   const dom = new JSDOM('<table class="wrappertable"><tr id="l1"><td class="header">КазНУ</td></tr></table>', { url: 'https://univer.kaznu.kz/ssc/', runScripts: 'outside-only' });
   const w = dom.window; Object.defineProperty(w.document, 'readyState', { value: 'complete', configurable: true });
   w.HTMLElement.prototype.getClientRects = function () { return [{ width: 100, height: 30 }]; };
-  w.jQuery = () => ({ bind() {} }); w.__univerNativeNotify = () => {};
+  w.jQuery = () => ({ bind() {} }); w.__univerNative = () => {};
   scripts.forEach(script => w.eval(script));
   let navs = 0; const make = w.document.createElement.bind(w.document);
   w.document.createElement = (name, ...rest) => { if (String(name).toLowerCase() === 'nav') navs++; return make(name, ...rest); };

@@ -4,13 +4,14 @@
     'use strict';
     if (location.origin !== 'https://univer.kaznu.kz' || window.__univerShortcutsV1) return;
     var common = window.__univerCommonV1, cleanText = common.clean;
-    var pins = [], pinsKey = '[]', tileOrder = [], orderKey = '[]', draggedTile = null, language = 'ru', active = false, owned = [], pinButtons = new Set(), menuRows = new Map(), style = null;
+    var pins = [], pinsKey = '[]', tileOrder = [], orderKey = '[]', hiddenTiles = [], hiddenKey = '[]', hold = null, lifted = null, trash = null, adding = null, language = 'ru', active = false, owned = [], pinButtons = new Set(), menuRows = new Map(), style = null;
     var moodlePath = '/user/loginMoodle';
     // Study tiles in the order students look for them; the site menu supplies their real links and names.
     // The news page menu has no study sections, so the observed routes are used directly there.
     var fixed = [['schedule', '/student/myschedule/'], ['grades', '/student/attendance/full/'], ['transcript', '/student/transcript/'], ['umkd', '/student/umkd/']];
         // Tiles open Главная and Бакалавр; Е-услуги is the services desk reached from its own tile.
-    var homePages = /^\/news\/student\/?$|^\/student\/bachelor\/?$/i;
+    // The site lands on /news/student/1/ after sign-in: page 1 of the news is the home page as well.
+    var homePages = /^\/news\/student(?:\/1)?\/?$|^\/student\/bachelor\/?$/i;
     var css = `
 /* Home and Bachelor share a content gutter; tiles, headings and panels start on one line. */
 :root.univer-mobile.univer-app-home { --u-home-gutter:24px; }
@@ -26,22 +27,10 @@
 @media (max-width:640px) { :root.univer-mobile #l4 td.univer-app-credentials-host .univer-app-credential { grid-template-columns:minmax(0,1fr); } }
 :root.univer-mobile .univer-app-quick .univer-app-tile { position:relative; display:flex; min-width:0; }
 :root.univer-mobile .univer-app-quick .univer-app-tile>a { flex:1 1 auto; min-width:0; overflow-wrap:break-word; }
-:root.univer-mobile .univer-app-quick .univer-app-tile.univer-app-pinned>a { padding-right:46px!important; }
 /* The icon already says where a tile leads; only links that leave the site keep a small outward arrow. */
 :root.univer-mobile .univer-app-quick .univer-app-tile>a::after { content:none!important; }
 :root.univer-mobile .univer-app-quick .univer-app-tile.univer-app-external .univer-app-tile-label::after { content:'↗'; margin-left:6px; color:var(--u-muted,#5b6b7c); font-weight:400; }
-:root.univer-mobile .univer-app-unpin { position:absolute; top:50%; right:10px; display:grid; place-items:center; width:28px; height:28px; margin:0!important; padding:0!important; border:0!important; border-radius:8px!important; background:transparent!important; color:var(--u-muted,#5b6b7c)!important; cursor:pointer; transform:translateY(-50%); }
-:root.univer-mobile .univer-app-unpin::before { content:''; width:14px; height:14px; background:currentColor; -webkit-mask:var(--univer-close-icon) center/contain no-repeat; }
-:root.univer-mobile .univer-app-tile>a { padding-right:40px!important; }
-:root.univer-mobile .univer-app-tile.univer-app-pinned>a { padding-right:72px!important; }
-:root.univer-mobile .univer-app-reorder { position:absolute; right:8px; top:50%; transform:translateY(-50%); width:28px; height:28px; padding:0!important; margin:0!important; border:0!important; border-radius:6px; background:transparent!important; color:var(--u-muted,#5b6b7c)!important; cursor:grab; font-size:20px!important; touch-action:none; }
-:root.univer-mobile .univer-app-pinned .univer-app-reorder { right:40px; }
-:root.univer-mobile .univer-app-reorder:focus-visible { outline:2px solid var(--u-brand,#1b5fa6); outline-offset:1px; }
-:root.univer-mobile .univer-app-reorder::before { content:''; display:block; width:16px; height:16px; margin:auto; background:currentColor; -webkit-mask:var(--univer-reorder-icon) center/contain no-repeat; }
-:root.univer-mobile .univer-app-dragging { opacity:.55; }
-:root.univer-mobile .univer-app-drop-target { outline:2px solid var(--u-brand,#1b5fa6); outline-offset:2px; }
 :root.univer-mobile .univer-app-after-credentials { display:none!important; }
-:root.univer-mobile .univer-app-unpin:hover, :root.univer-mobile .univer-app-unpin:focus-visible { background:var(--u-surface-2,#f3f6f9)!important; color:var(--u-danger,#b42318)!important; outline:2px solid var(--u-brand,#1b5fa6); outline-offset:-2px; }
 :root.univer-mobile #tools .univer-app-pin-row { display:flex; align-items:center; width:100%; min-width:0; }
 :root.univer-mobile #tools .univer-app-pin-row>a { flex:1 1 auto; min-width:0; display:flex!important; align-items:center; white-space:normal!important; overflow-wrap:anywhere; text-indent:0!important; }
 :root.univer-mobile #tools .univer-app-menu-label { display:block; min-width:0; }
@@ -55,7 +44,7 @@
 :root.univer-mobile .univer-app-useful li { display:flex!important; align-items:center; margin:0!important; padding:0 4px 0 0!important; list-style:none!important; border:1px solid var(--u-line,#dfe5ec); border-radius:8px; background:#fff; }
 :root.univer-mobile .univer-app-useful li:hover, :root.univer-mobile .univer-app-useful li:focus-within { border-color:var(--u-brand-line,#bfd3ea); box-shadow:var(--u-shadow); }
 :root.univer-mobile .univer-app-useful li[hidden] { display:none!important; }
-:root.univer-mobile .univer-app-useful li>a { flex:1 1 auto; min-width:0; display:flex!important; align-items:center; gap:10px; padding:7px 8px!important; border-radius:9px; color:var(--u-ink,#16283b)!important; font-size:14px!important; line-height:1.35!important; text-decoration:none; }
+:root.univer-mobile .univer-app-useful li>a { flex:1 1 auto; min-width:0; display:flex!important; align-items:center; gap:10px; padding:7px 8px!important; border-radius:8px; color:var(--u-ink,#16283b)!important; font-size:14px!important; line-height:1.35!important; text-decoration:none; }
 :root.univer-mobile .univer-app-useful li>a:hover, :root.univer-mobile .univer-app-useful li>a:focus-visible { color:var(--u-brand,#1b5fa6)!important; outline:none; }
 :root.univer-mobile .univer-app-useful li>a:focus-visible { box-shadow:inset 0 0 0 2px var(--u-brand,#1b5fa6); }
 :root.univer-mobile .univer-app-link-icon { flex:0 0 auto; display:grid; place-items:center; width:30px; height:30px; border-radius:6px; background:var(--tint,#1b5fa6); box-shadow:none; }
@@ -73,23 +62,24 @@
 /* Бакалавр: the two GPA figures as the page's lead. */
 :root.univer-mobile .univer-app-gpa { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,240px)); gap:12px; margin:4px 0 20px; }
 :root.univer-mobile .univer-app-gpa>div { padding:14px 18px; border:1px solid var(--u-line,#dfe5ec); border-radius:12px; background:#fff; box-shadow:var(--u-shadow); }
-:root.univer-mobile .univer-app-gpa b { display:block; color:var(--u-ink,#16283b); font-size:28px; line-height:1.15; font-weight:650; font-variant-numeric:tabular-nums; }
+:root.univer-mobile .univer-app-gpa b { display:block; color:var(--u-ink,#16283b); font-size:28px; line-height:1.15; font-weight:600; font-variant-numeric:tabular-nums; }
 :root.univer-mobile .univer-app-gpa span { display:block; margin-top:2px; color:var(--u-muted,#5b6b7c); font-size:13px; }
 :root.univer-mobile .univer-app-gpa-source { display:none!important; }
 :root.univer-mobile .univer-app-gpa-source-table { display:none!important; }
 /* Е-услуги: one switch between the catalogue and the student's own requests on every services page. */
 :root.univer-mobile .univer-app-ssc-nav { display:inline-flex; gap:4px; margin:16px 0 18px; padding:4px; border:1px solid var(--u-line,#dfe5ec); border-radius:12px; background:#fff; }
 :root.univer-mobile .univer-app-ssc-nav[hidden] { display:none!important; }
-:root.univer-mobile .univer-app-ssc-nav a { display:inline-flex; align-items:center; gap:8px; min-height:36px; padding:0 14px; border-radius:9px; color:var(--u-muted,#5b6b7c)!important; font-size:14px; font-weight:600; text-decoration:none!important; }
+:root.univer-mobile .univer-app-ssc-nav a { display:inline-flex; align-items:center; gap:8px; min-height:36px; padding:0 14px; border-radius:8px; color:var(--u-muted,#5b6b7c)!important; font-size:14px; font-weight:500; text-decoration:none!important; }
 :root.univer-mobile .univer-app-ssc-nav a::before { content:''; width:18px; height:18px; background:currentColor; -webkit-mask:var(--glyph) center/contain no-repeat; }
 :root.univer-mobile .univer-app-ssc-nav a:hover { background:var(--u-surface-2,#f3f6f9); color:var(--u-ink,#16283b)!important; }
 :root.univer-mobile .univer-app-ssc-nav a[aria-current=page] { background:var(--u-brand-soft,#e9f1fb); color:var(--u-brand,#1b5fa6)!important; }
 :root.univer-mobile .univer-app-ssc-nav a:focus-visible { outline:2px solid var(--u-brand,#1b5fa6); outline-offset:1px; }
 :root.univer-mobile #l4 :is(.ts,.univer-app-desk-cards):has(>a.univer-app-service-card) { display:flex!important; flex-wrap:wrap; gap:12px; margin:0 0 16px; }
-:root.univer-mobile #l4 a.univer-app-desk-card { border:1px solid var(--u-line,#dfe5ec); border-radius:14px; background:#fff; box-shadow:var(--u-shadow); }
+:root.univer-mobile #l4 a.univer-app-desk-card { border:1px solid var(--u-line,#dfe5ec); border-radius:12px; background:#fff; box-shadow:var(--u-shadow); }
 :root.univer-mobile #l4 a.univer-app-desk-card:hover { border-color:var(--u-brand-line,#bfd3ea); }
 :root.univer-mobile #l4 td.ct.univer-app-panel-head:not(:first-child), :root.univer-mobile #l4 tr:not(:first-child)>td.ct.univer-app-panel-head { border-top:1px solid var(--u-line,#dfe5ec)!important; }
-:root.univer-mobile #l4 :is(.ts>a,a).univer-app-service-card { flex:1 1 300px; box-sizing:border-box; height:auto!important; display:grid!important; grid-template-columns:44px minmax(0,1fr); grid-template-rows:auto auto; column-gap:14px; align-items:center; min-height:76px; padding:14px 18px!important; text-align:start!important; text-decoration:none!important; color:var(--u-ink,#16283b)!important; font-size:16px!important; font-weight:650; }
+:root:root:root:root.univer-mobile #l4 table.mt.univer-app-panel>tbody>tr>td.univer-app-panel-head { padding:12px 18px!important; }
+:root.univer-mobile #l4 :is(.ts>a,a).univer-app-service-card { flex:1 1 300px; box-sizing:border-box; height:auto!important; display:grid!important; grid-template-columns:44px minmax(0,1fr); grid-template-rows:auto auto; column-gap:14px; align-items:center; min-height:76px; padding:14px 18px!important; text-align:start!important; text-decoration:none!important; color:var(--u-ink,#16283b)!important; font-size:16px!important; font-weight:600; }
 :root.univer-mobile #l4 :is(.ts>a,a).univer-app-service-card>.univer-app-link-icon { grid-row:1/3; width:44px; height:44px; border-radius:12px; }
 :root.univer-mobile #l4 :is(.ts>a,a).univer-app-service-card>.univer-app-link-icon::before { width:24px; height:24px; }
 :root.univer-mobile #l4 :is(.ts>a,a).univer-app-service-card>:not(.univer-app-link-icon) { grid-column:2; }
@@ -101,52 +91,56 @@
 :root.univer-mobile .univer-app-status { white-space:nowrap; }
 :root.univer-mobile .univer-app-status::before { content:''; display:inline-block; width:8px; height:8px; margin-right:8px; border-radius:50%; background:var(--u-muted,#5b6b7c); vertical-align:1px; }
 :root.univer-mobile .univer-app-status[data-univer-tone=done]::before { background:#15803d; }
-:root.univer-mobile .univer-app-status[data-univer-tone=done] { color:#166534!important; font-weight:600; }
+:root.univer-mobile .univer-app-status[data-univer-tone=done] { color:#166534!important; font-weight:500; }
 :root.univer-mobile .univer-app-status[data-univer-tone=wait]::before { background:#d97706; }
 :root.univer-mobile .univer-app-status[data-univer-tone=fail]::before { background:#b42318; }
-:root.univer-mobile .univer-app-status[data-univer-tone=fail] { color:#b42318!important; font-weight:600; }
+:root.univer-mobile .univer-app-status[data-univer-tone=fail] { color:#b42318!important; font-weight:500; }
 /* Print and Wi-Fi sign-in as its own panel: login visible, password hidden until shown, both copyable. */
 :root.univer-mobile .univer-app-credentials-source { display:none!important; }
 :root.univer-mobile #l4 td.univer-app-credentials-host { font-size:0!important; }
 :root.univer-mobile #l4 td.univer-app-credentials-host>:not(.univer-app-credentials) { display:none!important; }
 :root.univer-mobile #l4 td.univer-app-credentials-host>.univer-app-credentials { margin:0; padding:0; border:0; box-shadow:none; font-size:14px; }
 :root.univer-mobile #l4 td.univer-app-credentials-host .univer-app-credential:first-child { border-top:0; }
-:root.univer-mobile .univer-app-credentials { margin:8px 0 16px; padding:16px 20px; border:1px solid var(--u-line,#dfe5ec); border-radius:14px; background:#fff; box-shadow:var(--u-shadow); }
-:root.univer-mobile .univer-app-credentials>h3 { display:flex; align-items:center; gap:12px; margin:0 0 12px!important; color:var(--u-ink,#16283b)!important; font-size:16px!important; font-weight:650; }
-:root.univer-mobile .univer-app-credentials>h3>.univer-app-link-icon { width:32px; height:32px; border-radius:9px; }
+:root.univer-mobile .univer-app-credentials { margin:8px 0 16px; padding:16px 20px; border:1px solid var(--u-line,#dfe5ec); border-radius:12px; background:#fff; box-shadow:var(--u-shadow); }
+:root.univer-mobile .univer-app-credentials>h3 { display:flex; align-items:center; gap:12px; margin:0 0 12px!important; color:var(--u-ink,#16283b)!important; font-size:16px!important; font-weight:600; }
+:root.univer-mobile .univer-app-credentials>h3>.univer-app-link-icon { width:32px; height:32px; border-radius:8px; }
 :root.univer-mobile .univer-app-credential { display:grid; grid-template-columns:110px minmax(0,1fr) auto; align-items:center; gap:12px; padding:10px 0; border-top:1px solid var(--u-line,#dfe5ec); }
 :root.univer-mobile .univer-app-credential-label { color:var(--u-muted,#5b6b7c); font-size:13px; }
-:root.univer-mobile .univer-app-credential-value { color:var(--u-ink,#16283b); font-size:15px; font-weight:600; font-variant-numeric:tabular-nums; letter-spacing:.01em; overflow-wrap:anywhere; }
+:root.univer-mobile .univer-app-credential-value { color:var(--u-ink,#16283b); font-size:15px; font-weight:500; font-variant-numeric:tabular-nums;  overflow-wrap:anywhere; }
 :root.univer-mobile .univer-app-credential-hidden { letter-spacing:.18em; color:var(--u-muted,#5b6b7c); }
 :root.univer-mobile .univer-app-credential-actions { display:flex; gap:8px; }
-:root.univer-mobile .univer-app-credential-button { min-height:34px; padding:0 14px!important; border:1px solid var(--u-line,#dfe5ec)!important; border-radius:8px!important; background:#fff!important; color:var(--u-ink,#16283b)!important; font-size:13px!important; font-weight:600; cursor:pointer; }
+:root.univer-mobile .univer-app-credential-button { min-height:34px; padding:0 14px!important; border:1px solid var(--u-line,#dfe5ec)!important; border-radius:8px!important; background:#fff!important; color:var(--u-ink,#16283b)!important; font-size:13px!important; font-weight:500; cursor:pointer; }
 :root.univer-mobile .univer-app-credential-button:hover { background:var(--u-surface-2,#f3f6f9)!important; }
 :root.univer-mobile .univer-app-credential-button:focus-visible { outline:2px solid var(--u-brand,#1b5fa6); outline-offset:2px; }
 :root.univer-mobile .univer-app-credential-button.univer-app-copied { border-color:#86c7a0!important; background:#ebf8f1!important; color:#166534!important; }
 @media (max-width:640px) { :root.univer-mobile .univer-app-credential { grid-template-columns:minmax(0,1fr); gap:6px; } }
 /* Бакалавр and Е-услуги summaries: today's classes, grades and the latest requests as panels. */
 :root.univer-mobile .univer-app-overview-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(340px,1fr)); gap:16px; margin:0 0 16px; align-items:start; }
-:root.univer-mobile .univer-app-overview { margin:0 0 16px; border:1px solid var(--u-line,#dfe5ec); border-radius:14px; background:#fff; box-shadow:var(--u-shadow); overflow:hidden; }
+:root.univer-mobile .univer-app-overview { margin:0 0 16px; border:1px solid var(--u-line,#dfe5ec); border-radius:12px; background:#fff; box-shadow:var(--u-shadow); overflow:hidden; }
 :root.univer-mobile .univer-app-overview-grid>.univer-app-overview { margin:0; }
 :root.univer-mobile .univer-app-overview-head { display:flex; align-items:center; gap:12px; padding:14px 20px; border-bottom:1px solid var(--u-line,#dfe5ec); background:var(--u-surface-2,#f7f9fb); }
-:root.univer-mobile .univer-app-overview-head>h2 { flex:1 1 auto; margin:0!important; color:var(--u-ink,#16283b)!important; font-size:16px!important; font-weight:650; }
+:root.univer-mobile .univer-app-overview-head>h2 { flex:1 1 auto; margin:0!important; color:var(--u-ink,#16283b)!important; font-size:16px!important; font-weight:600; }
 :root.univer-mobile .univer-app-overview-link { color:var(--u-brand,#1b5fa6)!important; font-size:13px!important; font-weight:600; text-decoration:none!important; white-space:nowrap; }
 :root.univer-mobile .univer-app-overview-link:hover { text-decoration:underline!important; }
 :root.univer-mobile .univer-app-overview-body { padding:12px 20px 16px; }
 :root.univer-mobile .univer-app-overview-caption { margin:0 0 8px!important; color:var(--u-muted,#5b6b7c); font-size:13px!important; }
+/* "What now" above today's list: the countdown to the next class (teal, as its badge) or the class under way (blue). */
+:root.univer-mobile .univer-app-overview-upnext { display:flex; flex-direction:column; gap:2px; margin:0 0 6px!important; padding:10px 14px; border-radius:10px; background:var(--u-teal-soft,#e3f3ef); }
+:root.univer-mobile .univer-app-overview-upnext>b { color:var(--u-teal,#0f766e); font-size:15px; font-weight:600; line-height:1.35; }
+:root.univer-mobile .univer-app-overview-upnext>span { color:var(--u-ink,#16283b); font-size:13px; line-height:1.4; }
+:root.univer-mobile .univer-app-overview-upnext[data-state=now] { background:var(--u-brand-soft,#e9f1fb); }
+:root.univer-mobile .univer-app-overview-upnext[data-state=now]>b { color:var(--u-brand,#1b5fa6); }
 :root.univer-mobile .univer-app-overview-empty { margin:4px 0!important; color:var(--u-muted,#5b6b7c); }
 :root.univer-mobile .univer-app-overview :is(ol,ul) { margin:0!important; padding:0!important; list-style:none!important; }
 :root.univer-mobile .univer-app-overview li { display:flex; align-items:flex-start; gap:14px; margin:0!important; padding:10px 0!important; border-top:1px solid var(--u-line,#dfe5ec); list-style:none!important; }
 :root.univer-mobile .univer-app-overview li:first-child { border-top:0; }
 :root.univer-mobile .univer-app-overview-lesson>time { flex:0 0 96px; padding-top:1px; color:var(--u-muted,#5b6b7c); font-size:13px; font-variant-numeric:tabular-nums; }
 :root.univer-mobile .univer-app-overview-lesson-main { flex:1 1 auto; min-width:0; }
-:root.univer-mobile .univer-app-overview-lesson-main>b { display:block; color:var(--u-ink,#16283b); font-size:14px; font-weight:600; }
+:root.univer-mobile .univer-app-overview-lesson-main>b { display:block; color:var(--u-ink,#16283b); font-size:14px; font-weight:500; }
 :root.univer-mobile .univer-app-overview-lesson-main>span { display:block; margin-top:2px; color:var(--u-muted,#5b6b7c); font-size:13px; }
 :root.univer-mobile .univer-app-overview-done { opacity:.6; }
 :root.univer-mobile .univer-app-overview-now { margin:0 -12px!important; padding:10px 12px!important; border-radius:10px; background:var(--u-brand-soft,#e9f1fb); border-top-color:transparent!important; }
-:root.univer-mobile .univer-app-overview-state { flex:0 0 auto; padding:2px 10px; border-radius:999px; background:var(--u-surface-2,#f3f6f9); color:var(--u-muted,#5b6b7c); font-size:12px; font-weight:600; }
-:root.univer-mobile .univer-app-overview-now .univer-app-overview-state { background:var(--u-brand,#1b5fa6); color:#fff; }
-:root.univer-mobile .univer-app-overview-next .univer-app-overview-state { background:var(--u-teal-soft,#e3f3ef); color:var(--u-teal,#0f766e); }
+:root.univer-mobile .univer-app-overview-state { flex:0 0 auto; padding:2px 10px; border-radius:6px; background:var(--u-surface-2,#f3f6f9); color:var(--u-muted,#5b6b7c); font-size:12px; font-weight:500; }
 :root.univer-mobile .univer-app-overview-courses>li { align-items:center; gap:12px; }
 :root.univer-mobile .univer-app-overview-courses>li>.univer-app-overview-course-link { flex:1 1 160px; min-width:0; color:var(--u-brand,#1b5fa6)!important; font-size:14px; font-weight:500; text-decoration:none; }
 :root.univer-mobile .univer-app-overview-course-link:hover { text-decoration:underline; }
@@ -155,19 +149,19 @@
 :root.univer-mobile .univer-app-overview-more { display:block; width:100%; margin:8px 0 0; min-height:34px; border:1px solid var(--u-line,#dfe5ec)!important; border-radius:8px!important; background:#fff!important; color:var(--u-brand,#1b5fa6)!important; font-size:13px!important; font-weight:600; cursor:pointer; }
 :root.univer-mobile .univer-app-overview-more:hover { background:var(--u-brand-soft,#e9f1fb)!important; }
 :root.univer-mobile .univer-app-overview li[hidden] { display:none!important; }
-:root.univer-mobile .univer-app-overview-next-day { margin:10px 0 2px!important; color:var(--u-ink,#16283b); font-size:13px!important; font-weight:600; }
-:root.univer-mobile .univer-app-overview-request { display:flex; align-items:center; gap:12px; width:100%; margin:-6px -10px; padding:6px 10px; border-radius:9px; color:inherit!important; text-decoration:none!important; }
+:root.univer-mobile .univer-app-overview-next-day { margin:10px 0 2px!important; color:var(--u-ink,#16283b); font-size:13px!important; font-weight:500; }
+:root.univer-mobile .univer-app-overview-request { display:flex; align-items:center; gap:12px; width:100%; margin:-6px -10px; padding:6px 10px; border-radius:8px; color:inherit!important; text-decoration:none!important; }
 :root.univer-mobile .univer-app-overview-request:hover { background:var(--u-brand-soft,#e9f1fb); }
 :root.univer-mobile .univer-app-overview-request:focus-visible { outline:2px solid var(--u-brand,#1b5fa6); outline-offset:0; }
 :root.univer-mobile .univer-app-overview-request>.univer-app-status { margin-left:auto; }
-:root.univer-mobile .univer-app-overview-score { position:relative; display:inline-flex; align-items:baseline; gap:6px; min-width:84px; padding:6px 10px 9px; border:1px solid var(--u-line,#dfe5ec); border-radius:9px; overflow:hidden; }
+:root.univer-mobile .univer-app-overview-score { position:relative; display:inline-flex; align-items:baseline; gap:6px; min-width:84px; padding:6px 10px 9px; border:1px solid var(--u-line,#dfe5ec); border-radius:8px; overflow:hidden; }
 :root.univer-mobile .univer-app-overview-score-label { color:var(--u-muted,#5b6b7c); font-size:12px; }
-:root.univer-mobile .univer-app-overview-score-value { color:var(--u-ink,#16283b); font-size:15px; font-weight:650; font-variant-numeric:tabular-nums; }
+:root.univer-mobile .univer-app-overview-score-value { color:var(--u-ink,#16283b); font-size:15px; font-weight:600; font-variant-numeric:tabular-nums; }
 :root.univer-mobile .univer-app-overview-score-bar { position:absolute; left:0; bottom:0; height:3px; width:var(--univer-score); background:var(--u-teal,#0f766e); }
 :root.univer-mobile .univer-app-overview-requests>li { align-items:center; }
 /* Two large study tabs; Е-услуги lives on the home screen as a tile. */
 :root.univer-mobile .univer-app-tabs>a.univer-app-tab-hidden { display:none!important; }
-:root.univer-mobile .univer-app-tabs>a.univer-app-tab-icon { height:44px!important; padding:0 20px!important; border-radius:10px!important; font-size:15px!important; font-weight:600!important; }
+:root.univer-mobile .univer-app-tabs>a.univer-app-tab-icon { height:44px!important; padding:0 20px!important; border-radius:10px!important; font-size:15px!important; font-weight:500!important; }
 :root.univer-mobile .univer-app-tabs>a.univer-app-tab-icon::before { width:20px!important; height:20px!important; }
 :root.univer-mobile .univer-app-tabs>a.univer-app-tab-icon:hover { background:var(--u-brand-soft,#e9f1fb)!important; color:var(--u-brand,#1b5fa6)!important; box-shadow:inset 0 0 0 1px var(--u-brand-line,#bfd3ea); }
 :root.univer-mobile .univer-app-tabs>a.univer-app-tab-icon.active { background:var(--u-brand,#1b5fa6)!important; color:#fff!important; box-shadow:0 1px 2px rgba(16,40,70,.15); }
@@ -180,11 +174,11 @@
 :root.univer-mobile #l4 table.univer-app-request-table tr[id] { cursor:pointer; }
 :root.univer-mobile #l4 table.univer-app-request-table tr[id]:hover>td { background:var(--u-brand-soft,#e9f1fb)!important; }
 /* Titled panels for the site's own sections on Бакалавр and Е-услуги. */
-:root.univer-mobile #l4 table.mt.univer-app-panel { display:block!important; width:auto!important; margin:0 0 16px!important; overflow:hidden; background:#fff!important; border:1px solid var(--u-line,#dfe5ec)!important; border-radius:14px!important; box-shadow:var(--u-shadow); }
+:root.univer-mobile #l4 table.mt.univer-app-panel { display:block!important; width:auto!important; margin:0 0 16px!important; overflow:hidden; background:#fff!important; border:1px solid var(--u-line,#dfe5ec)!important; border-radius:12px!important; box-shadow:var(--u-shadow); }
 :root.univer-mobile #l4 table.mt.univer-app-panel>tbody, :root.univer-mobile #l4 table.mt.univer-app-panel>tbody>tr { display:block!important; }
 :root.univer-mobile #l4 table.mt.univer-app-panel :is(td.lt,td.rt,td.pd) { display:none!important; }
-:root.univer-mobile #l4 td.ct.univer-app-panel-head { display:flex!important; align-items:center; gap:12px; padding:14px 20px!important; border-bottom:1px solid var(--u-line,#dfe5ec)!important; background:var(--u-surface-2,#f7f9fb)!important; color:var(--u-ink,#16283b)!important; font-size:16px!important; font-weight:650!important; text-align:start!important; }
-:root.univer-mobile #l4 td.ct.univer-app-panel-head>.univer-app-link-icon { width:32px; height:32px; border-radius:9px; }
+:root.univer-mobile #l4 td.ct.univer-app-panel-head { display:flex!important; align-items:center; gap:12px; padding:14px 20px!important; border-bottom:1px solid var(--u-line,#dfe5ec)!important; background:var(--u-surface-2,#f7f9fb)!important; color:var(--u-ink,#16283b)!important; font-size:16px!important; font-weight:600!important; text-align:start!important; }
+:root.univer-mobile #l4 td.ct.univer-app-panel-head>.univer-app-link-icon { width:32px; height:32px; border-radius:8px; }
 :root.univer-mobile #l4 td.ct.univer-app-panel-body { display:block!important; padding:16px 20px!important; text-align:start!important; }
 :root.univer-mobile #l4 td.ct.univer-app-panel-body :is(h1,h2,h3,h4) { margin:0 0 8px!important; color:var(--u-ink,#16283b)!important; font-size:16px!important; line-height:1.4!important; }
 :root.univer-mobile #l4 td.ct.univer-app-panel-body :is(ol,ul):not(.univer-app-gpa) { margin:4px 0!important; padding-left:20px!important; }
@@ -199,7 +193,7 @@
 @media (min-width:1100px) { :root.univer-mobile.univer-app-home #l4 .univer-app-panel-body table.univer-app-pairs>tbody>tr { grid-template-columns:140px minmax(0,1fr) 140px minmax(0,1fr); } }
 @media (max-width:640px) { :root.univer-mobile.univer-app-home #l4 .univer-app-panel-body table.univer-app-pairs>tbody>tr { grid-template-columns:minmax(0,1fr); gap:4px; } }
 :root.univer-mobile #l4 td.ct.univer-app-panel-body img[src*="info"] { display:none!important; }
-:root.univer-mobile #l4 td.ct.univer-app-panel-body>b { display:block; margin:0 0 8px; color:var(--u-ink,#16283b); font-size:15px; font-weight:600; }
+:root.univer-mobile #l4 td.ct.univer-app-panel-body>b { display:block; margin:0 0 8px; color:var(--u-ink,#16283b); font-size:15px; font-weight:500; }
 :root.univer-mobile #l4 td.ct.univer-app-panel-body>b+br { display:none; }
 :root.univer-mobile #l4 td.ct.univer-app-panel-body ol.univer-app-list { padding:0!important; list-style:none!important; }
 :root.univer-mobile #l4 td.ct.univer-app-panel-body ol.univer-app-list>li { margin:0 0 8px!important; padding:10px 14px!important; border:1px solid #f1d6a6; border-radius:8px; background:#fff8eb; color:var(--u-ink,#16283b)!important; }
@@ -301,9 +295,9 @@
             "' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M9 4h6l-1 6 4 4H6l4-4z'/><path d='M12 14v7'/></svg>") + '")';
     }
     function text() {
-        return language === 'en' ? {useful:'Useful links', schedule:'Schedule', grades:'Grades', transcript:'Transcript', umkd:'Course materials', moodle:'Moodle LMS', eservices:'E-services', pin:'Pin to home screen', unpin:'Unpin from home screen', remove:'Unpin'} :
-            language === 'kz' ? {useful:'Пайдалы сілтемелер', schedule:'Сабақ кестесі', grades:'Үлгерім', transcript:'Транскрипт', umkd:'ОӘК', moodle:'Moodle ҚОЖ', eservices:'Е-қызметтер', pin:'Басты бетке бекіту', unpin:'Басты беттен алып тастау', remove:'Бекітуден алу'} :
-            {useful:'Полезные ссылки', schedule:'Расписание', grades:'Успеваемость', transcript:'Транскрипт', umkd:'УМКД', moodle:'СДО Moodle', eservices:'Е-услуги', pin:'Закрепить на главной', unpin:'Открепить с главной', remove:'Открепить'};
+        return language === 'en' ? {useful:'Useful links', schedule:'Schedule', grades:'Grades', transcript:'Transcript', umkd:'Course materials', moodle:'Moodle LMS', eservices:'E-services', pin:'Pin to home screen', unpin:'Unpin from home screen', remove:'Remove', add:'New section', findSection:'Find a section', close:'Close', sections:'Sections', removed:'Removed from the home screen', noMatch:'No sections found', allPinned:'Every section is already on the home screen', holdHint:'Press and hold a tile to move or remove it'} :
+            language === 'kz' ? {useful:'Пайдалы сілтемелер', schedule:'Сабақ кестесі', grades:'Үлгерім', transcript:'Транскрипт', umkd:'ОӘК', moodle:'Moodle ҚОЖ', eservices:'Е-қызметтер', pin:'Басты бетке бекіту', unpin:'Басты беттен алып тастау', remove:'Жою', add:'Жаңа бөлім', findSection:'Бөлімді табу', close:'Жабу', sections:'Бөлімдер', removed:'Басты беттен алынғандар', noMatch:'Бөлімдер табылмады', allPinned:'Барлық бөлім басты бетте', holdHint:'Жылжыту немесе жою үшін тақтайшаны басып ұстаңыз'} :
+            {useful:'Полезные ссылки', schedule:'Расписание', grades:'Успеваемость', transcript:'Транскрипт', umkd:'УМКД', moodle:'СДО Moodle', eservices:'Е-услуги', pin:'Закрепить на главной', unpin:'Открепить с главной', remove:'Удалить', add:'Новый раздел', findSection:'Найти раздел', close:'Закрыть', sections:'Разделы', removed:'Убрано с главной', noMatch:'Разделы не найдены', allPinned:'Все разделы уже на главной', holdHint:'Зажмите плитку, чтобы переставить или удалить её'};
     }
     function own(node) { owned.push(node); return node; }
     function path(href) { try { var url = new URL(href, location.href); return url.origin === location.origin ? url.pathname.replace(/\/+$/, '') || '/' : null; } catch (_) { return null; } }
@@ -317,10 +311,24 @@
         return url.origin === location.origin && !url.search && !url.hash && /^\/(student\/(myschedule|attendance\/full|transcript|umkd)|user\/loginMoodle|ssc(\/UserServiceList|\/StatementList)?)$/i.test(url.pathname.replace(/\/+$/, ''));
     }
     function pinned(href) { return pins.some(function (p) { return p.url === href; }); }
+    // The home screen's own tiles are pinned from the start; their pin takes the tile off the screen and brings it back.
+    function ownTile(href) {
+        var key = homeKey(href); if (/^\/ssc(\/|$)/i.test(key)) key = '/ssc';
+        return fixedTiles().find(function (t) { return homeKey(t.href) === key; });
+    }
+    function tileHidden(tile) { return hiddenTiles.some(function (url) { return homeKey(url) === homeKey(tile.href); }); }
+    function toggleTile(event, href) {
+        event.preventDefault(); event.stopPropagation();
+        var known = ownTile(href);
+        if (!event.isTrusted || window !== window.top || !known) return;
+        hiddenTiles = tileHidden(known) ? hiddenTiles.filter(function (url) { return homeKey(url) !== homeKey(known.href); }) : hiddenTiles.concat([known.href]);
+        hiddenKey = JSON.stringify(hiddenTiles); notify('univer-pin:' + JSON.stringify({hidden:hiddenTiles})); render();
+    }
     function notify(value) {
         // Only the pin request crosses to native code, which validates and stores it; no callable host objects.
-        if (typeof window.__univerNativeNotify === 'function') window.__univerNativeNotify(value);
-        else if (window.CefSharp) CefSharp.PostMessage(value);
+        // __univerNative exists only inside the app's document-start closure and is strict, so a built-in the page swaps
+        // cannot hand it over through .caller. Such a swap can still change what a message says (residual risk).
+        if (typeof __univerNative === 'function') __univerNative(value);
     }
     function request(event, pin, title, href) {
         event.preventDefault(); event.stopPropagation();
@@ -337,16 +345,20 @@
         });
     }
     function pinButton(li, a, title) {
-        if (fixedHomeLink(a.href)) return;
+        var home = fixedHomeLink(a.href) ? ownTile(a.href) : null;
+        if (fixedHomeLink(a.href) && !home) return;
         var button = li.querySelector(':scope>.univer-app-pin');
         if (!button) {
             button = document.createElement('button'); button.type = 'button'; button.className = 'univer-app-pin';
-            button.addEventListener('click', function (event) { request(event, button.getAttribute('aria-pressed') !== 'true', button.__univerTitle, button.__univerHref); });
+            button.addEventListener('click', function (event) {
+                if (fixedHomeLink(button.__univerHref)) toggleTile(event, button.__univerHref);
+                else request(event, button.getAttribute('aria-pressed') !== 'true', button.__univerTitle, button.__univerHref);
+            });
             // Buttons of a rebuilt useful-links box are gone from the page; keep only live ones.
             pinButtons.forEach(function (old) { if (!old.isConnected) pinButtons.delete(old); });
             a.after(button); pinButtons.add(button);
         }
-        var on = pinned(a.href), label = (on ? text().unpin : text().pin) + ': ' + title;
+        var on = home ? !tileHidden(home) : pinned(a.href), label = (on ? text().unpin : text().pin) + ': ' + title;
         button.__univerTitle = title; button.__univerHref = a.href;
         if (button.getAttribute('aria-pressed') !== String(on)) button.setAttribute('aria-pressed', String(on));
         if (button.getAttribute('aria-label') !== label) { button.setAttribute('aria-label', label); button.title = label; }
@@ -405,67 +417,267 @@
     }
     // The site's own menu link, looked up at click time: the menu can still be filling in when tiles are drawn.
     function siteLink(href) { return Array.from(document.querySelectorAll('.univer-app-menu #tools a[href]')).find(function (a) { return a.href === href || (path(href) !== null && path(a.href) === path(href) && new URL(a.href).search === new URL(href, location.href).search); }); }
+    function moving() { return window.__univerMotion !== false && !window.__univerMotionUI?.reduced?.(); }
+    function tileNodes(quick) { return Array.from(quick.querySelectorAll(':scope>.univer-app-tile')); }
+    function tileHrefs(quick) { return tileNodes(quick).map(function (node) { return node.querySelector('a').href; }); }
+    // A home tile has no handle or cross of its own: a long press lifts it, and from there it moves or goes to the bin.
+    // Shift+arrows and Delete do the same from the keyboard.
     function tile(title, href, removable) {
         var span = document.createElement('span'); span.className = 'univer-app-tile';
-        var a = document.createElement('a'), label = document.createElement('span'); a.href = href; label.className = 'univer-app-tile-label'; label.textContent = title;
+        var a = document.createElement('a'), label = document.createElement('span'); a.href = href; a.draggable = false; label.className = 'univer-app-tile-label'; label.textContent = title;
         a.append(linkIcon(href, title), label); span.appendChild(a);
         if (path(href) === null) { a.target = '_blank'; a.rel = 'noopener'; span.classList.add('univer-app-external'); }
-        a.addEventListener('click', function (event) { var original = siteLink(href); if (original) { event.preventDefault(); original.click(); } });
-        var handle = document.createElement('button'); handle.type = 'button'; handle.className = 'univer-app-reorder'; handle.draggable = true;
-        handle.title = handle.getAttribute('aria-label') || (language === 'en' ? 'Drag to reorder; arrow keys move the tile' : language === 'kz' ? 'Ретін өзгерту: сүйреңіз немесе бағыт пернелерін басыңыз' : 'Переставить: перетащите или используйте стрелки') + ': ' + title;
-        handle.setAttribute('aria-label', handle.title);
-        handle.addEventListener('click', function (event) { event.preventDefault(); event.stopPropagation(); });
-        handle.addEventListener('dragstart', function (event) {
-            if (!event.isTrusted || window !== window.top) { event.preventDefault(); return; }
-            draggedTile = span; event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('text/plain', 'univer-tile'); span.classList.add('univer-app-dragging');
+        if (removable) span.classList.add('univer-app-pinned');
+        var info = {title:title, href:href, removable:removable};
+        a.setAttribute('aria-description', text().holdHint); a.setAttribute('aria-keyshortcuts', 'Shift+ArrowLeft Shift+ArrowRight Shift+Home Shift+End Delete');
+        a.addEventListener('click', function (event) {
+            // The click that ends a long press is not a click on the tile.
+            if (span.__univerHeld) { span.__univerHeld = false; event.preventDefault(); event.stopImmediatePropagation(); return; }
+            var original = siteLink(href); if (original) { event.preventDefault(); original.click(); }
         });
-        handle.addEventListener('dragend', function () { draggedTile = null; document.querySelectorAll('.univer-app-dragging,.univer-app-drop-target').forEach(function (node) { node.classList.remove('univer-app-dragging','univer-app-drop-target'); }); });
-        span.addEventListener('dragover', function (event) { if (!draggedTile || draggedTile === span) return; event.preventDefault(); event.dataTransfer.dropEffect = 'move'; span.classList.add('univer-app-drop-target'); });
-        span.addEventListener('dragleave', function (event) { if (!span.contains(event.relatedTarget)) span.classList.remove('univer-app-drop-target'); });
-        span.addEventListener('drop', function (event) {
-            if (!event.isTrusted || !draggedTile || draggedTile === span) return;
-            event.preventDefault(); event.stopPropagation(); span.classList.remove('univer-app-drop-target');
-            moveTile(draggedTile, Array.from(span.parentElement.querySelectorAll(':scope>.univer-app-tile')).indexOf(span));
-        });
-        handle.addEventListener('keydown', function (event) {
-            if (!event.isTrusted || !['ArrowLeft','ArrowRight','ArrowUp','ArrowDown','Home','End'].includes(event.key)) return;
+        a.addEventListener('dragstart', function (event) { event.preventDefault(); });
+        a.addEventListener('contextmenu', function (event) { if (hold || lifted) event.preventDefault(); });
+        a.addEventListener('pointerdown', function (event) { startHold(event, span, info); });
+        a.addEventListener('keydown', function (event) {
+            if (!event.isTrusted) return;
+            if (event.key === 'Delete') { event.preventDefault(); event.stopPropagation(); var next = span.nextElementSibling || span.previousElementSibling; removeTile(span, info, false); next?.querySelector?.('a')?.focus(); return; }
+            if (!event.shiftKey || !['ArrowLeft','ArrowRight','ArrowUp','ArrowDown','Home','End'].includes(event.key)) return;
             event.preventDefault(); event.stopPropagation();
-            var nodes = Array.from(span.parentElement.querySelectorAll(':scope>.univer-app-tile')), index = nodes.indexOf(span);
+            var nodes = tileNodes(span.parentElement), index = nodes.indexOf(span);
             moveTile(span, event.key === 'Home' ? 0 : event.key === 'End' ? nodes.length - 1 : index + (/Left|Up/.test(event.key) ? -1 : 1));
+            a.focus();
         });
-        span.appendChild(handle);
-        if (removable) {
-            span.classList.add('univer-app-pinned');
-            var remove = document.createElement('button'); remove.type = 'button'; remove.className = 'univer-app-unpin';
-            var label = text().remove + ': ' + title; remove.setAttribute('aria-label', label); remove.title = label;
-            remove.addEventListener('click', function (event) {
-                event.preventDefault(); event.stopPropagation();
-                if (!event.isTrusted || span.classList.contains('univer-app-leaving')) return;
-                // The tile shrinks away first, then the pin is removed and the others close the gap.
-                var done = function () { request({preventDefault:function () {}, stopPropagation:function () {}, isTrusted:true}, false, title, href); };
-                if (event.detail === 0 || window.__univerMotion === false || window.matchMedia?.('(prefers-reduced-motion: reduce)').matches || !span.animate) { done(); return; }
-                span.classList.add('univer-app-leaving');
-                var motion = span.animate([{opacity:1, transform:'none'}, {opacity:0, transform:'scale(.97)'}], {duration:140, easing:'cubic-bezier(.23,1,.32,1)', fill:'forwards'});
-                motion.onfinish = motion.oncancel = done;
-            });
-            span.appendChild(remove);
-        }
         return span;
+    }
+    function startHold(event, span, info) {
+        if (!event.isTrusted || event.button !== 0 || window !== window.top || lifted) return;
+        endHold();
+        hold = {span:span, info:info, id:event.pointerId, x:event.clientX, y:event.clientY, timer:setTimeout(lift, 240)};
+        span.classList.add('univer-app-holding');
+        document.addEventListener('pointermove', watchHold, true); document.addEventListener('pointerup', endHold, true); document.addEventListener('pointercancel', endHold, true);
+    }
+    // Pressing and pulling at once asks for the same thing as holding still, so the tile comes along straight away.
+    function watchHold(event) {
+        if (!hold || event.pointerId !== hold.id || Math.hypot(event.clientX - hold.x, event.clientY - hold.y) <= 8) return;
+        var x = event.clientX, y = event.clientY; lift();
+        if (lifted) { lifted.x = x; lifted.y = y; placeLifted(); }
+    }
+    function endHold() {
+        if (!hold) return;
+        clearTimeout(hold.timer); hold.span.classList.remove('univer-app-holding'); hold = null;
+        document.removeEventListener('pointermove', watchHold, true); document.removeEventListener('pointerup', endHold, true); document.removeEventListener('pointercancel', endHold, true);
+    }
+    function trashBar() {
+        if (!trash || !trash.isConnected) {
+            trash = own(document.createElement('div')); trash.className = 'univer-app-trash'; trash.setAttribute('aria-hidden', 'true');
+            var icon = document.createElement('span'); icon.className = 'univer-app-trash-icon';
+            trash.append(icon, document.createElement('span')); document.body.appendChild(trash);
+        }
+        trash.lastElementChild.textContent = text().remove;
+        return trash;
+    }
+    function lift() {
+        var started = hold; endHold();
+        if (!started || !started.span.isConnected) return;
+        var span = started.span, quick = span.parentElement, rect = span.getBoundingClientRect();
+        lifted = {span:span, info:started.info, quick:quick, id:started.id, x:started.x, y:started.y, dx:started.x - rect.left, dy:started.y - rect.top, from:tileHrefs(quick), cool:0};
+        span.__univerHeld = true; span.classList.add('univer-app-lifted'); quick.classList.add('univer-app-arranging');
+        try { span.querySelector('a').setPointerCapture(started.id); } catch (_) { }
+        document.addEventListener('pointermove', dragLifted, true); document.addEventListener('pointerup', dropLifted, true);
+        document.addEventListener('pointercancel', cancelLifted, true); document.addEventListener('keydown', escapeLifted, true);
+        var bin = trashBar(); placeBin(bin, quick); void bin.offsetWidth; bin.classList.add('univer-app-trash-on');
+        placeLifted();
+    }
+    // The bin is one straight move away: under the grid and as wide as it, or at the window's foot when the grid runs past it.
+    function placeBin(bin, quick) {
+        var grid = quick.getBoundingClientRect(), room = document.documentElement.clientHeight;
+        bin.style.left = Math.round(grid.left) + 'px'; bin.style.width = Math.round(grid.width) + 'px';
+        bin.style.top = Math.round(Math.max(0, Math.min(grid.bottom + 12, room - bin.offsetHeight - 16))) + 'px';
+    }
+    // The tile follows the pointer from wherever the grid currently puts it.
+    function placeLifted() {
+        var span = lifted.span; span.style.transform = 'none';
+        var rect = span.getBoundingClientRect();
+        span.style.transform = 'translate(' + Math.round(lifted.x - lifted.dx - rect.left) + 'px,' + Math.round(lifted.y - lifted.dy - rect.top) + 'px)';
+    }
+    function overTrash() {
+        if (!trash || !lifted) return false;
+        var rect = trash.getBoundingClientRect();
+        return lifted.x >= rect.left - 8 && lifted.x <= rect.right + 8 && lifted.y >= rect.top - 8 && lifted.y <= rect.bottom + 48;
+    }
+    // The other tiles slide to their new places from where they stood.
+    function shuffle(quick, skip, change) {
+        var others = tileNodes(quick).filter(function (node) { return node !== skip; });
+        var before = others.map(function (node) { return node.getBoundingClientRect(); });
+        change();
+        if (!moving()) return;
+        others.forEach(function (node, index) {
+            var rect = node.getBoundingClientRect(), x = before[index].left - rect.left, y = before[index].top - rect.top;
+            if ((x || y) && node.animate) node.animate([{transform:'translate(' + x + 'px,' + y + 'px)'}, {transform:'none'}], {duration:220, easing:'cubic-bezier(.22,1,.36,1)'});
+        });
+    }
+    function dragLifted(event) {
+        if (!lifted || event.pointerId !== lifted.id) return;
+        event.preventDefault(); lifted.x = event.clientX; lifted.y = event.clientY;
+        var hot = overTrash(); trash.classList.toggle('univer-app-trash-hot', hot); lifted.span.classList.toggle('univer-app-binning', hot);
+        var now = Date.now();
+        if (!hot && now >= lifted.cool) {
+            var under = document.elementFromPoint(lifted.x, lifted.y)?.closest?.('.univer-app-tile');
+            if (under && under !== lifted.span && under.parentElement === lifted.quick) {
+                var span = lifted.span, nodes = tileNodes(lifted.quick), forward = nodes.indexOf(under) > nodes.indexOf(span);
+                shuffle(lifted.quick, span, function () { lifted.quick.insertBefore(span, forward ? under.nextSibling : under); });
+                lifted.cool = now + 160;
+            }
+        }
+        placeLifted();
+    }
+    function closeLift() {
+        var state = lifted; lifted = null;
+        document.removeEventListener('pointermove', dragLifted, true); document.removeEventListener('pointerup', dropLifted, true);
+        document.removeEventListener('pointercancel', cancelLifted, true); document.removeEventListener('keydown', escapeLifted, true);
+        state.quick.classList.remove('univer-app-arranging'); state.span.classList.remove('univer-app-binning');
+        trash?.classList.remove('univer-app-trash-on', 'univer-app-trash-hot');
+        return state;
+    }
+    function settle(span) {
+        var from = span.style.transform; span.style.transform = ''; span.classList.remove('univer-app-lifted');
+        if (from && moving() && span.animate) span.animate([{transform:from}, {transform:'none'}], {duration:200, easing:'cubic-bezier(.22,1,.36,1)'});
+    }
+    function dropLifted(event) {
+        if (!lifted || event.pointerId !== lifted.id) return;
+        event.preventDefault(); lifted.x = event.clientX; lifted.y = event.clientY;
+        var binned = overTrash(), state = closeLift();
+        if (binned) { removeTile(state.span, state.info, true); return; }
+        settle(state.span);
+        var next = tileHrefs(state.quick);
+        if (next.join('\n') !== state.from.join('\n')) {
+            tileOrder = next; orderKey = JSON.stringify(tileOrder);
+            notify('univer-pin:' + JSON.stringify({order:tileOrder})); render();
+        }
+    }
+    function cancelLifted() {
+        if (!lifted) return;
+        var state = closeLift(), wanted = state.from;
+        shuffle(state.quick, state.span, function () {
+            wanted.forEach(function (href) { var node = tileNodes(state.quick).find(function (n) { return n.querySelector('a').href === href; }); if (node) state.quick.insertBefore(node, state.quick.querySelector(':scope>.univer-app-add-tile')); });
+        });
+        settle(state.span);
+    }
+    function escapeLifted(event) { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); cancelLifted(); } }
+    function removeTile(span, info, animate) {
+        if (span.classList.contains('univer-app-leaving')) return;
+        var done = function () {
+            if (info.removable) request({preventDefault:function () {}, stopPropagation:function () {}, isTrusted:true}, false, info.title, info.href);
+            else { hiddenTiles = hiddenTiles.concat([info.href]); hiddenKey = JSON.stringify(hiddenTiles); notify('univer-pin:' + JSON.stringify({hidden:hiddenTiles})); render(); }
+        };
+        if (!animate || !moving() || !span.animate) { done(); return; }
+        // The tile drops into the bin where it was let go, then the others close the gap.
+        span.classList.add('univer-app-leaving');
+        var at = span.style.transform || '';
+        var motion = span.animate([{opacity:1, transform:at + ' scale(1)'}, {opacity:0, transform:at + ' scale(.5)'}], {duration:170, easing:'cubic-bezier(.4,0,.9,.6)', fill:'forwards'});
+        motion.onfinish = motion.oncancel = done;
     }
     function moveTile(node, index) {
         // A render during the drag can replace the dragged tile; a detached node has no order to change.
         if (!node || !node.isConnected || !node.parentElement) return;
-        var nodes = Array.from(node.parentElement.querySelectorAll(':scope>.univer-app-tile')), from = nodes.indexOf(node);
+        var nodes = tileNodes(node.parentElement), from = nodes.indexOf(node);
         index = Math.max(0, Math.min(nodes.length - 1, index)); if (from < 0 || from === index) return;
         nodes.splice(from, 1); nodes.splice(index, 0, node);
         tileOrder = nodes.map(function (tile) { return tile.querySelector('a').href; }); orderKey = JSON.stringify(tileOrder);
         notify('univer-pin:' + JSON.stringify({order:tileOrder}));
         render();
     }
-    function quickBar(menu) {
-        var quick = document.querySelector('.univer-app-quick');
-        if (!homePages.test(location.pathname)) { quick?.remove(); return; }
-        var links = Array.from(menu.querySelectorAll('#tools a[href]')).filter(function (a) { return !a.closest('.univer-app-useful'); });
+    function homeKey(href) { return path(href) ?? href; }
+    // Everything "All sections" offers that is not on the home screen yet, in the site's own groups.
+    function offered() {
+        var taken = new Set(Array.from(document.querySelectorAll('.univer-app-quick .univer-app-tile>a')).map(function (a) { return homeKey(a.href); }));
+        var groups = [], seen = new Set();
+        var add = function (name, link, title) {
+            var key = homeKey(link), gone = hiddenTiles.some(function (url) { return homeKey(url) === key; });
+            if (taken.has(key) || seen.has(key) || (fixedHomeLink(link) && !gone)) return;
+            seen.add(key);
+            var group = groups.find(function (g) { return g.name === name; });
+            if (!group) { group = {name:name, items:[]}; groups.push(group); }
+            group.items.push({title:title, href:link, gone:gone});
+        };
+        hiddenTiles.forEach(function (url) { var known = fixedTiles().find(function (t) { return homeKey(t.href) === homeKey(url); }); if (known) add(text().removed, known.href, known.title); });
+        document.querySelectorAll('.univer-app-menu details.univer-app-category:not(.univer-app-useful)').forEach(function (box) {
+            var name = cleanText(box.querySelector('summary'));
+            box.querySelectorAll('li a[href]').forEach(function (a) { if (pinnable(a) && cleanText(a)) add(name, a.href, cleanText(a)); });
+        });
+        document.querySelectorAll('.univer-app-menu #tools li a[href]').forEach(function (a) { if (pinnable(a) && cleanText(a)) add(text().sections, a.href, cleanText(a)); });
+        document.querySelectorAll('.univer-app-menu .univer-app-useful li>a[href]').forEach(function (a) { if (pinnable(a) && cleanText(a)) add(text().useful, a.href, cleanText(a)); });
+        return groups;
+    }
+    function closeAdd(returnFocus) {
+        if (!adding) return;
+        var state = adding; adding = null;
+        document.removeEventListener('keydown', state.keys, true);
+        if (moving() && state.layer.animate) { var out = state.layer.animate([{opacity:1}, {opacity:0}], {duration:140, easing:'ease-out', fill:'forwards'}); out.onfinish = out.oncancel = function () { state.layer.remove(); }; }
+        else state.layer.remove();
+        if (returnFocus && state.from.isConnected) state.from.focus();
+    }
+    function addRows(state) {
+        var query = state.search.value.trim().toLocaleLowerCase().replace(/ё/g, 'е'), box = state.list, shown = 0;
+        box.replaceChildren();
+        offered().forEach(function (group) {
+            var items = group.items.filter(function (item) { return !query || item.title.toLocaleLowerCase().replace(/ё/g, 'е').includes(query); });
+            if (!items.length) return;
+            var title = document.createElement('p'); title.className = 'univer-app-add-group'; title.textContent = group.name; box.appendChild(title);
+            items.forEach(function (item) {
+                var row = document.createElement('button'); row.type = 'button'; row.className = 'univer-app-add-row'; row.setAttribute('aria-label', text().pin + ': ' + item.title);
+                var name = document.createElement('span'); name.className = 'univer-app-add-name'; name.textContent = item.title;
+                var plus = document.createElement('span'); plus.className = 'univer-app-add-plus'; plus.setAttribute('aria-hidden', 'true');
+                row.append(linkIcon(item.href, item.title), name, plus);
+                row.addEventListener('click', function (event) {
+                    if (!event.isTrusted) return;
+                    var next = row.nextElementSibling || row.previousElementSibling;
+                    if (item.gone) { hiddenTiles = hiddenTiles.filter(function (url) { return homeKey(url) !== homeKey(item.href); }); hiddenKey = JSON.stringify(hiddenTiles); notify('univer-pin:' + JSON.stringify({hidden:hiddenTiles})); render(); }
+                    else request(event, true, item.title, item.href);
+                    addRows(state); (state.list.querySelector('.univer-app-add-row') || state.search).focus();
+                });
+                box.appendChild(row); shown++;
+            });
+        });
+        if (!shown) { var empty = document.createElement('p'); empty.className = 'univer-app-add-empty'; empty.textContent = query ? text().noMatch : text().allPinned; box.appendChild(empty); }
+    }
+    function openAdd(from) {
+        if (adding) return;
+        var layer = own(document.createElement('div')); layer.className = 'univer-app-add-layer';
+        var panel = document.createElement('section'); panel.className = 'univer-app-add-panel'; panel.setAttribute('role', 'dialog'); panel.setAttribute('aria-modal', 'true'); panel.setAttribute('aria-label', text().add);
+        var head = document.createElement('div'); head.className = 'univer-app-add-head';
+        var title = document.createElement('h2'); title.textContent = text().add;
+        var close = document.createElement('button'); close.type = 'button'; close.className = 'univer-app-add-close'; close.setAttribute('aria-label', text().close); close.title = text().close;
+        head.append(title, close);
+        var search = document.createElement('input'); search.type = 'search'; search.className = 'univer-app-add-search'; search.placeholder = text().findSection; search.setAttribute('aria-label', text().findSection); search.autocomplete = 'off'; search.spellcheck = false;
+        var list = document.createElement('div'); list.className = 'univer-app-add-list';
+        panel.append(head, search, list); layer.appendChild(panel); document.body.appendChild(layer);
+        if (moving() && layer.animate) layer.animate([{opacity:0}, {opacity:1}], {duration:160, easing:'ease-out'});
+        var state = {layer:layer, panel:panel, search:search, list:list, from:from, keys:function (event) {
+            if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); closeAdd(true); return; }
+            if (event.key !== 'Tab') return;
+            var stops = Array.from(panel.querySelectorAll('button,input')), at = stops.indexOf(document.activeElement);
+            if (event.shiftKey ? at <= 0 : at === stops.length - 1) { event.preventDefault(); stops[event.shiftKey ? stops.length - 1 : 0].focus(); }
+        }};
+        adding = state; addRows(state);
+        search.addEventListener('input', function () { addRows(state); });
+        close.addEventListener('click', function () { closeAdd(true); });
+        layer.addEventListener('pointerdown', function (event) { if (event.target === layer) closeAdd(true); });
+        document.addEventListener('keydown', state.keys, true);
+        window.__univerMotionUI?.reveal(panel, 'popup');
+        search.focus();
+    }
+    function addButton() {
+        var button = document.createElement('button'); button.type = 'button'; button.className = 'univer-app-add-tile';
+        var plus = document.createElement('span'); plus.className = 'univer-app-add-icon'; plus.setAttribute('aria-hidden', 'true');
+        var label = document.createElement('span'); label.className = 'univer-app-add-label'; label.textContent = text().add;
+        button.append(plus, label);
+        button.addEventListener('click', function (event) { if (event.isTrusted) openAdd(button); });
+        return button;
+    }
+    function fixedTiles() {
+        var menu = document.querySelector('.univer-app-menu');
+        var links = menu ? Array.from(menu.querySelectorAll('#tools a[href]')).filter(function (a) { return !a.closest('.univer-app-useful'); }) : [];
         var tiles = [];
         fixed.forEach(function (item) {
             var target = item[1].replace(/\/$/, ''), a = links.find(function (link) { return path(link.href) === target; });
@@ -475,8 +687,27 @@
         tiles.push({title:moodle ? cleanText(moodle) : text().moodle, href:location.origin + moodlePath});
         // One Е-услуги tile opens the services desk, where the catalogue and the student's requests live together.
         tiles.push({title:text().eservices, href:location.origin + '/ssc/'});
-        var taken = tiles.map(function (t) { return path(t.href) ?? t.href; }).concat(['/ssc/UserServiceList', '/ssc/StatementList']);
-        var extra = pins.filter(function (p) { return taken.indexOf(path(p.url) ?? p.url) < 0; });
+        return tiles;
+    }
+    // A pin keeps the name it had when it was pinned, in that day's language. The tile shows the name of the current
+    // language: the app's own word for the sections the sidebar names, else the site's menu link to the same page.
+    var NAMED = {'/student/attestation': ['Текущая аттестация', 'Ағымдағы аттестация', 'Current attestation'],
+        '/student/discussion/index': ['Дистанционные курсы', 'Қашықтан оқыту курстары', 'Distance courses']};
+    function pinTitle(pin) {
+        var key = homeKey(pin.url), own = NAMED[key];
+        if (own) return own[language === 'kz' ? 1 : language === 'en' ? 2 : 0];
+        var links = Array.from(document.querySelectorAll('.univer-app-menu a[href]')).concat(Array.from(usefulSource()?.querySelectorAll('a[href]') || []));
+        var live = links.find(function (a) { return homeKey(a.href) === key && cleanText(a); });
+        return live ? cleanText(live) : pin.title;
+    }
+    function quickBar(menu) {
+        var quick = document.querySelector('.univer-app-quick');
+        if (!homePages.test(location.pathname)) { quick?.remove(); return; }
+        // A lifted tile is the student's hands on the grid; the grid waits for the drop.
+        if (lifted) return;
+        var all = fixedTiles(), tiles = all.filter(function (t) { return !hiddenTiles.some(function (url) { return homeKey(url) === homeKey(t.href); }); });
+        var taken = all.map(function (t) { return path(t.href) ?? t.href; }).concat(['/ssc/UserServiceList', '/ssc/StatementList']);
+        var extra = pins.filter(function (p) { return taken.indexOf(path(p.url) ?? p.url) < 0; }).map(function (p) { return {title:pinTitle(p), url:p.url}; });
         var key = language + '|' + JSON.stringify(tiles.map(function (t) { return [t.title, t.href]; })) + JSON.stringify(extra) + orderKey;
         if (quick && quick.__univerKey === key && quick.isConnected) return;
         var frame = document.querySelector('#l4>td.center') || document.querySelector('#l4>td');
@@ -503,13 +734,15 @@
             var first = tileOrder.indexOf(a.querySelector('a').href), second = tileOrder.indexOf(b.querySelector('a').href);
             return (first < 0 ? tileOrder.length : first) - (second < 0 ? tileOrder.length : second);
         });
+        // New section always closes the grid.
+        var more = quick.querySelector(':scope>.univer-app-add-tile') || addButton(); more.lastElementChild.textContent = text().add; wanted.push(more);
         // Keep unchanged tiles (including keyboard focus) mounted when a pin arrives.
         var reconcile = function () {
             wanted.forEach(function (node, index) { if (quick.children[index] !== node) quick.insertBefore(node, quick.children[index] || null); });
             Array.from(quick.children).slice(wanted.length).forEach(function (node) { window.__univerMotionUI?.stop(node); node.remove(); });
         };
         if (window.__univerMotionUI) window.__univerMotionUI.reflow(quick, reconcile); else reconcile();
-        if (first) Array.from(quick.querySelectorAll('.univer-app-tile')).forEach(function (node, index) {
+        if (first) Array.from(quick.children).forEach(function (node, index) {
             window.__univerMotionUI?.reveal(node, 'tile', Math.min(index, 3) * 24);
         });
         added.forEach(function (node) { window.__univerMotionUI?.reveal(node, 'tile'); });
@@ -808,7 +1041,7 @@
         if (!style || !style.isConnected) {
             style = document.createElement('style'); style.id = 'univer-shortcuts-style';
             style.textContent = ':root{--univer-pin-icon:' + pinIcon(false) + ';--univer-pinned-icon:' + pinIcon(true) + ';--univer-close-icon:' + svg("<path d='M6 6l12 12M18 6L6 18'/>") +
-                ';--univer-reorder-icon:' + svg("<circle cx='8' cy='6' r='1'/><circle cx='16' cy='6' r='1'/><circle cx='8' cy='12' r='1'/><circle cx='16' cy='12' r='1'/><circle cx='8' cy='18' r='1'/><circle cx='16' cy='18' r='1'/>") +
+                ';--univer-book-icon:' + svg("<path d='M4 19V5a2 2 0 0 1 2-2h14v16H6a2 2 0 0 0-2 2z'/><path d='M8 7h8'/>") + ';--univer-plus-icon:' + svg("<path d='M12 5v14M5 12h14'/>") + ';--univer-trash-icon:' + svg("<path d='M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2M19 6l-1 14a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1L5 6M10 11v6M14 11v6'/>") +
                 ';--univer-doc-icon:' + svg("<path d='M14 3H6v18h12V7z'/><path d='M14 3v4h4M9 13h6M9 17h6'/>") + ';--univer-eye-icon:' + svg("<path d='M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z'/><circle cx='12' cy='12' r='3'/>") + ';}' + css;
             (document.head || document.documentElement).appendChild(style);
         }
@@ -820,17 +1053,21 @@
     }
     window.__univerShortcutsV1 = {
         apply: function (lang) { language = lang || 'ru'; active = true; render(); },
-        configure: function (list, order) {
+        // Test hook: what New section would offer now.
+        offered: offered,
+        configure: function (list, order, gone) {
             var next = Array.isArray(list) ? list.filter(function (p) { return p && typeof p.title === 'string' && typeof p.url === 'string' && !fixedHomeLink(p.url); }) : [];
             var key = JSON.stringify(next);
             var nextOrder = Array.isArray(order) ? order.filter(function (url) { return typeof url === 'string'; }) : tileOrder;
             var nextOrderKey = JSON.stringify(nextOrder);
-            if (key === pinsKey && nextOrderKey === orderKey) return;
-            pins = next; pinsKey = key; tileOrder = nextOrder; orderKey = nextOrderKey; render();
+            var nextHidden = Array.isArray(gone) ? gone.filter(function (url) { return typeof url === 'string' && fixedHomeLink(url); }) : hiddenTiles;
+            var nextHiddenKey = JSON.stringify(nextHidden);
+            if (key === pinsKey && nextOrderKey === orderKey && nextHiddenKey === hiddenKey) return;
+            pins = next; pinsKey = key; tileOrder = nextOrder; orderKey = nextOrderKey; hiddenTiles = nextHidden; hiddenKey = nextHiddenKey; render();
         },
         release: function () {
             active = false;
-            draggedTile = null;
+            endHold(); if (lifted) cancelLifted(); closeAdd(false); trash = null;
             restoreCredentialSources();
             pinButtons.forEach(function (button) { button.remove(); }); pinButtons.clear();
             menuRows.forEach(function (entry, a) {

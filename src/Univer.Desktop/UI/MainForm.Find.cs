@@ -10,6 +10,7 @@ namespace Univer.Desktop.UI
         // Downloads. The Downloads list has its own search field, which takes the keyboard instead.
         private void OpenFind()
         {
+            if (LockShown) return;
             if (closing || findBar == null) return;
             if (DownloadsVisible)
             {
@@ -23,10 +24,10 @@ namespace Univer.Desktop.UI
         private void PlaceFind()
         {
             if (findBar == null) return;
-            var width = Math.Min(D(440), Math.Max(D(260), workspace.ClientSize.Width - D(32)));
+            var width = Math.Min(SZ(440), Math.Max(SZ(260), workspace.ClientSize.Width - SZ(32)));
             // Over a Downloads preview the bar sits below the file's own toolbar, which grows with the app zoom.
-            var top = canvas.Top + D(10) + (DownloadsVisible && downloadsView.Previewing ? downloadsView.PreviewBarHeight : 0);
-            findBar.SetBounds(workspace.ClientSize.Width - D(16) - width, top, width, D(48));
+            var top = canvas.Top + SZ(10) + (DownloadsVisible && downloadsView.Previewing ? downloadsView.PreviewBarHeight : 0);
+            findBar.SetBounds(workspace.ClientSize.Width - SZ(16) - width, top, width, SZ(48));
             if (findBar.Visible) findBar.BringToFront();
         }
         // The searched page or file went away (a navigation, a closed document, another file or view): its matches are gone.

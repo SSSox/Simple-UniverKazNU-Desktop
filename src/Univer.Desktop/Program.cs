@@ -50,7 +50,7 @@ namespace Univer.Desktop
                 { File.WriteAllText(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "self-test.failed"), error.Exception.GetType().Name + "\n" + error.Exception.StackTrace); Application.ExitThread(); };
             }
             // The manual keyboard and study-page checks run visibly but, like self-test, in a fresh profile with no saved sign-in.
-            var isolated = selfTest || Array.IndexOf(args, "--qa-keys") >= 0 || Array.IndexOf(args, "--qa-study") >= 0;
+            var isolated = selfTest || Array.IndexOf(args, "--qa-keys") >= 0 || Array.IndexOf(args, "--qa-study") >= 0 || Array.IndexOf(args, "--qa-zoom") >= 0 || Array.IndexOf(args, "--qa-flash") >= 0;
             var data = isolated ? Path.Combine(Path.GetTempPath(), "Univer.Desktop.QA", Guid.NewGuid().ToString("N")) :
                 Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Univer.Desktop");
             using (var mutex = new Mutex(false, "Local\\Univer.Desktop." + (isolated ? Guid.NewGuid().ToString("N") : Environment.UserName)))
@@ -58,7 +58,7 @@ namespace Univer.Desktop
                 bool owns;
                 // The elevated original still holds the mutex for a moment while it exits after relaunching this copy.
                 try { owns = mutex.WaitOne(deElevatedRelaunch ? 5000 : 0); } catch (AbandonedMutexException) { owns = true; }
-                if (!owns) { if (!ActivateRunningInstance()) MessageBox.Show("Univer уже запущен.", "Univer"); return 0; }
+                if (!owns) { if (!ActivateRunningInstance()) MessageBox.Show(Strings.Get("alreadyRunning", SavedLanguage(data)), "Univer"); return 0; }
                 var errorLanguage = "ru";
                 try
                 {
@@ -79,7 +79,7 @@ namespace Univer.Desktop
                     try { var start = storage.LoadPreferences(); startLanguage = start.Language; startTheme = start.Theme; } catch (Exception) { startLanguage = "ru"; startTheme = ThemeChoice.System; }
                     // The window is built in the chosen theme from the start, so nothing is recoloured on the first paint.
                     // Self-test starts light whatever Windows uses; its theme step switches to dark itself.
-                    UI.Theme.Set(!selfTest && ThemeChoice.IsDark(startTheme, UI.Theme.SystemDark()));
+                    UI.Theme.Set(!selfTest && Array.IndexOf(args, "--qa-flash") < 0 && ThemeChoice.IsDark(startTheme, UI.Theme.SystemDark()));
                     errorLanguage = startLanguage;
                     settings.Locale = startLanguage == "en" ? "en-GB" : "ru";
                     settings.AcceptLanguageList = "en-US,en";
@@ -134,6 +134,11 @@ namespace Univer.Desktop
                 }
                 finally { mutex.ReleaseMutex(); }
             }
+        }
+        // The language the user chose, for a message shown before the window exists.
+        private static string SavedLanguage(string data)
+        {
+            try { return new Storage(data).LoadPreferences().Language; } catch (Exception) { return "ru"; }
         }
         // A second launch asks the running window (also when hidden in the tray) to show itself.
         private static bool ActivateRunningInstance()

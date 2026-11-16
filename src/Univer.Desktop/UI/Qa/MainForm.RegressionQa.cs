@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Reflection;
@@ -111,6 +112,27 @@ namespace Univer.Desktop.UI
             Check(!downloadsView.Previewing && DownloadsVisible, "CEF Escape returns " + extension + " to downloads", results);
             }
             finally { downloadsView.Shortcut -= observe; }
+        }
+        // Working messages that must not outlive their wait: «Открытие Moodle…» after its hand-off time, and «Скачивание…»
+        // of a UMKD row that turned out to be a teacher's link (DownloadService takes the row back through ForgetRecord).
+        private void StaleStatusQa(List<string> results)
+        {
+            BeginSignOn();
+            var opening = messages.Shows("signOnOpening");
+            System.Threading.Interlocked.Exchange(ref signOnUntil, 0); ExpireSignOn();
+            Check(opening && !messages.Shows("signOnOpening"), "«Открытие Moodle…» leaves once its hand-off time is over", results);
+            SetStatus("signOnOpened");
+            Check(!messages.Withdraw("signOnOpening") && messages.Shows("signOnOpened"), "taking back «Открытие Moodle…» never removes the answer that replaced it", results);
+            messages.Withdraw("signOnOpened");
+            var link = new DownloadRecord { FileName = "Видеозапись лекции", State = DownloadState.Running };
+            OnDownloadChanged(link.Clone()); SetStatus("downloading"); ForgetRecord(link.Id);
+            Check(!messages.Shows("downloading") && history.Items.All(x => x.Id != link.Id), "a UMKD row that was a teacher's link leaves no «Скачивание…» behind", results);
+            var file = new DownloadRecord { FileName = "Лекция 1.pdf", State = DownloadState.Running }; link = new DownloadRecord { FileName = "Ссылка", State = DownloadState.Running };
+            OnDownloadChanged(file.Clone()); OnDownloadChanged(link.Clone()); SetStatus("downloading"); ForgetRecord(link.Id);
+            Check(messages.Shows("downloading"), "a file still arriving keeps its «Скачивание…» when a link row leaves", results);
+            ForgetRecord(file.Id);
+            Check(!messages.Shows("downloading"), "the last running row taken back clears «Скачивание…»", results);
+            RenderFeedback();
         }
         private void OtherDownloadsQa(List<string> results)
         {

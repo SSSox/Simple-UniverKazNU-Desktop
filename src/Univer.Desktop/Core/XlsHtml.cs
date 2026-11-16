@@ -281,7 +281,7 @@ namespace Univer.Desktop.Core
                                 {
                                     var at = body + 2 + i * 8;
                                     int top = U16(stream, at), bottom = U16(stream, at + 2), left = U16(stream, at + 4), right = U16(stream, at + 6);
-                                    if (bottom >= top && right >= left) sheet.Merges.Add(new SheetRange { Top = top, Bottom = bottom, Left = left, Right = right });
+                                    if (bottom >= top && right >= left) sheet.Merge(book, top, left, bottom, right);
                                 }
                             break;
                         case 0x007D:

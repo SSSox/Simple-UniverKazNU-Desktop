@@ -72,6 +72,7 @@ export function createReader(pdfjs, window, config) {
             timing.pages = Date.now() - begun;
             build();
             layout();
+            window.scrollTo(centre(), 0);
             observe();
             window.addEventListener('resize', () => { window.clearTimeout(resizeTimer); resizeTimer = window.setTimeout(relayout, 120); });
             await buildText();
@@ -110,6 +111,11 @@ export function createReader(pdfjs, window, config) {
         }
         if (hint) hint.style.width = Math.round(width) + 'px';
     }
+    // A page wider than the window stands in the middle of the scroll range, so zooming keeps it centred.
+    function centre() {
+        const root = document.documentElement;
+        return Math.max(0, (root.scrollWidth - root.clientWidth) / 2);
+    }
     // Keeps the page at the top of the window in place while pages change size.
     function relayout() {
         if (!entries.length || failed) return;
@@ -117,7 +123,7 @@ export function createReader(pdfjs, window, config) {
         const anchor = entries.find(entry => entry.div.offsetTop + entry.div.offsetHeight > top) || entries[0];
         const fraction = (top - anchor.div.offsetTop) / Math.max(1, anchor.div.offsetHeight);
         layout();
-        window.scrollTo(window.scrollX, anchor.div.offsetTop + fraction * anchor.div.offsetHeight);
+        window.scrollTo(centre(), anchor.div.offsetTop + fraction * anchor.div.offsetHeight);
         updateText();
         for (const entry of entries) if (entry.near) request(entry);
     }

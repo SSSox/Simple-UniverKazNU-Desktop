@@ -51,6 +51,29 @@ namespace Univer.Desktop.Tests
             legacy.SavePreferences(new Preferences { Language = "kz", Profile = Active });
             Assert.Equal("kz", modern.LoadPreferences().Language); Assert.Equal(Active, modern.LoadPreferences().Profile);
         }
+        [Fact]
+        public void WebCleanupTakesOnlyOldWebProfiles()
+        {
+            var storage = new Storage(root);
+            var oldWeb = MakeSentinel(storage.WebProfilePath(Old)); var activeWeb = MakeSentinel(storage.WebProfilePath(Active));
+            var univer = MakeSentinel(storage.ProfilePath(Old)); var odd = MakeSentinel(Path.Combine(storage.BrowserRoot, "web-notes"));
+            storage.CleanOldWebProfiles(Active);
+            Assert.False(File.Exists(oldWeb)); Assert.True(File.Exists(activeWeb)); Assert.True(File.Exists(univer)); Assert.True(File.Exists(odd));
+        }
+        [Fact]
+        public void UniverCleanupNeverTakesWebProfiles()
+        {
+            var storage = new Storage(root); var web = MakeSentinel(storage.WebProfilePath(Old));
+            storage.CleanOldProfiles(Active); Assert.True(File.Exists(web));
+        }
+        [Fact]
+        public void JunctionInsideWebProfilePreservesBothProfileAndTarget()
+        {
+            var storage = new Storage(Path.Combine(root, "app")); var profile = storage.WebProfilePath(Old);
+            var own = MakeSentinel(profile); var target = Path.Combine(root, "target"); var foreign = MakeSentinel(target);
+            junction = Path.Combine(profile, "nested"); CreateJunction(junction, target);
+            storage.CleanOldWebProfiles(Active); Assert.True(File.Exists(own)); Assert.True(File.Exists(foreign));
+        }
         private static string MakeSentinel(string folder)
         { Directory.CreateDirectory(folder); var path = Path.Combine(folder, "sentinel.txt"); File.WriteAllText(path, "Isolated regression fixture"); return path; }
         private static void CreateJunction(string path, string target)

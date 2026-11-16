@@ -13,7 +13,6 @@ namespace Univer.Desktop.UI
         private IntPtr hook;
         // wheel: the delta and the message time (GetTickCount milliseconds, as Environment.TickCount).
         public CtrlWheel(Action<int, int> wheel) { this.wheel = wheel; filter = Filter; }
-        public bool Attached { get { return hook != IntPtr.Zero; } }
         // window: any browser window of CEF's UI thread; the first one installs the hook for all of them. If the hook
         // cannot be installed, Ctrl+wheel stays Chromium's own page zoom and the next browser window tries again.
         public void Attach(IntPtr window)

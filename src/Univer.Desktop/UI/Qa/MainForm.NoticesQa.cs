@@ -49,7 +49,15 @@ namespace Univer.Desktop.UI
                 page("/ssc/", NoticeQaPage("<p>Е-услуги</p>", ""));
                 page("/student/rating/", NoticeQaPage(NoticeQaList("+", "+"), NoticeQaCount));
                 // The page alone first: only the menu count is known.
-                noticeFetchedAt = noticeClock.ElapsedMilliseconds; await ScanNoticesAsync(false);
+                noticeFetchedAt = noticeClock.ElapsedMilliseconds;
+                // A scan of the previous fixture can still own the one-flight gate after navigation. ScanNoticesAsync
+                // deliberately returns immediately while it is busy; wait for that read before requesting this page.
+                var settledUntil = DateTime.UtcNow.AddSeconds(10);
+                while (noticeBusy && DateTime.UtcNow < settledUntil) await Task.Delay(50);
+                Check(!noticeBusy, "the previous notification read releases its gate before the fixture check", results);
+                await ScanNoticesAsync(false);
+                QaTrace("notices-qa-menu count=" + Notices.Showing(notices).Count + " unread=" + Notices.Unread(notices) + " badge=" + noticesButton.Badge +
+                    " busy=" + noticeBusy + " bell/find=" + noticesButton.Right + "/" + find.Left + " title/bell=" + pageTitle.Right + "/" + noticesButton.Left);
                 Check(Notices.Showing(notices).Count == 1 && Notices.Unread(notices) == 1 && noticesButton.Badge == "1" &&
                     noticesButton.Right <= find.Left && pageTitle.Right <= noticesButton.Left, "the menu count is read from the page and shown on the bell, beside find and the title", results);
                 await ScanNoticesAsync(true);
@@ -64,7 +72,7 @@ namespace Univer.Desktop.UI
                 scan.Links.Add(new NoticeLink { Url = SitePolicy.Origin + "/student/rating/", Title = "Анкетирование студентов", Count = 3, Open = 1, Menu = true,
                     Details = new List<NoticeDetail> { new NoticeDetail { Title = "Новая синтетическая анкета", Until = "20.11.2026" } } });
                 await ApplyNoticeScanAsync(scan, NoticeGeneration);
-                Check(messages.Current?.Key == "noticesNew" && toast.Shown && noticeAnnouncement == "Анкетирование студентов (1)" && noticesButton.Badge == "1",
+                Check(messages.Current?.Key == "noticesNew" && toast.Shown && NoticeAnnouncement() == "Анкетирование студентов (1)" && noticesButton.Badge == "1",
                     "a new questionnaire is announced in a toast and counted on the bell by its open rows", results);
                 QaSnapshot(Path.Combine(qa, "notices-toolbar.png"), toolbar.Width, toolbar.Height, bitmap => toolbar.DrawToBitmap(bitmap, new Rectangle(Point.Empty, toolbar.Size)));
                 QaSnapshot(Path.Combine(qa, "notices-toast.png"), toast.Width, toast.Height, bitmap => toast.DrawToBitmap(bitmap, new Rectangle(Point.Empty, toast.Size)));
@@ -116,6 +124,11 @@ namespace Univer.Desktop.UI
                 ShowNotices(); await Task.Delay(100);
                 var escape = new Message(); ProcessCmdKey(ref escape, Keys.Escape);
                 Check(!NoticesShown, "Escape closes the panel", results);
+                var staleRead = "{\"v\":1,\"kind\":\"section\",\"g\":\"" + NoticeGeneration + "\",\"page\":\"/student/rating/\",\"links\":[{\"u\":\"/student/rating/\",\"t\":\"Анкетирование студентов\",\"n\":9,\"o\":9}]}";
+                var unreadCount = notices.Sum(n => n.Open);
+                ReceiveNoticeMessage(main, false, Notices.MessagePrefix + staleRead, true, true);
+                sessionEpoch++; await Task.Delay(50); sessionEpoch--;
+                Check(notices.Sum(n => n.Open) == unreadCount, "a read that was queued before the session changed stays out of the new session's list", results);
                 prefs.Theme = ThemeChoice.Light; ApplyTheme(false); Size = size; await Task.Delay(150);
                 var names = new List<string>();
                 foreach (var language in new[] { "kz", "en", "ru" }) { prefs.Language = language; Localize(); names.Add(noticesButton.AccessibleName); }

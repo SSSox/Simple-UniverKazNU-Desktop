@@ -43,12 +43,12 @@ namespace Univer.Desktop.UI
         {
             this.scale = screenScale = scale; this.external = external;
             Dock = DockStyle.Fill; BackColor = Theme.Background; Visible = false; Theme.Tips(tips);
-            bar.Dock = DockStyle.Top; bar.Height = D(56); bar.BackColor = Theme.Surface;
+            bar.Dock = DockStyle.Top; bar.Height = D(44); bar.BackColor = Theme.Surface;
             bar.Paint += (s, e) => { using (var pen = new Pen(Theme.Border)) e.Graphics.DrawLine(pen, 0, bar.Height - 1, bar.Width, bar.Height - 1); };
             back.Look = ButtonLook.Outline; back.Icon = UiIcon.Back; back.Click += (s, e) => Back?.Invoke();
             outside.Look = ButtonLook.Primary; outside.Icon = UiIcon.External; outside.Click += (s, e) => { if (shown != null) OpenOutside?.Invoke(shown); };
             folder.Look = ButtonLook.Outline; folder.Icon = UiIcon.Folder; folder.Click += (s, e) => { if (shown != null) ShowInFolder?.Invoke(shown); };
-            title.Font = Theme.Strong(Theme.Emphasis); title.ForeColor = Theme.Ink; title.AutoEllipsis = true; title.UseMnemonic = false; title.TextAlign = ContentAlignment.MiddleLeft;
+            title.Font = Theme.Display(Theme.Body); title.ForeColor = Theme.Ink; title.AutoEllipsis = true; title.UseMnemonic = false; title.TextAlign = ContentAlignment.MiddleLeft;
             foreach (var control in new Control[] { back, title, outside, folder }) bar.Controls.Add(control);
             bar.Resize += (s, e) => ArrangeBar();
             host.Dock = DockStyle.Fill; host.BackColor = Theme.Background;
@@ -84,7 +84,7 @@ namespace Univer.Desktop.UI
         // value: the app zoom (1 = 100%). It sizes this bar and applies to the shown file, as on the website.
         public void SetZoom(float value)
         {
-            scale = screenScale * value; zoom = value; bar.Height = D(56);
+            scale = screenScale * value; zoom = value; bar.Height = D(44);
             ArrangeBar(); ApplyViewerZoom();
         }
         private void ApplyViewerZoom()
@@ -100,11 +100,13 @@ namespace Univer.Desktop.UI
             ShowMessage(Strings.Get("previewPreparing", language)); ContentChanged?.Invoke();
             Reveal();
             if (!File.Exists(item.Path)) { ShowMessage(Strings.Get("stateMissing", language)); ContentChanged?.Invoke(); return; }
-            var kind = FileKinds.Of(item.Path);
-            var extension = Path.GetExtension(item.Path).ToLowerInvariant();
             Func<string, PreviewOptions, CancellationToken, PreviewDocument> convert;
             try
             {
+                // An Office name whose content is something else (a web page saved as .xls) is read as what it is.
+                var extension = await Task.Run(() => FileNames.PreviewExtension(item.Path), cancellation);
+                if (!Current(current, cancellation)) return;
+                var kind = FileKinds.Of("file" + extension);
                 if (kind == FileKind.Pdf) ShowReader(item);
                 else if (kind == FileKind.Image && extension != ".bmp")
                 {
@@ -133,10 +135,10 @@ namespace Univer.Desktop.UI
                     var options = Options(item);
                     PreviewDocument document = null;
                     try { document = await Task.Run(() => convert(item.Path, options, cancellation), cancellation); }
-                    catch (InvalidDataException)
+                    catch (Exception error) when (FileNames.HandlerFallback(item.Path, extension, error))
                     {
                         if (!Current(current, cancellation)) return;
-                        if (PreferBuiltIn || kind == FileKind.Html || !PreviewHost.HandlerFor(item.Path).HasValue || !ShowOffice(item.Path)) throw;
+                        if (PreferBuiltIn || !PreviewHost.HandlerFor(item.Path).HasValue || !ShowOffice(item.Path)) throw;
                     }
                     if (!Current(current, cancellation)) return;
                     if (document != null) ShowDocument(item, document); else ShowMessage(null);
@@ -319,14 +321,14 @@ namespace Univer.Desktop.UI
         }
         private void ArrangeBar()
         {
-            var pad = D(16); var top = D(10); var height = D(36);
-            back.Width = TextRenderer.MeasureText(back.Text, back.Font).Width + D(56); back.SetBounds(pad, top, back.Width, height);
+            var pad = D(16); var top = D(8); var height = D(28);
+            back.Width = TextRenderer.MeasureText(back.Text, back.Font).Width + D(42); back.SetBounds(pad, top, back.Width, height);
             // The file name keeps at least a readable width; the folder action then shows only its icon.
-            var folderText = TextRenderer.MeasureText(folder.Text, folder.Font).Width + D(56);
-            var outsideText = TextRenderer.MeasureText(outside.Text, outside.Font).Width + D(56);
+            var folderText = TextRenderer.MeasureText(folder.Text, folder.Font).Width + D(42);
+            var outsideText = TextRenderer.MeasureText(outside.Text, outside.Font).Width + D(42);
             folder.Compact = bar.Width - pad * 2 - back.Width - folderText - outsideText - D(32) < D(180);
             tips.SetToolTip(folder, folder.Compact ? folder.Text : "");
-            folder.Width = folder.Compact ? D(40) : folderText;
+            folder.Width = folder.Compact ? D(28) : folderText;
             outside.Width = outsideText;
             folder.SetBounds(bar.Width - pad - folder.Width, top, folder.Width, height);
             outside.SetBounds(folder.Left - D(8) - outside.Width, top, outside.Width, height);

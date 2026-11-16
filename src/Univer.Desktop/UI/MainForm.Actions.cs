@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using System.Web.Script.Serialization;
 using System.Windows.Forms;
 using CefSharp;
+using CefSharp.WinForms;
 using Univer.Desktop.Core;
 using Univer.Desktop.Web;
 
@@ -13,19 +14,20 @@ namespace Univer.Desktop.UI
 {
     internal sealed partial class MainForm
     {
-        private static Preferences Copy(Preferences source) { return source.Clone(); }
         private async Task OpenSettingsAsync(bool first = false)
         {
-            if (settingsOpen || commandBusy || closing) return;
+            if (settingsOpen || commandBusy || closing || LockShown) return;
             settingsOpen = true;
             var installUpdate = false;
             try
             {
-                var shown = Copy(prefs); shown.AutoLoginPaused |= guard.Stopped;
-                using (var form = new SettingsForm(credentials, shown, first, updates))
+                var shown = prefs.Clone(); shown.AutoLoginPaused |= guard.Stopped;
+                using (var form = new SettingsForm(credentials, shown, first, updates, first ? 1f : SidebarZoom))
                 {
                     form.OpenReleasePage = () => External(Updates.ReleasePage(updates.Available));
-                    form.ApplyAsync = (action, next, language, readable) => ApplySettingsAsync(action, next, language, readable, form.Tray, form.Animations, form.SelectedTheme);
+                    form.ApplyAsync = (action, next, language, readable) => ApplySettingsAsync(action, next, language, readable, form.Tray, form.Animations, form.SelectedTheme, form.ExternalLinks);
+                    form.ClearWebData = ClearWebDataAsync;
+                    form.PinSet = () => PinSet; form.SetPin = SetPinAsync; form.ChangePin = ChangePinAsync; form.DisablePin = DisablePinAsync;
                     form.ShowDialog(this);
                     // Closing first launch with X also means manual login, never implicit credential saving.
                     if (first && form.Action == SettingsAction.None) await ApplySettingsAsync(SettingsAction.Manual, null, prefs.Language, prefs.Readable);
@@ -35,7 +37,7 @@ namespace Univer.Desktop.UI
             finally { settingsOpen = false; }
             if (installUpdate) ShowUpdate(true);
         }
-        private async Task<bool> ApplySettingsAsync(SettingsAction action, Credentials next, string language, bool readable, bool? tray = null, bool? animations = null, string theme = null)
+        private async Task<bool> ApplySettingsAsync(SettingsAction action, Credentials next, string language, bool readable, bool? tray = null, bool? animations = null, string theme = null, bool? externalLinks = null)
         {
             if (commandBusy || closing) return false;
             commandBusy = true; SetCommandEnabled(false); SetStatus("saving");
@@ -45,16 +47,17 @@ namespace Univer.Desktop.UI
             {
                 if (logout) { await EndSessionAsync(action == SettingsAction.Remove); return !closing; }
                 var change = action == SettingsAction.Manual ? SettingsChange.AppearanceOnly : SettingsDecision.Classify(credentials, next, prefs.AutoLoginPaused || guard.Stopped);
-                var updated = Copy(prefs); updated.Language = language; updated.Readable = readable; if (tray.HasValue) updated.Tray = tray.Value; if (animations.HasValue) updated.Animations = animations.Value; if (theme != null) updated.Theme = ThemeChoice.Normalize(theme);
+                var updated = prefs.Clone(); updated.Language = language; updated.Readable = readable; if (tray.HasValue) updated.Tray = tray.Value; if (animations.HasValue) updated.Animations = animations.Value; if (theme != null) updated.Theme = ThemeChoice.Normalize(theme); if (externalLinks.HasValue) updated.ExternalLinks = externalLinks.Value;
                 if (action == SettingsAction.Manual) updated.AutoLoginPaused = true;
                 if (change != SettingsChange.AppearanceOnly)
                 {
                     automation.Navigating(); guard.Stop(); prefs.AutoLoginPaused = true;
-                    // Persist the stop before replacing credentials or clearing the browser.
-                    updated.AutoLoginPaused = true; await storage.SavePreferencesAsync(updated); prefs = updated; guard.Stop();
-                    if (change == SettingsChange.NewCredentials) { await storage.SaveCredentialsAsync(next); credentials = next; }
+                    // Persist the stop before replacing credentials or clearing the browser, and with it the mark that the
+                    // old session still has to go: a run that ends before the profiles are replaced is finished by the next.
+                    updated.AutoLoginPaused = true; updated.SessionClearPending = true; await storage.SavePreferencesAsync(updated); prefs = updated; guard.Stop();
+                    if (change == SettingsChange.NewCredentials) { await SaveAccountAsync(next); credentials = next; }
                     rotated = true; await RotateSessionAsync();
-                    updated = Copy(prefs); updated.AutoLoginPaused = false;
+                    updated = prefs.Clone(); updated.AutoLoginPaused = false;
                     await storage.SavePreferencesAsync(updated); prefs = updated;
                 }
                 else { await storage.SavePreferencesAsync(updated); prefs = updated; }
@@ -92,10 +95,10 @@ namespace Univer.Desktop.UI
         }
         private async Task EndSessionAsync(bool remove)
         {
-            var stopped = Copy(prefs); stopped.AutoLoginPaused = true;
+            var stopped = prefs.Clone(); stopped.AutoLoginPaused = true; stopped.SessionClearPending = true;
             guard.Stop(); automation.Navigating(); prefs.AutoLoginPaused = true;
             await storage.SavePreferencesAsync(stopped); prefs = stopped;
-            if (remove) { await storage.RemoveCredentialsAsync(); credentials = null; }
+            if (remove) { await RemoveAccountAsync(); credentials = null; }
             await RotateSessionAsync();
             if (!closing) { messages.FinishSettings(); SetStatus("paused"); Localize(); }
         }
@@ -109,7 +112,7 @@ namespace Univer.Desktop.UI
         }
         private async Task RotateSessionAsync()
         {
-            rotating = true; timer.Stop(); automation.Navigating(); downloads.Dispose(); sessionEpoch++;
+            rotating = true; timer.Stop(); automation.Navigating(); downloads.Dispose(); sessionEpoch++; ForgetShapes(); DisposeWeb();
             var replaced = false;
             try
             {
@@ -126,21 +129,24 @@ namespace Univer.Desktop.UI
                 }
                 stopping.ThrowIfCancellationRequested();
                 CloseBrowsers(); context.Dispose(); context = null;
-                var clean = Copy(prefs); clean.Profile = Guid.NewGuid().ToString("N"); clean.AutoLoginPaused = true;
+                // The other-site window's sign-ins (Moodle) belonged to the session that ends here.
+                var clean = prefs.Clone(); clean.Profile = Guid.NewGuid().ToString("N"); clean.WebProfile = Guid.NewGuid().ToString("N"); clean.AutoLoginPaused = true; clean.SessionClearPending = false;
                 await storage.SavePreferencesAsync(clean); prefs = clean;
                 stopping.ThrowIfCancellationRequested();
                 CreateSession(); replaced = true; messages.NewSession(); lastGet = SitePolicy.Home; lastMethod = "GET";
-                await storage.CleanOldProfilesAsync(clean.Profile);
+                await storage.CleanOldProfilesAsync(clean.Profile); await storage.CleanOldWebProfilesAsync(clean.WebProfile);
             }
             catch (Exception) when (!closing && !replaced) { RecoverSession(); throw; }
             finally { rotating = false; if (!closing) timer.Start(); }
         }
-        // A rotation stopped part-way has already ended the old session (its events no longer match sessionEpoch), so start a
-        // fresh empty profile; the stored pause keeps automatic sign-in off, as the request intended.
+        // A rotation stopped part-way has already ended the old session (its events no longer match sessionEpoch), so start
+        // fresh empty profiles, for the other-site window too; the stored pause keeps automatic sign-in off, as the request
+        // intended.
         private void RecoverSession()
         {
             CloseBrowsers(); context?.Dispose(); context = null;
-            var fresh = Copy(prefs); fresh.Profile = Guid.NewGuid().ToString("N"); fresh.AutoLoginPaused = true; prefs = fresh;
+            var fresh = prefs.Clone(); fresh.Profile = Guid.NewGuid().ToString("N"); fresh.WebProfile = Guid.NewGuid().ToString("N");
+            fresh.AutoLoginPaused = true; fresh.SessionClearPending = false; prefs = fresh;
             CreateSession(); messages.NewSession(); lastGet = SitePolicy.Home; lastMethod = "GET";
             QueueAsync(SavePreferencesAsync);
         }
@@ -196,18 +202,31 @@ namespace Univer.Desktop.UI
             var earlier = again || url == resumedUrl ? null : history?.Downloaded(key, suggestedName, source);
             if (earlier != null) { duplicate = new PendingDownload { Url = url, Name = suggestedName, Earlier = earlier }; SetStatus("downloadDuplicate"); return; }
             if (downloadProbe != null && downloadProbe(url)) return;
-            var result = await service.DownloadAsync(url, browser?.Address, agent, suggestedName, source, key);
+            // A UMKD file goes to its course and section under "Univer УМКД"; the page says which they are.
+            var folder = SitePolicy.ProtectedDownload(url) ? StudyMaterials.Folder(document == null ? await AutomationController.EvaluateAsync(browser, StudyMaterials.Place(url)) : null) : null;
+            if (service != downloads || closing || rotating || commandBusy) return;
+            string link = null;
+            var result = await service.DownloadAsync(url, browser?.Address, agent, suggestedName, source, key, folder, found => link = found);
+            // A material that is the teacher's link opens like any other link the user clicks.
+            if (result == "studyLink")
+            {
+                if (service != downloads || closing || rotating) return;
+                if (SitePolicy.StudyLink(link)) OpenWebLink(link); else SetStatus("externalBlocked");
+                return;
+            }
             // Nothing was saved and nothing keeps running, so the click gets an answer instead of silence.
             if (result == "offOrigin" || result == "downloadBusy") { SetStatus(result); return; }
             if (result != "downloadLogin" || service != downloads || closing || rotating || browser != Active || browser == null || browser.IsDisposed) return;
             // The server ended the session behind an idle page. With saved sign-in, reload the page so the usual login
             // automation signs in again, then repeat this GET once; an explicit logout or a stopped guard stays manual.
-            if (credentials == null || prefs.AutoLoginPaused || guard.Blocked || url == resumedUrl || (resumeDownload != null && resumeDownload.Url == url)) return;
+            // A section waiting for its sign-in keeps its place: the same sign-in serves the student's next click.
+            if (credentials == null || prefs.AutoLoginPaused || guard.Blocked || url == resumedUrl || (resumeDownload != null && (resumeDownload.Url == url || resumeDownload.Run != null))) return;
             resumeDownload = new PendingDownload { Url = url, Name = suggestedName, Until = DateTime.UtcNow.AddSeconds(90) };
             SetStatus("downloadSigningIn");
             browser.Load(lastMethod == "GET" && SitePolicy.Trusted(browser.Address) ? browser.Address : lastGet);
         }
-        private sealed class PendingDownload { public string Url, Name; public DateTime Until; public bool Loaded; public DownloadRecord Earlier; }
+        // Run and Rest: a section's «Скачать все» that goes on from Url, the refused file, after the sign-in.
+        private sealed class PendingDownload { public string Url, Name; public DateTime Until; public bool Loaded; public DownloadRecord Earlier; public SectionRun Run; public IList<string> Rest; }
         private PendingDownload resumeDownload, duplicate;
         // QA: notes a download that would start, in place of the request.
         private Func<string, bool> downloadProbe;
@@ -228,8 +247,15 @@ namespace Univer.Desktop.UI
             if (pending == null || !pending.Loaded) return;
             resumeDownload = null;
             if (DateTime.UtcNow > pending.Until) { SetStatus("downloadLogin"); return; }
+            if (pending.Run != null) { ResumeSectionRun(pending); return; }
             // One repeat only: a second login answer for the same file is left to the user.
             QueueAsync(async () => { resumedUrl = pending.Url; try { await DownloadAsync(pending.Url, pending.Name); } finally { resumedUrl = null; } });
+        }
+        // A hand-off to Moodle that never came within its time leaves no «Открытие Moodle…» behind.
+        private void ExpireSignOn()
+        {
+            if (DateTime.UtcNow.Ticks < System.Threading.Interlocked.Read(ref signOnUntil)) return;
+            if (messages.Withdraw("signOnOpening")) RenderFeedback();
         }
         private void ExpireResumedDownload()
         {
@@ -255,6 +281,8 @@ namespace Univer.Desktop.UI
             if (closing) return;
             try
             {
+                // Moodle in the app's own window is the answer itself: «Открытие Moodle…» leaves with it.
+                if (HandOffInside(url, method, fields)) { if (messages.Withdraw("signOnOpening")) RenderFeedback(); main?.Load(signOnReturn ?? SitePolicy.Origin + "/news/student"); return; }
                 var target = method == "POST" ? SingleSignOn.WriteHandOffPage(url, method, fields, "Moodle") : url;
                 Process.Start(new ProcessStartInfo(target) { UseShellExecute = true });
                 SetStatus("signOnOpened");
@@ -263,8 +291,20 @@ namespace Univer.Desktop.UI
             // The app returns to where the user was; the sign-in page is never left on screen.
             if (main != null && !main.IsDisposed) main.Load(signOnReturn ?? SitePolicy.Origin + "/news/student");
         }
+        // «Онлайн тест»: Univer signs the student in to online-test.kaznu.kz by redirecting its own route. That redirect opens
+        // like any outside link the student follows (the app's link window, or the browser when links open there), and the
+        // site window, which never left its page, loads that page again so no loading cover is left behind.
+        private string onlineTestReturn; private DateTime onlineTestReturnAt;
+        private void OpenOnlineTest(string url)
+        {
+            if (closing || main == null || main.IsDisposed || !SitePolicy.OnlineTestPortal(url)) return;
+            if (OpensInside(url)) ShowWeb(url); else External(url);
+            main.Load(onlineTestReturn ?? SitePolicy.Origin + "/news/student");
+            onlineTestReturn = null;
+        }
         private void PrintPage()
         {
+            if (LockShown) return;
             try
             {
                 // On the downloads page only an open file is printed, never the hidden site behind it.
@@ -276,25 +316,77 @@ namespace Univer.Desktop.UI
         private void OpenDownloads()
         { try { Process.Start(new ProcessStartInfo(DownloadService.DownloadsFolder()) { UseShellExecute = true }); } catch (Exception) { SetStatus("downloadFailed"); } }
         private void External(string url)
-        { if (SitePolicy.External(url)) try { Process.Start(new ProcessStartInfo(url) { UseShellExecute = true }); } catch (Exception) { SetStatus("externalError"); } }
+        { OpenOutside(url); }
+        private bool OpenOutside(string url)
+        {
+            if (!SitePolicy.External(url)) return false;
+            try { Process.Start(new ProcessStartInfo(url) { UseShellExecute = true }); return true; }
+            catch (Exception) { SetStatus("externalError"); return false; }
+        }
+        private string openedHost = "";
+        // QA: notes an outside address that would open, in place of the user's browser.
+        private Func<string, bool> outsideProbe;
+        // A link the user clicked in a site page. Other pages keep the general rule for safe outside links; on a course's
+        // UMKD page the address must be a web page that stands in that page's own materials, so a script or a frame
+        // cannot send the user's browser somewhere the teacher never pointed to.
+        private void PageLink(ChromiumWebBrowser browser, string url)
+        {
+            if (!SitePolicy.External(url)) return;
+            if (browser != main || !SitePolicy.StudyMaterials(browser.Address)) { if (OpensInside(url)) ShowWeb(url); else External(url); return; }
+            QueueAsync(() => OpenStudyLinkAsync(browser, url));
+        }
+        private async Task OpenStudyLinkAsync(ChromiumWebBrowser browser, string url)
+        {
+            var page = browser.Address; var epoch = sessionEpoch;
+            var found = SitePolicy.StudyLink(url) ? await AutomationController.EvaluateAsync(browser, StudyMaterials.LinkCheck(url)) : null;
+            if (closing || epoch != sessionEpoch || browser.IsDisposed || browser != main || !SitePolicy.SamePage(browser.Address, page)) return;
+            if (found != StudyMaterials.Found) { SetStatus("externalBlocked"); return; }
+            OpenWebLink(url);
+        }
+        // A web link the user chose to follow.
+        private void OpenWebLink(string url)
+        {
+            if (OpensInside(url)) { ShowWeb(url); return; }
+            if (outsideProbe != null ? outsideProbe(url) : OpenOutside(url)) { openedHost = SitePolicy.Host(url); SetStatus("externalOpened"); }
+        }
+        // " · Univer УМКД\Course\Section" for a file kept in the UMKD folder, so the message says where it went.
+        private static string StudyFolderNote(string path)
+        {
+            var downloads = DownloadService.DownloadsFolder(); var folder = Path.GetDirectoryName(path) ?? "";
+            return StudyFolders.Inside(folder, downloads) ? " · " + folder.Substring(downloads.TrimEnd(Path.DirectorySeparatorChar).Length + 1) : "";
+        }
         private void SetZoom(int percent)
         {
             var previousZoom = zoomPercent;
             zoomPercent = Math.Max(50, Math.Min(200, percent));
             if (previousZoom != zoomPercent) MotionSurface.StopTree(this);
             zoomLabel.Text = zoomPercent + "%"; prefs.Zoom = zoomPercent;
+            if (previousZoom == zoomPercent || !CurtainFits) { ApplyZoom(); return; }
+            // Steps gather behind one picture of the window; the layout changes once, when they stop.
+            if (curtain == null) { curtain = new ZoomCurtain(this, Theme.Background); curtainZoom = appliedZoom; }
+            curtain.Aim(zoomPercent / (float)curtainZoom);
+            zoomRound++; zoomSettle.Stop(); zoomSettle.Start();
+        }
+        private bool CurtainFits { get { return !selfTest && !accountReview && Visible && WindowState != FormWindowState.Minimized && Opacity >= .99 && ClientSize.Width > 0 && ClientSize.Height > 0; } }
+        private ZoomCurtain curtain;
+        private int curtainZoom, zoomRound;
+        private readonly System.Windows.Forms.Timer zoomSettle = new System.Windows.Forms.Timer { Interval = 150 };
+        private void ApplyZoom()
+        {
+            appliedZoom = zoomPercent;
             if (Active?.IsBrowserInitialized == true) Active.SetZoomLevel(Math.Log(zoomPercent / 100.0, 1.2));
+            SetWebZoom();
             ApplyChromeZoom();
-            if (Motion.Enabled && !Motion.KeyboardInput && previousZoom != zoomPercent)
-            {
-                var browser = Active; var targetZoom = zoomPercent;
-                QueueAsync(async () =>
-                {
-                    await Task.Delay(32);
-                    if (closing || browser != Active || browser == null || browser.IsDisposed || targetZoom != zoomPercent || Motion.KeyboardInput) return;
-                    await AutomationController.EvaluateAsync(browser, "window.__univerMotionUI?.zoom(document.getElementById('l4')," + (previousZoom / (double)targetZoom).ToString(System.Globalization.CultureInfo.InvariantCulture) + "); 'zoom'");
-                });
-            }
+        }
+        private async void ZoomSettled(object sender, EventArgs e)
+        {
+            zoomSettle.Stop(); var round = zoomRound;
+            ApplyZoom();
+            // Chromium needs a moment to draw the page at its new size; the app's own pages are ready at once.
+            var site = !DownloadsVisible;
+            await Task.Delay(site ? 180 : 30);
+            if (closing || round != zoomRound || curtain == null) return;
+            curtain.Reveal(); curtain = null;
         }
         private readonly CtrlWheel ctrlWheel;
         private readonly WheelSteps wheelSteps = new WheelSteps();
@@ -309,29 +401,30 @@ namespace Univer.Desktop.UI
         // The same zoom enlarges the app's own pages: the sidebar (within a usable range) and Downloads.
         private void ApplyChromeZoom()
         {
+            loading.Zoom = zoomPercent / 100f;
             if (Math.Abs(chromeZoom - zoomPercent / 100f) < 0.001f) return;
             chromeZoom = zoomPercent / 100f;
-            UiZoom.ApplyFonts(sidebar, SidebarZoom); ArrangeShell(); sidebar.Invalidate();
-            downloadsView?.SetZoom(chromeZoom); ArrangeToolbar();
+            var chrome = SidebarZoom;
+            UiZoom.ApplyFonts(sidebar, chrome); UiZoom.ApplyFonts(toolbar, chrome); ArrangeShell(); sidebar.Invalidate();
+            feedback.SetZoom(chrome); toast.SetZoom(chrome); findBar.SetZoom(chrome); noticesPanel.SetZoom(chrome);
+            downloadsView?.SetZoom(chromeZoom); ArrangeToolbar(); RenderNotices(); PlaceFind();
         }
         private void Back()
         {
             if (DownloadsVisible) { if (downloadsView.Previewing) downloadsView.ClosePreview(); else HideDownloads(); return; }
             if (document != null) CloseDocument(); else if (Active?.CanGoBack == true) Active.Back();
         }
-        // The read notice is confirmed once at startup; home goes straight to the news list afterwards.
-        private void GoHome() { NavigateSection("/news/student"); }
         private void NavigateSection(string path)
         {
             if (commandBusy || main == null) return;
-            CloseDocument(); HideDownloads();
+            CloseWeb(); CloseDocument(); HideDownloads();
             var target = SitePolicy.Origin + path;
             // A repeated click on the section that is already loading would queue another server request.
             if (main.IsLoading && string.Equals(lastGet, target, StringComparison.OrdinalIgnoreCase)) return;
             main.Load(target);
         }
         // Toolbar refresh and F5 act on what is shown; the downloads page re-reads its list instead of the hidden site.
-        private void RefreshCurrent() { if (DownloadsVisible) downloadsView.RefreshView(); else Retry(); }
+        private void RefreshCurrent() { if (DownloadsVisible) { downloadsView.RefreshView(); QueueAsync(PruneDownloadsAsync); } else Retry(); }
         private void Retry()
         {
             if (commandBusy || Active == null) return;

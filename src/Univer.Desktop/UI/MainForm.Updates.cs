@@ -41,7 +41,7 @@ namespace Univer.Desktop.UI
         // Waits for the settings window and any running command; the next return to the window tries again.
         private void OfferUpdate()
         {
-            if (!updatesReady || closing || settingsOpen || commandBusy || updateWindowOpen || !Visible || WindowState == FormWindowState.Minimized || !updates.ShouldPrompt) return;
+            if (!updatesReady || closing || settingsOpen || commandBusy || updateWindowOpen || LockShown || lockDialogOpen || !Visible || WindowState == FormWindowState.Minimized || !updates.ShouldPrompt) return;
             updateWindowOpen = true;
             Dispatch(() => ShowUpdate(false));
         }
@@ -55,6 +55,7 @@ namespace Univer.Desktop.UI
                 using (var form = new UpdateForm(updates, prefs.Language, installNow))
                 {
                     form.OpenPage = () => External(Updates.ReleasePage(updates.Available));
+                    if (selfTest) { form.Opacity = 0; form.ShowInTaskbar = false; }
                     form.ShowDialog(this);
                     setup = form.SetupPath;
                 }

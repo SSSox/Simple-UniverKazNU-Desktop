@@ -13,9 +13,10 @@ namespace Univer.Desktop.UI
         private readonly string language, version;
         private readonly bool installNow;
         private readonly Label heading = new Label(), message = new Label(), status = new Label(), error = new Label();
-        private readonly CheckBox neverShow = new CheckBox();
+        private readonly Toggle neverShow = new Toggle();
         private readonly Panel bar = new Panel();
         private readonly ModernButton later = new ModernButton(), install = new ModernButton();
+        private readonly Panel gap = new Panel { Dock = DockStyle.Right, Width = 8, TabStop = false };
         private bool working, answered;
         public Action OpenPage { get; set; }
         public string SetupPath { get; private set; }
@@ -27,26 +28,27 @@ namespace Univer.Desktop.UI
         {
             this.updates = updates; this.language = language; this.installNow = installNow; version = updates.Available;
             Text = Strings.Get("updateTitle", language);
-            Font = Theme.Font(10.5f); ForeColor = Theme.Ink; BackColor = Theme.Surface; Theme.Window(this);
+            Font = Theme.Font(Theme.Body); ForeColor = Theme.Ink; BackColor = Theme.Surface; Theme.Window(this);
             AutoScaleMode = AutoScaleMode.Dpi; AutoScaleDimensions = new SizeF(96, 96);
-            ClientSize = new Size(520, 300); FormBorderStyle = FormBorderStyle.FixedDialog;
+            ClientSize = new Size(480, 248); FormBorderStyle = FormBorderStyle.FixedDialog;
             MaximizeBox = MinimizeBox = false; ShowInTaskbar = false; StartPosition = FormStartPosition.CenterParent;
-            var body = new Panel { Dock = DockStyle.Fill, Padding = new Padding(30, 24, 30, 8) };
-            heading.Dock = DockStyle.Top; heading.Height = 40; heading.Font = Theme.Strong(17); heading.UseMnemonic = false; heading.Text = Text;
-            message.Dock = DockStyle.Top; message.Height = 76; message.UseMnemonic = false;
+            var body = new Panel { Dock = DockStyle.Fill, Padding = new Padding(24, 20, 24, 8) };
+            heading.Dock = DockStyle.Top; heading.Height = 32; heading.Font = Theme.Display(12.75f); heading.UseMnemonic = false; heading.Text = Text;
+            message.Dock = DockStyle.Top; message.Height = 58; message.UseMnemonic = false;
             message.Text = string.Format(Strings.Get(updates.Installed ? "updateMessage" : "updateMessagePortable", language), version, updates.Current);
-            neverShow.Dock = DockStyle.Top; neverShow.Height = 34; neverShow.Text = neverShow.AccessibleName = Strings.Get("updateNever", language);
-            status.Dock = DockStyle.Top; status.Height = 28; status.UseMnemonic = false;
-            bar.Dock = DockStyle.Top; bar.Height = 8; bar.BackColor = Theme.Border; bar.AccessibleRole = AccessibleRole.ProgressBar;
-            bar.Paint += (s, e) => { using (var fill = new SolidBrush(Theme.Accent)) e.Graphics.FillRectangle(fill, 0, 0, bar.Width * Shown100() / 100, bar.Height); };
-            error.Dock = DockStyle.Fill; error.ForeColor = Theme.Danger; error.Font = Theme.Font(9.5f); error.UseMnemonic = false; error.Visible = false;
+            neverShow.Dock = DockStyle.Top; neverShow.Height = 32; neverShow.Text = neverShow.AccessibleName = Strings.Get("updateNever", language);
+            status.Dock = DockStyle.Top; status.Height = 24; status.UseMnemonic = false;
+            bar.Dock = DockStyle.Top; bar.Height = 8; bar.BackColor = Theme.Surface; bar.AccessibleRole = AccessibleRole.ProgressBar;
+            bar.Paint += (s, e) => Kit.Meter(e.Graphics, new RectangleF(0, 1, bar.Width - 1, bar.Height - 2), Shown100() / 100f, Theme.Accent, Theme.Current.Track);
+            error.Dock = DockStyle.Fill; error.ForeColor = Theme.Danger; error.Font = Theme.Font(Theme.Meta); error.UseMnemonic = false; error.Visible = false;
             body.Controls.Add(error); body.Controls.Add(bar); body.Controls.Add(status); body.Controls.Add(neverShow); body.Controls.Add(message); body.Controls.Add(heading);
-            var footer = new Panel { Dock = DockStyle.Bottom, Height = 84, Padding = new Padding(30, 20, 30, 20), BackColor = Theme.Background };
-            footer.Paint += (s, e) => { using (var pen = new Pen(Theme.Border)) e.Graphics.DrawLine(pen, 0, 0, footer.Width, 0); };
-            later.Look = ButtonLook.Outline; later.Dock = DockStyle.Left; later.Width = 130; later.BackColor = Theme.Surface;
-            install.Look = ButtonLook.Primary; install.Dock = DockStyle.Right; install.Width = 240;
+            // The two actions sit together, where the pointer finishes, as in Settings; Install leads.
+            var footer = new Panel { Dock = DockStyle.Bottom, Height = 56, Padding = new Padding(24, 12, 24, 12), BackColor = Theme.Surface };
+            footer.Paint += (s, e) => { using (var pen = new Pen(Theme.Current.Line)) e.Graphics.DrawLine(pen, 0, 0, footer.Width, 0); };
+            later.Look = ButtonLook.Outline; later.Hug = true; later.Height = 32; later.Dock = DockStyle.Right; later.BackColor = Theme.Surface;
+            install.Look = ButtonLook.Primary; install.Hug = true; install.Height = 32; install.Dock = DockStyle.Right;
             install.Text = install.AccessibleName = Strings.Get(updates.Installed ? "updateInstall" : "updateOpen", language);
-            footer.Controls.Add(later); footer.Controls.Add(install); Controls.Add(body); Controls.Add(footer);
+            footer.Controls.Add(later); footer.Controls.Add(gap); footer.Controls.Add(install); Controls.Add(body); Controls.Add(footer);
             AcceptButton = install; CancelButton = later;
             later.Click += (s, e) => { if (working) updates.Cancel(); else Close(); };
             install.Click += async (s, e) => await InstallAsync();
@@ -65,6 +67,8 @@ namespace Univer.Desktop.UI
                 Size = new Size(Math.Min(Width, area.Width - 24), Math.Min(Height, area.Height - 24));
                 Left = Math.Max(area.Left + 12, Math.Min(Left, area.Right - Width - 12));
                 Top = Math.Max(area.Top + 12, Math.Min(Top, area.Bottom - Height - 12));
+                // Measured before the window's DPI scale, these widths were scaled once too often.
+                later.SnapWidth(); install.SnapWidth();
                 if (this.installNow) await InstallAsync(); else install.Focus();
             };
             Arrange();
@@ -83,7 +87,7 @@ namespace Univer.Desktop.UI
         }
         private void Arrange()
         {
-            neverShow.Visible = !working && !installNow; status.Visible = bar.Visible = working; install.Visible = !working;
+            neverShow.Visible = !working && !installNow; status.Visible = bar.Visible = working; install.Visible = gap.Visible = !working;
             later.Text = later.AccessibleName = Strings.Get(working ? "updateCancel" : "updateLater", language);
             Render();
         }

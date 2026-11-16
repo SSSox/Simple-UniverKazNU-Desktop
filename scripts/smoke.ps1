@@ -1,7 +1,7 @@
 # -Only runs CEF start-up and one self-test step (settings, shell, document, presentation, form-download, layout-load,
 # downloads, office, zoom, theme, notices, updates, live, logout) for a quick check while working on it; a release run uses every step.
 param([ValidateSet('x64','x86')][string]$Platform = 'x64', [ValidateSet('Modern','Legacy')][string]$BrowserFlavor = 'Modern', [switch]$Live, [string]$OutputRoot,
-    [ValidateSet('settings','shell','document','presentation','form-download','layout-load','downloads','office','zoom','theme','notices','updates','live','logout')][string]$Only)
+    [ValidateSet('settings','shell','document','presentation','form-download','layout-load','downloads','office','zoom','polish','product','theme','notices','updates','live','logout')][string]$Only)
 $ErrorActionPreference = 'Stop'
 $projectRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $framework = if ($BrowserFlavor -eq 'Legacy') { 'net452' } else { 'net462' }
@@ -23,9 +23,9 @@ try {
     # The office step opens the synthetic workbooks and presentations Excel and PowerPoint saved in both formats.
     $env:UNIVER_QA_FIXTURES = Join-Path $projectRoot 'tests\Univer.Desktop.Tests\Fixtures'
     $process = Start-Process -FilePath $app -ArgumentList $arguments -WindowStyle Hidden -PassThru
-    # The native run includes real Chromium download, keyboard, Office preview, file zoom and theme checks (about 2 minutes);
-    # 300 s leaves room on slow machines.
-    $deadline = [DateTime]::UtcNow.AddSeconds(300)
+    # The native run includes real Chromium download, keyboard, Office preview, file zoom and theme checks (about 4 minutes);
+    # 420 s leaves room on slow machines.
+    $deadline = [DateTime]::UtcNow.AddSeconds(420)
     while (!$process.WaitForExit(1000) -and [DateTime]::UtcNow -lt $deadline) { }
     if (!$process.HasExited) {
         # This exact process was created above with an isolated QA profile; never target a user's running app.

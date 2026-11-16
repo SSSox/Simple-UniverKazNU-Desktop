@@ -49,13 +49,13 @@ namespace Univer.Desktop.Tests
             Assert.Single(state.Preferences.Pins);
         }
         [Fact]
-        public void Storage_DamagedSettings_ReadableSavedSignInKeepsSigningIn()
+        public void Storage_DamagedSettings_PreservesTheRecordButRequiresExplicitReentry()
         {
             var storage = new Storage(root);
             storage.SaveCredentials(new Credentials { Login = "synthetic", Password = Guid.NewGuid().ToString() });
             File.WriteAllText(Path.Combine(root, "preferences.json"), "{ not json");
             var state = storage.Load();
-            Assert.True(state.Failed); Assert.False(state.CredentialsUnreadable); Assert.False(state.Preferences.AutoLoginPaused);
+            Assert.True(state.Failed); Assert.False(state.CredentialsUnreadable); Assert.True(state.Preferences.AutoLoginPaused);
             Assert.Equal("synthetic", state.Credentials.Login);
         }
         [Fact]
@@ -64,6 +64,30 @@ namespace Univer.Desktop.Tests
             File.WriteAllText(Path.Combine(root, "preferences.json"), "{ not json");
             var state = new Storage(root).Load();
             Assert.True(state.Failed); Assert.Null(state.Credentials); Assert.True(state.Preferences.AutoLoginPaused);
+        }
+        [Fact]
+        public void Storage_MissingSettings_DoNotResumeASavedAccount()
+        {
+            var storage = new Storage(root);
+            storage.SaveCredentials(new Credentials { Login = "synthetic", Password = Guid.NewGuid().ToString() });
+            var before = File.ReadAllBytes(Path.Combine(root, "credentials.dpapi"));
+            var state = storage.Load();
+            Assert.True(state.Preferences.AutoLoginPaused);
+            Assert.Equal("synthetic", state.Credentials.Login);
+            Assert.Equal(before, File.ReadAllBytes(Path.Combine(root, "credentials.dpapi")));
+        }
+        [Fact]
+        public void Storage_LockedPreferences_CannotRevokeExplicitLogout()
+        {
+            var storage = new Storage(root);
+            storage.SaveCredentials(new Credentials { Login = "synthetic", Password = Guid.NewGuid().ToString() });
+            storage.SavePreferences(new Preferences { AutoLoginPaused = true });
+            using (File.Open(Path.Combine(root, "preferences.json"), FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+            {
+                var state = storage.Load();
+                Assert.True(state.Failed); Assert.True(state.Preferences.AutoLoginPaused);
+                Assert.NotNull(state.Credentials);
+            }
         }
         [Fact]
         public void Storage_CleanState_LoadsWithoutFailure()
@@ -143,6 +167,20 @@ namespace Univer.Desktop.Tests
             Assert.Equal("downloadUnsupported", status.Current.Key);
             Assert.Equal(MessageTone.Warning, status.Current.Tone); Assert.Equal(MessageAction.None, status.Current.Action); Assert.True(status.Current.CanDismiss);
             status.Dismiss(); Assert.Equal("downloadComplete", status.Current.Key);
+        }
+        [Fact]
+        public void Status_Withdraw_TakesBackOnlyTheWaitingMessage()
+        {
+            // «Открытие Moodle…» cannot be dismissed, so it has to be taken back when Moodle opens in the app.
+            var status = new UiStatus(); status.Update("signOnOpening");
+            Assert.False(status.Current.CanDismiss);
+            Assert.True(status.Withdraw("signOnOpening")); Assert.Null(status.Current);
+            // An answer that already replaced it in its channel stays.
+            status.Update("signOnOpening"); status.Update("signOnOpened");
+            Assert.False(status.Withdraw("signOnOpening")); Assert.Equal("signOnOpened", status.Current.Key);
+            // «Скачивание…» goes, a finished download's message in the same channel does not.
+            status.Update("downloading"); Assert.True(status.Withdraw("downloading"));
+            status.Update("downloadComplete"); Assert.False(status.Withdraw("downloading")); Assert.True(status.Shows("downloadComplete"));
         }
         [Fact]
         public void Status_UnexpectedError_OffersRetryAndKeepsTheSignInStateApart()

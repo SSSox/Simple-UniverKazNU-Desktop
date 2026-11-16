@@ -106,6 +106,19 @@ namespace Univer.Desktop.UI
                 "var ok=window.qaOpened==='7101'&&shown.length===1&&shown[0].id==='7103';i.value='';i.dispatchEvent(new Event('input'));return ok?'opened':JSON.stringify({opened:window.qaOpened,shown:shown.map(function(r){return r.id})})})()");
             QaTrace("study-open-result " + opened);
             Check(opened == "opened", "Open uses the site's double-click handler and the course search filters the list", results);
+            // A very wide window, emulated so the check does not depend on the screen: the page keeps to the header's column.
+            using (var client = main.GetDevToolsClient())
+            {
+                await client.Emulation.SetDeviceMetricsOverrideAsync(2200, 1100, 1, false); await Task.Delay(300);
+                var column = await AutomationController.EvaluateAsync(main, "(function(){var cell=document.querySelector('#l4 td.center'),kids=Array.from(cell.children).filter(function(n){return n.getClientRects().length}),side=(document.documentElement.clientWidth-1400)/2,head={left:side,right:side+1400};" +
+                    "var bad=kids.filter(function(n){var r=n.getBoundingClientRect();return r.width>1401||r.left<head.left-1||r.right>head.right+1});" +
+                    "var rows=Array.from(document.querySelectorAll('#l4 .univer-app-forum-courses tr.link')).filter(function(r){return r.getClientRects().length});" +
+                    "return kids.length&&!bad.length&&rows.length&&rows.every(function(r){return r.getBoundingClientRect().width<=1401})&&document.documentElement.scrollWidth<=innerWidth?'column':JSON.stringify({inner:innerWidth,head:[head.left,head.right],bad:bad.map(function(n){var r=n.getBoundingClientRect();return n.tagName+'.'+n.className+':'+Math.round(r.left)+'-'+Math.round(r.right)})})})()");
+                QaTrace("study-wide-column " + column);
+                File.WriteAllBytes(Path.Combine(qa, "study-discussion-wide.png"), (await client.Page.CaptureScreenshotAsync()).Data);
+                await client.Emulation.ClearDeviceMetricsOverrideAsync(); await Task.Delay(200);
+                Check(column == "column", "in a very wide window the course list keeps to the page column under the header", results);
+            }
             using (var client = main.GetDevToolsClient()) File.WriteAllBytes(Path.Combine(qa, "study-discussion.png"), (await client.Page.CaptureScreenshotAsync()).Data);
             prefs.Readable = false; await ApplyPresentationAsync();
             Check(await AutomationController.EvaluateAsync(main, "!document.querySelector('.univer-app-course-open,.univer-app-list-filter,.univer-app-count,#univer-pages-style')&&document.getElementById('7101').cells[1].textContent==='Введение в информационную безопасность (2)'?'restored':''") == "restored",
@@ -122,6 +135,7 @@ namespace Univer.Desktop.UI
                 "exam instruction files become cards while the proctoring lines stay as they are", results);
             using (var client = main.GetDevToolsClient()) File.WriteAllBytes(Path.Combine(qa, "study-exam.png"), (await client.Page.CaptureScreenshotAsync()).Data);
             await CourseTasksQaAsync(qa, results, heading);
+            await SyllabusQaAsync(qa, results, heading);
         }
         // --qa-study: an isolated visible run that renders these fixtures wide and narrow and saves Chromium screenshots.
         private async Task StudyQaAsync()

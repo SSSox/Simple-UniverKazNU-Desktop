@@ -10,8 +10,11 @@ A desktop app for the [Univer KazNU](https://univer.kaznu.kz/) student portal wi
 - **Reading mode for the site:** readable tables and cards, one header instead of three bars, an "All sections" panel with search, pinned links on the home page. "View → Original layout" shows the site as it is.
 - **Schedule** with the current and next class, a day filter and a week grid.
 - **Grades** by subject, clear assessment pages, all distance-course tasks on one page.
+- **Syllabus tasks on the schedule.** Each class shows the topic of its week from the syllabus written for your educational programme, and the week's independent work is listed by course. When your group has seminars in other weeks than the syllabus says, the topics go to the classes in order, and independent work is named under the nearest seminar. Teacher consultations are left out. A topic folds on its own button, and one switch hides them all.
 - **Site notifications** about questionnaires and tests in the bell on the toolbar; questionnaires you have already answered are not counted.
 - **"Downloads" (Ctrl+J):** every downloaded file with search and filters, and a built-in viewer for PDF, Word, Excel, PowerPoint, web pages, text and images, without Office.
+- **"Download all"** in a section of the course materials (УМКД): the section's files go to Downloads, into the folder `Univer УМКД\<course>\<section>`.
+- **PIN** ("Sign-in protection" in Settings): the app asks for it at start and after a minute with the window minimized, hidden in the tray or Windows locked. After ten wrong attempts the app signs out and deletes the saved login.
 - **Ctrl+F search** on site pages and in open files, news with search and filters.
 - Light and dark theme, zoom, printing, running from the notification area (tray).
 
@@ -89,6 +92,8 @@ Uninstalling: "Settings → Apps → Univer → Uninstall". The program is remov
 
 On the first start the app offers two ways to sign in: enter your Univer login and password in the app window (they are then saved encrypted and sign-in happens by itself), or sign in manually on the site page without saving anything. After that the app reuses the saved session.
 
+If settings are missing, damaged or temporarily unreadable, the saved password remains encrypted and automatic sign-in waits for an explicit "Sign in again". A settings read error cannot undo a previous sign-out.
+
 - "Settings → Account → Sign out" ends the session and clears cookies but keeps the saved password; automatic sign-in pauses until you press "Sign in again".
 - "Remove saved login" erases the saved record and ends the session.
 - If your password changed on the site, the app stops after two rejections in a row and asks for the new one.
@@ -114,7 +119,7 @@ The app was tested on Windows 11 x64, including the 32-bit builds on the same sy
 
 ## Privacy and security
 
-The app has no server of its own, no analytics, telemetry or crash reports. Its own requests go only to `https://univer.kaznu.kz` and to GitHub, where updates come from; external links open in your browser. The password is stored on this computer, encrypted with Windows DPAPI for your account.
+The app has no server of its own, no analytics, telemetry or crash reports. Its own requests go only to `https://univer.kaznu.kz` and to GitHub, where updates come from; links to other sites open in a separate panel inside the app with its own browser profile, or in your browser if you turn on "Open links in an external browser". The password is stored on this computer, encrypted with Windows DPAPI for your account.
 
 - [PRIVACY.en.md](PRIVACY.en.md): what data is stored, where, and how to delete it.
 - [SECURITY.en.md](SECURITY.en.md): what the app does and does not do, its limitations and how to report a vulnerability.
@@ -164,4 +169,4 @@ Copyright (C) 2026 the Univer · KazNU authors.
 
 The code is distributed under the [GNU General Public License](LICENSE), version 3 or, at your option, any later version (GPL-3.0-or-later). You may use, modify and distribute it, including for a fee, but a modified version of the app must be released under the same license together with its source code. The source code of every version is the release tag in this repository; a source archive is on the release page.
 
-Third-party components (CefSharp, Chromium Embedded Framework, Mozilla PDF.js) keep their own licenses, listed in [THIRD-PARTY.en.md](THIRD-PARTY.en.md); the texts are in `licenses/` and next to the PDF.js files. The name, logo and materials of Al-Farabi KazNU are not covered by the license and belong to the university.
+Third-party components (CefSharp, Chromium Embedded Framework, Mozilla PDF.js, Lucide) keep their own licenses, listed in [THIRD-PARTY.en.md](THIRD-PARTY.en.md); the texts are in `licenses/` and next to the PDF.js files. The name, logo and materials of Al-Farabi KazNU are not covered by the license and belong to the university.

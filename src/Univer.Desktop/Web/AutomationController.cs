@@ -20,7 +20,7 @@ namespace Univer.Desktop.Web
         private const string ProbeScript = "window.__univerAutomationV1 ? JSON.stringify(window.__univerAutomationV1.probe()) : 'bootstrap'";
         private readonly JavaScriptSerializer json = new JavaScriptSerializer();
         // Page scripts in load order, read once per process and reused by every session and registration.
-        private static readonly Lazy<string> Bundle = new Lazy<string>(() => Scripts("paint-gate.js", "page-common.js", "univer-automation.js", "news.js", "study-links.js", "study-pages.js", "course-tasks.js", "attendance.js", "overview.js", "shortcuts.js", "notices.js", "univer-layout.js", "theme.js", "desktop.js"));
+        private static readonly Lazy<string> Bundle = new Lazy<string>(() => Scripts("paint-gate.js", "page-common.js", "univer-automation.js", "news.js", "study-links.js", "study-pages.js", "course-tasks.js", "syllabus-tasks.js", "attendance.js", "overview.js", "shortcuts.js", "notices.js", "page-polish.js", "univer-layout.js", "theme.js", "kit.js", "back-to-top.js", "desktop.js"));
         private readonly string bundle = Bundle.Value;
         // The scripts name the origin themselves; ScriptBundle rewrites it from SitePolicy, the single native source.
         private static string Scripts(params string[] names)
@@ -46,7 +46,15 @@ namespace Univer.Desktop.Web
         // Registered to run at document start: the page scripts, the paint gate's sign-in state and, once the document
         // is parsed, the chosen view.
         public string DocumentScript(Preferences prefs, bool viewer, bool active)
-        { return bundle + "\n" + ConfigurePaint(active) + Early(prefs) + "document.addEventListener('DOMContentLoaded',function(){" + ApplyView(prefs, viewer) + "},{once:true});"; }
+        {
+            // Strict throughout, and the key only in the call's arguments: no frame the page reaches through .caller or a
+            // stack trace holds the sender, and no function's text holds the key.
+            return "(function(__univerNative){'use strict';\n" + bundle + "\n" + ConfigurePaint(active) + Early(prefs) + "document.addEventListener('DOMContentLoaded',function(){" + ApplyView(prefs, viewer) + "},{once:true});\n})(" +
+                NativeChannel.Script(MessageKey) + ");";
+        }
+        // Only the app's scripts inside the closure above hold this run's key (NativeChannel).
+        public readonly string MessageKey = NativeChannel.NewKey();
+        public string Unwrap(string message) { return NativeChannel.Unwrap(MessageKey, message); }
         // Before the page has parsed: the reading layout in the dark theme starts on a dark page instead of the site's white.
         private string Early(Preferences prefs) { return "window.__univerTheme=" + Theme() + ";window.__univerThemeV1&&window.__univerThemeV1.early(" + Js(prefs.Readable) + ");"; }
         private string Theme() { return Dark ? "'dark'" : "'light'"; }
@@ -55,7 +63,7 @@ namespace Univer.Desktop.Web
         // Motion, pinned shortcuts (plain data from validated preferences) and the reading layout of this view.
         private string ApplyView(Preferences prefs, bool viewer)
         {
-            return "window.__univerMotion=" + Js(prefs.Animations) + ";window.__univerTheme=" + Theme() + ";window.__univerShortcutsV1&&window.__univerShortcutsV1.configure(" + Shortcuts.ToJson(prefs.Pins) + "," + Shortcuts.OrderJson(prefs.TileOrder) + ");" +
+            return "window.__univerMotion=" + Js(prefs.Animations) + ";window.__univerTheme=" + Theme() + ";window.__univerShortcutsV1&&window.__univerShortcutsV1.configure(" + Shortcuts.ToJson(prefs.Pins) + "," + Shortcuts.OrderJson(prefs.TileOrder) + "," + Shortcuts.HiddenJson(prefs.HiddenTiles) + ");" +
                 "window.__univerDesktop.apply(" + Js(prefs.Readable) + "," + Js(viewer) + "," + Quote(prefs.Language) + ");";
         }
         // The app's dark theme, for the reading layout; Original layout ignores it.
@@ -99,11 +107,14 @@ namespace Univer.Desktop.Web
         private async Task StepAsync(ChromiumWebBrowser browser, Credentials credentials, Preferences prefs, bool viewer, int epoch)
         {
             var raw = await EvaluateAsync(browser, ProbeScript);
-            if (raw == "bootstrap") raw = await EvaluateAsync(browser, bundle + "\nJSON.stringify(window.__univerAutomationV1.probe())");
+            // A page the document script missed gets the bundle without a sender: by now page scripts ran and may have
+            // planted a binding of their own, so the key never goes there. Sign-in still works through this probe.
+            if (raw == "bootstrap") raw = await EvaluateAsync(browser, "(function(__univerNative){'use strict';\n" + bundle + "\n})(null);\nJSON.stringify(window.__univerAutomationV1.probe())");
             if (epoch != generation || raw == null || !SitePolicy.Trusted(browser.Address)) return;
             var p = new Probe(json.Deserialize<Dictionary<string, object>>(raw));
             if (!p.Bool("trusted")) return;
-            var active = credentials != null && !prefs.AutoLoginPaused;
+            // A password still sealed under the PIN is a wait: no sign-in is tried (and counted) until the PIN opens it.
+            var active = Credentials.SignInActive(credentials, prefs);
             // One round trip; each step stays isolated so a failing layout cannot hide the viewer's legacy Back.
             var applied = await EvaluateAsync(browser, "try{" + ConfigurePaint(active && !guard.Blocked && !guard.CoverSuspended) + "}catch(_){}try{" + ApplyView(prefs, viewer) + "}catch(_){}" +
                 "window.__univerDesktop.close ? 'close' : 'ok'");
@@ -254,7 +265,7 @@ namespace Univer.Desktop.Web
             var latest = await EvaluateAsync(browser, "window.__univerAutomationV1 ? JSON.stringify(window.__univerAutomationV1.probe()) : null");
             if (latest == null || epoch != generation) return;
             var value = new Probe(json.Deserialize<Dictionary<string, object>>(latest));
-            var active = credentials != null && !prefs.AutoLoginPaused;
+            var active = Credentials.SignInActive(credentials, prefs);
             var failed = guard.Blocked || guard.CoverSuspended || failedAgreement || (failedNotice != null && failedNotice == value.Str("noticeEpisode"));
             var languagePending = !value.Bool("hasPendingForm") && value.Str("language").Length > 0 && value.Str("language") != prefs.Language && switches.Count < LanguageAttempts;
             // Reveal at DOMContentLoaded: images and late resources keep loading under the adapted page. After an automatic

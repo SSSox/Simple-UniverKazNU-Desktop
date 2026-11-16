@@ -27,6 +27,8 @@ namespace Univer.Desktop.Core
         }
         // A number-only UMKD URL is not a file name. Prefer the server, then the
         // observed link/CEF suggestion, and recover missing extensions from the payload.
+        // A program or a script is never kept under a name that one double click in Downloads would run: it gets
+        // ".bin" after its own name, which still says what the file is.
         public static string Resolve(string disposition, string hint, string url, string mediaType, byte[] prefix, int count, string savedPath = null)
         {
             var name = HeaderName(disposition);
@@ -53,7 +55,19 @@ namespace Univer.Desktop.Core
             var stem = current.Length > 0 ? Path.GetFileNameWithoutExtension(name) : name;
             if (extension.Length > 0 && current != extension) name = stem + extension;
             else if (current.Length == 0) name += MimeExtension(mediaType);
-            return Safe(name);
+            name = Safe(name);
+            if ((Program(prefix, count) || WebLinks.Blocked(name)) && Extension(name) != ".bin") name = Safe(name + ".bin");
+            return name;
+        }
+        // A Windows program (MZ, whose header always has zero bytes, unlike a text that happens to start with these
+        // letters) or a Unix one (ELF), by its first bytes.
+        private static bool Program(byte[] bytes, int count)
+        {
+            if (bytes == null || count < 4) return false;
+            if (bytes[0] == 0x7f && bytes[1] == 'E' && bytes[2] == 'L' && bytes[3] == 'F') return true;
+            if (bytes[0] != 'M' || bytes[1] != 'Z') return false;
+            for (var i = 2; i < count && i < 64; i++) if (bytes[i] == 0) return true;
+            return false;
         }
         // Only a short ASCII suffix with a letter is treated as an existing extension.
         public static string Extension(string name)
@@ -212,6 +226,47 @@ namespace Univer.Desktop.Core
                 case "image/png": return ".png";
                 default: return ".bin";
             }
+        }
+        private static readonly string[] OfficeExtensions = { ".doc", ".dot", ".docx", ".docm", ".dotx", ".xls", ".xlt", ".xlsx", ".xlsm", ".xltx", ".xltm", ".ppt", ".pps", ".pot", ".pptx", ".pptm", ".ppsx", ".ppsm", ".potx", ".potm" };
+        // The extension a preview reads a file as. An Office name whose content says otherwise follows the content: a web
+        // page saved as .xls (as some sites export tables) is read as HTML, a workbook package named .xls as .xlsx, and an
+        // Office 97-2003 file named .docx as .doc. Every other name, and a file that cannot be read, keeps its extension.
+        public static string PreviewExtension(string path)
+        {
+            var extension = Path.GetExtension(path ?? "").ToLowerInvariant();
+            if (Array.IndexOf(OfficeExtensions, extension) < 0) return extension;
+            var head = new byte[1024]; int count;
+            try { using (var file = File.OpenRead(path)) count = file.Read(head, 0, head.Length); }
+            catch (IOException) { return extension; }
+            catch (UnauthorizedAccessException) { return extension; }
+            return PreviewExtension(extension, head, count, path);
+        }
+        internal static string PreviewExtension(string extension, byte[] head, int count, string savedPath)
+        {
+            var family = extension.Length > 1 ? extension[1] : ' ';
+            var package = extension.EndsWith("x", StringComparison.Ordinal) || extension.EndsWith("m", StringComparison.Ordinal);
+            var signature = SignatureExtension(head, count, savedPath);
+            if (signature == ".docx" || signature == ".xlsx" || signature == ".pptx") return package && signature[1] == family ? extension : signature;
+            if (signature == ".ole") return !package ? extension : family == 'd' ? ".doc" : family == 'x' ? ".xls" : ".ppt";
+            if (signature.Length == 0 && MarkupText(head, count)) return ".html";
+            return extension;
+        }
+        // Whether a renderer error may hand the file to the system preview handler. An unreadable Office file may; so may any
+        // failure on an Office-named file whose content is a web page (a table saved as .xls opens in Excel's handler). A
+        // file named as a web page never goes to a handler, and a cancelled preview is just cancelled.
+        public static bool HandlerFallback(string path, string readAs, Exception error)
+        {
+            if (error is OperationCanceledException) return false;
+            var named = Path.GetExtension(path ?? "").ToLowerInvariant();
+            if (named == ".html" || named == ".htm" || named == ".xhtml") return false;
+            return error is InvalidDataException || readAs == ".html";
+        }
+        private static bool MarkupText(byte[] bytes, int count)
+        {
+            if (bytes == null || count < 5) return false;
+            var unicode = count >= 2 && bytes[0] == 0xff && bytes[1] == 0xfe;
+            var text = (unicode ? Encoding.Unicode.GetString(bytes, 2, (count - 2) & ~1) : Encoding.UTF8.GetString(bytes, 0, count)).TrimStart('\uFEFF', ' ', '\r', '\n', '\t');
+            return Regex.IsMatch(text, @"^(<!doctype\s+html|<html\b|<head\b|<body\b|<meta\b|<table\b|<\?xml[^>]*>\s*<html\b)", RegexOptions.IgnoreCase);
         }
         public static bool CanOpen(string path)
         { return Regex.IsMatch(Path.GetExtension(path ?? ""), @"^\.(pdf|docx?|xlsx?|pptx?|rtf|txt|csv|png|jpe?g|gif|odt|ods|odp)$", RegexOptions.IgnoreCase); }

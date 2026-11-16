@@ -10,16 +10,19 @@ namespace Univer.Desktop.UI
     {
         private readonly Label title = new Label(), body = new Label();
         private readonly FlowLayoutPanel actions = new FlowLayoutPanel();
-        public ModernButton Primary { get; } = new ModernButton { Look = ButtonLook.Primary, Width = 148, Height = 36 };
-        public ModernButton Secondary { get; } = new ModernButton { Width = 130, Height = 36 };
-        public ModernButton Dismiss { get; } = new ModernButton { Icon = UiIcon.Close, Compact = true, Width = 32, Height = 32 };
+        public ModernButton Primary { get; } = new ModernButton { Look = ButtonLook.Primary, Width = 148, Height = 28 };
+        public ModernButton Secondary { get; } = new ModernButton { Look = ButtonLook.Outline, Width = 130, Height = 28 };
+        public ModernButton Dismiss { get; } = new ModernButton { Icon = UiIcon.Close, Compact = true, Width = 28, Height = 28 };
         private MessageTone tone;
         private string renderedKey;
         private MotionPopup exitVisual;
+        private float zoom = 1;
+        private float Unit { get { return Theme.DpiScale * zoom; } }
+        public void SetZoom(float value) { zoom = value; UiZoom.ApplyFonts(this, value); Arrange(); Invalidate(); }
         public FeedbackPanel()
         {
             DoubleBuffered = true; Dock = DockStyle.Top; Padding = new Padding(16, 12, 16, 12); AccessibleRole = AccessibleRole.Alert;
-            title.Font = Theme.Strong(11); title.ForeColor = Theme.Ink; body.Font = Theme.Font(10); body.ForeColor = Theme.Ink;
+            title.Font = Theme.Strong(Theme.Body); title.ForeColor = Theme.Ink; body.Font = Theme.Font(Theme.Meta); body.ForeColor = Theme.Ink;
             title.AutoSize = false; body.AutoSize = false; actions.WrapContents = false; actions.BackColor = Color.Transparent;
             actions.Controls.Add(Primary); actions.Controls.Add(Secondary); Controls.Add(title); Controls.Add(body); Controls.Add(actions); Controls.Add(Dismiss);
             Resize += (s, e) => Arrange();
@@ -51,27 +54,25 @@ namespace Univer.Desktop.UI
         private void Arrange()
         {
             if (!Visible || Width < 100) return;
-            float scale; using (var graphics = CreateGraphics()) scale = graphics.DpiX / 96f;
-            Func<int, int> px = value => (int)Math.Round(value * scale);
+            Func<int, int> px = value => (int)Math.Round(value * Unit);
             var available = Math.Max(px(100), Width - px(90));
-            title.Bounds = new Rectangle(px(48), px(12), available, px(24));
+            title.Bounds = new Rectangle(px(44), px(12), available, px(24));
             var bodyHeight = TextRenderer.MeasureText(body.Text, body.Font, new Size(available, int.MaxValue), TextFormatFlags.WordBreak).Height + 4;
-            body.Bounds = new Rectangle(px(48), px(38), available, bodyHeight);
+            body.Bounds = new Rectangle(px(44), px(36), available, bodyHeight);
             var hasActions = Primary.Visible || Secondary.Visible;
-            Primary.Height = Secondary.Height = px(36);
-            actions.Bounds = new Rectangle(px(48), px(43) + bodyHeight, available, hasActions ? px(40) : 0);
+            Primary.Height = Secondary.Height = px(28);
+            actions.Bounds = new Rectangle(px(44), px(44) + bodyHeight, available, hasActions ? px(40) : 0);
             Dismiss.Bounds = new Rectangle(Width - px(40), px(8), px(32), px(32));
             Height = px(52) + bodyHeight + (hasActions ? px(40) : 0);
         }
         protected override void OnPaint(PaintEventArgs e)
         {
             base.OnPaint(e); e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
-            var scale = e.Graphics.DpiX / 96f;
+            var scale = Unit;
             var accent = tone == MessageTone.Error ? Theme.Danger : tone == MessageTone.Warning ? Theme.Current.Warning : tone == MessageTone.Success ? Theme.Success : Theme.AccentInk;
-            using (var bar = new SolidBrush(accent)) e.Graphics.FillRectangle(bar, 0, 0, 3 * scale, Height);
             using (var line = new Pen(Theme.Border)) e.Graphics.DrawLine(line, 0, Height - 1, Width, Height - 1);
             Icons.Draw(e.Graphics, tone == MessageTone.Error || tone == MessageTone.Warning ? UiIcon.Warning : tone == MessageTone.Success ? UiIcon.Check : UiIcon.Info,
-                new RectangleF(16 * scale, 13 * scale, 22 * scale, 22 * scale), accent);
+                new RectangleF(16 * scale, 15 * scale, 18 * scale, 18 * scale), accent);
         }
         protected override void Dispose(bool disposing)
         { if (disposing) exitVisual?.Dispose(); base.Dispose(disposing); }

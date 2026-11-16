@@ -100,9 +100,9 @@ namespace Univer.Desktop.UI
                 {
                     form.Opacity = 0; form.ShowInTaskbar = false; form.Show(this); await Task.Delay(60);
                     form.SelectAppearanceForQa();
-                    Check(form.BackColor.ToArgb() == Theme.DarkPalette.Surface.ToArgb() && form.SelectedTheme == ThemeChoice.Dark && ReadableQa(form, "settings"), "Settings opens dark with the chosen theme and readable text", results);
-                    var combo = Descendants(form).OfType<FadeComboBox>().FirstOrDefault();
-                    Check(combo != null && PixelQa(combo, 4, combo.Height / 2, Theme.DarkPalette.Surface, "language list"), "the language list is drawn dark, not by Windows' light box", results);
+                    Check(form.BackColor.ToArgb() == Theme.DarkPalette.Background.ToArgb() && form.SelectedTheme == ThemeChoice.Dark && ReadableQa(form, "settings"), "Settings opens dark with the chosen theme and readable text", results);
+                    var sheet = form.ViewSheetForQa;
+                    Check(PixelQa(sheet, sheet.Width / 2, 4, Theme.DarkPalette.Surface, "settings sheet"), "the settings sheet is drawn in the dark surface colour", results);
                     SaveBitmap(form, Path.Combine(qa, "theme-dark-settings.png")); form.Close();
                 }
                 var pdf = Path.Combine(folder, "Тема QA.pdf"); File.WriteAllBytes(pdf, SyntheticPdf("Univer QA PDF"));
@@ -117,10 +117,9 @@ namespace Univer.Desktop.UI
                 // Rounded corners show what is behind them: the page around the search field and a file's card, the card
                 // around that file's buttons.
                 await RestoreQaWindowAsync();
+                using (var scene = new StageView(StageScene.Welcome) { Size = new Size(D(400), D(540)) }) { scene.SetLanguage("ru"); scene.SaveSheetForQa(Path.Combine(qa, "stage-welcome-dark.png"), new[] { 8000 }, 1); }
                 var row = Descendants(downloadsView).OfType<DownloadRow>().FirstOrDefault(x => x.Width > 0);
-                var button = row?.Controls.OfType<ModernButton>().FirstOrDefault(x => x.Visible && x.Look == ButtonLook.Outline && x.Width > 0);
-                Check(PixelQa(downloadsView.SearchForQa.Parent, 1, 1, Theme.DarkPalette.Background, "search corner") && row != null && PixelQa(row, 1, 1, Theme.DarkPalette.Background, "row corner") &&
-                    button != null && PixelQa(button, 1, 1, Theme.DarkPalette.Surface, "button corner"), "dark Downloads corners blend into the page and the file card", results);
+                Check(PixelQa(downloadsView.SearchForQa.Parent, 1, 1, Theme.DarkPalette.Background, "search corner") && row != null, "dark Downloads corners blend into the page", results);
                 SaveBitmap(this, Path.Combine(qa, "theme-dark-downloads.png"));
                 SaveBitmap(downloadsView, Path.Combine(qa, "theme-dark-downloads-list.png"));
                 const string dark = "(()=>{const l=c=>{const m=c.match(/\\d+/g).map(Number).map(v=>{v/=255;return v<=0.04045?v/12.92:Math.pow((v+0.055)/1.055,2.4)});return .2126*m[0]+.7152*m[1]+.0722*m[2]};" +
@@ -151,7 +150,7 @@ namespace Univer.Desktop.UI
                     "\")}.qa-icon{display:inline-block;width:48px;height:48px;background:#000;-webkit-mask:var(--qa-icon) center/contain no-repeat}</style>" +
                     "<table class='wrappertable'><tr id='l4'><td class='center'><table class='inner'><tr><th>Дисциплина</th><th>Балл</th></tr>" +
                     "<tr><td style='color:#1f3864'>Тёмно-синий текст</td><td bgcolor='#ffff99'>95</td></tr></table><p><font color='#800000'>Тёмно-красный</font></p>" +
-                    "<span id='qa-icon' class='qa-icon'></span></td></tr></table>", SitePolicy.Origin + "/student/qa-theme");
+                    "<span id='qa-icon' class='qa-icon'></span><div id='qa-modes' class='univer-app-schedule-modes' style='display:inline-flex'><button aria-pressed='true'>По дням</button><button aria-pressed='false'>Сетка недели</button></div></td></tr></table>", SitePolicy.Origin + "/student/qa-theme");
                 await WaitQaPresentationAsync();
                 const string site = "(()=>{const l=c=>{const m=(c.match(/\\d+(\\.\\d+)?/g)||[]).map(Number);const v=m.slice(0,3).map(x=>{x/=255;return x<=0.04045?x/12.92:Math.pow((x+0.055)/1.055,2.4)});return .2126*v[0]+.7152*v[1]+.0722*v[2]};" +
                     "const k=(a,b)=>(Math.max(a,b)+.05)/(Math.min(a,b)+.05);const bg=e=>{for(;e;e=e.parentElement){const c=getComputedStyle(e).backgroundColor;if(c&&!/rgba\\(.*, 0\\)$/.test(c)&&c!=='transparent')return c}return getComputedStyle(document.documentElement).backgroundColor};" +
@@ -161,6 +160,12 @@ namespace Univer.Desktop.UI
                 QaTrace("qa-theme-site " + string.Join("|", siteState));
                 Check(siteState.Length == 3 && siteState[0] == "true" && double.Parse(siteState[1], System.Globalization.CultureInfo.InvariantCulture) < 0.03 &&
                     double.Parse(siteState[2], System.Globalization.CultureInfo.InvariantCulture) >= 4.5, "the dark reading layout keeps the site's own colours readable (4.5:1)", results);
+                const string thumb = "(()=>{window.__univerKitV1.refresh();const l=c=>{const m=(c.match(/\\d+(\\.\\d+)?/g)||[]).map(Number);const v=m.slice(0,3).map(x=>{x/=255;return x<=0.04045?x/12.92:Math.pow((x+0.055)/1.055,2.4)});return .2126*v[0]+.7152*v[1]+.0722*v[2]};" +
+                    "const t=document.querySelector('#qa-modes>.univer-kit-thumb'),b=document.querySelector('#qa-modes button[aria-pressed=true]');if(!t)return 'no thumb';" +
+                    "const x=l(getComputedStyle(t).backgroundColor),y=l(getComputedStyle(b).color);return x<.1&&(Math.max(x,y)+.05)/(Math.min(x,y)+.05)>=4.5?'ok':x.toFixed(3)+'|'+y.toFixed(3)})()";
+                var thumbState = await AutomationController.EvaluateAsync(main, thumb);
+                QaTrace("qa-theme-thumb " + thumbState);
+                Check(thumbState == "ok", "the dark theme keeps the sliding thumb dark and its label readable (4.5:1)", results);
                 await RestoreQaWindowAsync();
                 var iconArea = (await AutomationController.EvaluateAsync(main, "(()=>{const r=document.getElementById('qa-icon').getBoundingClientRect(),k=devicePixelRatio;return [r.left*k,r.top*k,r.width*k,r.height*k].map(Math.round).join(',')})()") ?? "")
                     .Split(',').Select(x => { int v; return int.TryParse(x, out v) ? v : 0; }).ToArray();

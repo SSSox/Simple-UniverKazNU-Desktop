@@ -14,7 +14,7 @@ namespace Univer.Desktop.Core
             token.ThrowIfCancellationRequested();
             using (token.Register(state => { try { ((Stream)state).Dispose(); } catch (Exception) { } }, stream))
             {
-                try { return await stream.ReadAsync(buffer, offset, count, token); }
+                try { return await stream.ReadAsync(buffer, offset, count, token).ConfigureAwait(false); }
                 catch (Exception) when (token.IsCancellationRequested) { throw new OperationCanceledException(token); }
             }
         }

@@ -86,7 +86,7 @@ namespace Univer.Desktop.UI
                 }
                 if (await WaitReviewFeatureAsync("document.querySelector('.univer-app-news-jump input')?.max?'ready':''"))
                 {
-                    var unfiltered = await AutomationController.EvaluateAsync(main, "JSON.stringify({pages:Array.from(document.querySelectorAll('.univer-app-news-pager-top>a')).map(a=>+a.textContent),lastPage:+document.querySelector('.univer-app-news-jump input').max,ellipsis:!!document.querySelector('.univer-app-news-gap')})");
+                    var unfiltered = await AutomationController.EvaluateAsync(main, "JSON.stringify({pages:Array.from(document.querySelectorAll('.univer-app-news-pager-top>a:not(.univer-app-news-step)')).map(a=>+a.textContent),lastPage:+document.querySelector('.univer-app-news-jump input').max,ellipsis:!!document.querySelector('.univer-app-news-gap')})");
                     File.AppendAllText(report, "FEATURE unfiltered news " + unfiltered + "\n");
                     await SaveReviewCaptureAsync(Path.Combine(output, prefix + "-news-unfiltered.png"));
                     var third = await AutomationController.EvaluateAsync(main, "document.querySelector('.univer-app-news-pager-top a[href=\"/news/student/3\"]')?'ready':''");

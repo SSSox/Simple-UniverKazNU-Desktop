@@ -44,7 +44,6 @@ namespace Univer.Desktop.Core
         public void BeginNavigation() { slots.Remove("page"); slots.Remove("presentation"); PageKey = "loading"; }
         public void Retry() { slots.Remove("automation"); slots.Remove("page"); slots.Remove("presentation"); }
         public void ClearStorageError() { slots.Remove("storage"); }
-        public void ClearAccountMessage() { slots.Remove("account"); }
         public void FinishSettings() { slots.Remove("settings"); }
         public void ClearNotices() { slots.Remove("notices"); }
         public void Dismiss()
@@ -53,6 +52,14 @@ namespace Univer.Desktop.Core
             if (current != null && current.CanDismiss) slots.Remove(Channel(current.Key));
         }
         public void NewSession() { slots.Clear(); PageKey = "loading"; }
+        // Takes back a message whose wait is over, and only that one: a later message in the same channel stays.
+        public bool Withdraw(string key)
+        {
+            UiMessage held;
+            var channel = Channel(key);
+            if (!slots.TryGetValue(channel, out held) || held.Key != key) return false;
+            slots.Remove(channel); return true;
+        }
         // True while the message is held in any channel, even under a higher-priority one.
         public bool Shows(string key) { foreach (var value in slots.Values) if (value.Key == key) return true; return false; }
         public static UiMessage Describe(string key)
@@ -60,7 +67,9 @@ namespace Univer.Desktop.Core
             if (key == "storageError") return new UiMessage(key, MessageTone.Error, MessageAction.Settings, 100);
             if (key == "networkError" || key == "httpError" || key == "certificateError") return new UiMessage(key, MessageTone.Error, MessageAction.Retry, 80);
             // Opening an outside link is not a page failure: Retry (which reloads the site) would not help.
-            if (key == "externalError") return new UiMessage(key, MessageTone.Warning, MessageAction.None, 72, true);
+            if (key == "externalError" || key == "externalBlocked") return new UiMessage(key, MessageTone.Warning, MessageAction.None, 72, true);
+            // A teacher's link from UMKD went to the browser: the click gets an answer, since the app itself shows nothing new.
+            if (key == "externalOpened") return new UiMessage(key, MessageTone.Success, MessageAction.None, 52, true);
             if (key == "automationFailed" || key == "accountMismatch" || key == "elementsMissing" || key == "credentialsUnreadable") return new UiMessage(key, MessageTone.Warning, MessageAction.Settings, 90);
             // Automatic sign-in goes on by itself: the user is told, nothing is asked.
             if (key == "sessionRestoring") return new UiMessage(key, MessageTone.Working, MessageAction.None, 56);
@@ -78,6 +87,13 @@ namespace Univer.Desktop.Core
             if (key == "downloadBusy") return new UiMessage(key, MessageTone.Info, MessageAction.None, 74, true);
             if (key == "downloadUnsupported" || key == "downloadFromForm") return new UiMessage(key, MessageTone.Warning, MessageAction.None, 70, true);
             if (key == "downloadCanceled") return new UiMessage(key, MessageTone.Info, MessageAction.Downloads, 62, true);
+            // «Скачать все» in a UMKD section: its progress like a download's, one summary at the end.
+            if (key == "downloadAllProgress" || key == "downloadAllStopping") return new UiMessage(key, MessageTone.Working, MessageAction.Downloads, 60, true);
+            if (key == "downloadAllDone") return new UiMessage(key, MessageTone.Success, MessageAction.Downloads, 65, true);
+            if (key == "downloadAllStopped") return new UiMessage(key, MessageTone.Info, MessageAction.Downloads, 62, true);
+            if (key == "downloadAllBusy") return new UiMessage(key, MessageTone.Info, MessageAction.None, 74, true);
+            // A file that left its place was taken off the list when the student tried to open it.
+            if (key == "downloadGone") return new UiMessage(key, MessageTone.Info, MessageAction.None, 62, true);
             if (key == "signOnOpening") return new UiMessage(key, MessageTone.Working, MessageAction.None, 58);
             if (key == "signOnOpened") return new UiMessage(key, MessageTone.Success, MessageAction.None, 52, true);
             if (key == "signOnLogin" || key == "signOnFailed") return new UiMessage(key, MessageTone.Warning, MessageAction.None, 68, true);
@@ -89,6 +105,10 @@ namespace Univer.Desktop.Core
             if (key == "manualSignIn") return new UiMessage(key, MessageTone.Info, MessageAction.Settings, 30, true);
             if (key == "saving") return new UiMessage(key, MessageTone.Working, MessageAction.None, 95);
             if (key == "settingsSaved") return new UiMessage(key, MessageTone.Success, MessageAction.None, 50, true);
+            if (key == "lockOn" || key == "lockChanged" || key == "lockOff") return new UiMessage(key, MessageTone.Success, MessageAction.None, 50, true);
+            if (key == "lockFailed") return new UiMessage(key, MessageTone.Warning, MessageAction.None, 70, true);
+            // The account ended after ten wrong PINs (or an unreadable PIN): sign in again from Settings.
+            if (key == "lockWiped" || key == "lockUnavailable") return new UiMessage(key, MessageTone.Warning, MessageAction.Settings, 88, true);
             var working = key == "signingIn" || key == "confirming";
             return new UiMessage(key, working ? MessageTone.Working : MessageTone.Info, MessageAction.None, working ? 55 : 45, !working);
         }
@@ -101,15 +121,16 @@ namespace Univer.Desktop.Core
             // A refused page-made file keeps a running or finished download's own message underneath.
             if (key == "downloadUnsupported" || key == "downloadFromForm") return "rejectedFile";
             // Its own channel: a refused repeat must not displace the progress of the download already running.
-            if (key == "downloadBusy") return "downloadBusy";
+            if (key == "downloadBusy" || key == "downloadAllBusy") return "downloadBusy";
             if (key.StartsWith("download", StringComparison.Ordinal) || key == "offOrigin") return "download";
-            if (key == "externalError") return "external";
+            if (key.StartsWith("external", StringComparison.Ordinal)) return "external";
             if (key.StartsWith("signOn", StringComparison.Ordinal)) return "signon";
             if (key == "trayHint") return "tray";
             if (key == "pinFailed") return "pins";
             if (key == "noticesNew") return "notices";
             if (key == "paused" || key == "manualSignIn" || key == "credentialsUnreadable" || key == "sessionReset") return "account";
-            if (key == "saving" || key == "settingsSaved") return "settings";
+            if (key == "saving" || key == "settingsSaved" || key == "lockOn" || key == "lockChanged" || key == "lockOff" || key == "lockFailed") return "settings";
+            if (key == "lockWiped" || key == "lockUnavailable") return "account";
             return "automation";
         }
     }

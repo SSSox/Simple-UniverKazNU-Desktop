@@ -17,7 +17,7 @@ namespace Univer.Desktop.UI
         private readonly Dictionary<ChromiumWebBrowser, string> documentScripts = new Dictionary<ChromiumWebBrowser, string>();
         private readonly KeyReleases keyReleases = new KeyReleases();
         private string BootstrapScript(bool viewer)
-        { return "window.__univerBootstrapOrigin=location.origin;\n" + automation.DocumentScript(prefs, viewer, credentials != null && !prefs.AutoLoginPaused); }
+        { return "window.__univerBootstrapOrigin=location.origin;\n" + automation.DocumentScript(prefs, viewer, Credentials.SignInActive(credentials, prefs)); }
         // Document-start scripts embed language, view and sign-in state, so a preference change re-registers them. Refreshes
         // run one after another: overlapping ones would leave an extra bundle registered on every later page.
         private Task scriptRefresh = Task.FromResult(true);
@@ -61,14 +61,14 @@ namespace Univer.Desktop.UI
             var reveal = ++revealGeneration;
             if (busy) { var shown = !loading.Visible; loading.Visible = true; if (!DownloadsVisible) loading.BringToFront(); if (shown && loading.IsHandleCreated) loading.Refresh(); return; }
             if (!wasBusy) return;
-            if (selfTest || accountReview) { loading.Visible = false; QueueAsync(UpdateSiteTitleAsync); return; }
+            if (selfTest || accountReview) { loading.Visible = false; ScheduleShape(browser); QueueAsync(UpdateSiteTitleAsync); return; }
             // Uncover a few frames later, once Chromium has painted the revealed page; uncovering at once
             // could show the compositor's empty surface for a frame.
             QueueAsync(async () =>
             {
                 await Task.Delay(48);
                 if (closing || reveal != revealGeneration) return;
-                loading.Visible = false;
+                loading.Visible = false; ScheduleShape(browser);
                 if (prefs.Animations && !Motion.KeyboardInput && browser == Active)
                     await AutomationController.EvaluateAsync(browser, "if(window.__univerMotionUI && !window.__univerAutomationV1?.probe().hasPendingForm){window.__univerMotionUI.reveal(document.getElementById('l4'),'content');} 'motion'");
                 await UpdateSiteTitleAsync();
@@ -81,17 +81,17 @@ namespace Univer.Desktop.UI
             context = new RequestContext(new RequestContextSettings { CachePath = storage.ProfilePath(prefs.Profile), PersistSessionCookies = true });
             guard = new SessionGuard();
             automation = new AutomationController(guard, key => { if (epoch == sessionEpoch) SetStatus(key); }, CloseDocument, SetPresentation);
-            automation.SignedInContent = () => { if (epoch == sessionEpoch) { RecoverySucceeded(); ResumeDownload(); NoticeContent(); } };
+            automation.SignedInContent = () => { if (epoch == sessionEpoch) { RecoverySucceeded(); ResumeDownload(); NoticeContent(); MaybeOfferPin(); } };
             automation.RecoveryNeeded = () => { if (epoch == sessionEpoch) PageNeedsRecovery(); };
             automation.Dark = Theme.Dark;
             resumeDownload = null;
             lastDownloadPath = null; siteTitle = siteSection = "";
             // Download records belong to the app-wide history, so updates from an ended session are still kept.
             downloads = new DownloadService(context, key => Dispatch(() => { if (epoch == sessionEpoch) SetStatus(key); }),
-                record => Dispatch(() => OnDownloadChanged(record)));
+                record => Dispatch(() => OnDownloadChanged(record)), id => Dispatch(() => ForgetRecord(id)));
             main = CreateBrowser(selfTest ? "about:blank" : SitePolicy.Home, false);
             canvas.Controls.Add(main); main.BringToFront(); error = false; timer.Start();
-            presentationBegan = DateTime.UtcNow; loading.SetRoute(SitePolicy.Home); loading.Visible = true; loading.BringToFront();
+            presentationBegan = DateTime.UtcNow; ShowRoute(SitePolicy.Home); loading.Visible = true; loading.BringToFront();
         }
         private ChromiumWebBrowser CreateBrowser(string url, bool viewer)
         {
@@ -107,9 +107,10 @@ namespace Univer.Desktop.UI
             browser.FindHandler = new FindResults((source, total, ordinal, final) => current(() => findBar.ShowResult(source, total, ordinal, final)));
             browser.RequestHandler = new NavigationHandler(current, viewer)
             {
-                External = External, OpenDocument = OpenDocument, LeaveDocument = LeaveDocument,
+                External = value => PageLink(browser, value), OpenDocument = OpenDocument, LeaveDocument = LeaveDocument,
                 HandOffPending = value => !viewer && SignOnPending(value),
                 OpenHandOff = (value, method, fields) => current(() => OpenHandOff(value, method, fields)),
+                OpenOnlineTest = value => current(() => OpenOnlineTest(value)),
                 Shortcut = value => !viewer && loadedOnce ? SitePolicy.NewsShortcut(value) : null,
                 Load = value => current(() => browser.Load(value)),
                 Download = value => QueueAsync(() => DownloadAsync(value)),
@@ -126,7 +127,7 @@ namespace Univer.Desktop.UI
                 if (SitePolicy.ProtectedDownload(value) || SitePolicy.DocumentDownload(value)) QueueAsync(() => DownloadAsync(value));
                 else if (SitePolicy.PrintDocument(value)) OpenDocument(value);
                 else if (SitePolicy.Trusted(value)) browser.Load(value);
-                else External(value);
+                else PageLink(browser, value);
             });
             browser.DownloadHandler = new SafeDownloadHandler(current, (value, name) => QueueAsync(() => DownloadAsync(value, name)), SetStatus, submissions);
             browser.LoadingStateChanged += (s, e) => current(() =>
@@ -159,7 +160,7 @@ namespace Univer.Desktop.UI
                     // CEF reports its own error pages with a chrome-error URL, which is not trusted.
                     if (error && code >= 200 && code < 400 && SitePolicy.Trusted(e.Url)) error = false;
                     // Without automatic sign-in nothing else marks a recovered page as working again.
-                    if (code >= 200 && code < 400 && SitePolicy.Trusted(e.Url) && (credentials == null || prefs.AutoLoginPaused)) RecoverySucceeded();
+                    if (code >= 200 && code < 400 && SitePolicy.Trusted(e.Url) && (credentials == null || !credentials.Usable() || prefs.AutoLoginPaused)) RecoverySucceeded();
                     if (code >= 400)
                     {
                         error = true; SetPresentation(browser, false, true); failureCode = code.ToString(); SetStatus("httpError");
@@ -201,7 +202,12 @@ namespace Univer.Desktop.UI
                     if (e.Name != "__univerNativeNotify") return;
                     bool trusted, main; contexts.Check(e.ExecutionContextId, out trusted, out main);
                     var payload = e.Payload;
-                    current(() => ReceivePageMessage(browser, viewer, payload, trusted, main));
+                    current(() =>
+                    {
+                        // Only the app's own scripts hold the key; anything else from the page is not ours.
+                        var message = automation.Unwrap(payload);
+                        ReceivePageMessage(browser, viewer, message, trusted && message != null, main);
+                    });
                 };
                 await TaskDeadline.AwaitAsync(client.Page.EnableAsync(), deadline, stopping);
                 var tree = client.Page.GetFrameTreeAsync(); await TaskDeadline.AwaitAsync(tree, deadline, stopping);
@@ -224,9 +230,15 @@ namespace Univer.Desktop.UI
         {
             if (accountReview) ReviewNavigated(url, method);
             if (SitePolicy.SingleSignOn(url) && method == "GET") BeginSignOn();
+            if (!viewer && SitePolicy.OnlineTest(url) && method == "GET")
+            {
+                var now = DateTime.UtcNow; var page = SitePolicy.OnlineTestReturnPage(lastGet, onlineTestReturn, onlineTestReturnAt, now);
+                if (page != onlineTestReturn || page == lastGet) onlineTestReturnAt = now;
+                onlineTestReturn = page;
+            }
             lastMethod = method; if (method == "GET") lastGet = url;
-            awaitingCommit = browser; awaitingSince = DateTime.UtcNow; loading.SetRoute(viewer ? "document" : url);
-            error = false; messages.BeginNavigation(); automation.Navigating(); presentationBegan = DateTime.UtcNow; SetPresentation(browser, true); RenderFeedback();
+            awaitingCommit = browser; awaitingSince = DateTime.UtcNow; ShowRoute(viewer ? "document" : url);
+            error = false; messages.BeginNavigation(); automation.Navigating(); presentationBegan = DateTime.UtcNow; SetPresentation(browser, true); RenderFeedback(); UpdatePollingRate();
         }
         private void ReceivePageMessage(ChromiumWebBrowser browser, bool viewer, string value, bool trusted, bool mainFrame)
         {
@@ -243,9 +255,10 @@ namespace Univer.Desktop.UI
                     automation.AjaxOutcome(parts[1], parts[2], parts[3] == "success");
                 return;
             }
-            const string languagePrefix = "univer-language:";
-            if (mainFrame && value.StartsWith(languagePrefix, StringComparison.Ordinal)) QueueAsync(() => AdoptLanguageAsync(value.Substring(languagePrefix.Length)));
+            // The language is never taken from a message: only the user's own click on a flag (a main-frame navigation with a
+            // gesture, BrowserHandlers) changes it.
             if (mainFrame && !viewer && value.StartsWith(Shortcuts.MessagePrefix, StringComparison.Ordinal)) QueueAsync(() => PinAsync(browser, value.Substring(Shortcuts.MessagePrefix.Length)));
+            if (mainFrame && !viewer && value.StartsWith(DownloadBatch.MessagePrefix, StringComparison.Ordinal)) QueueAsync(() => DownloadSectionAsync(browser, value.Substring(DownloadBatch.MessagePrefix.Length)));
         }
         private void OpenDocument(string url)
         {
@@ -254,7 +267,7 @@ namespace Univer.Desktop.UI
             if (document != null) { document.Load(url); return; }
             sourceGet = lastGet; sourceMethod = lastMethod; siteTitle = siteSection = "";
             main.Visible = false; document = CreateBrowser(url, true); canvas.Controls.Add(document); document.BringToFront();
-            presentationBegan = DateTime.UtcNow; loading.SetRoute("document"); SetPresentation(document, true);
+            presentationBegan = DateTime.UtcNow; ShowRoute("document"); SetPresentation(document, true);
             messages.BeginNavigation(); Localize();
         }
         private void CloseDocument()
@@ -266,7 +279,7 @@ namespace Univer.Desktop.UI
             preparedBrowsers.Remove(closed); documentScripts.Remove(closed);
             DevToolsClient pageClient; if (pageClients.TryGetValue(closed, out pageClient)) { pageClient.Dispose(); pageClients.Remove(closed); }
             // The page behind the viewer was hidden; keep the placeholder over it until it has painted again.
-            if (!selfTest && !accountReview) { loading.SetRoute(sourceGet); loading.Visible = true; loading.BringToFront(); }
+            if (!selfTest && !accountReview) { ShowRoute(sourceGet); loading.Visible = true; loading.BringToFront(); }
             if (main != null) { main.Visible = true; main.BringToFront(); if (loading.Visible) loading.BringToFront(); }
             SetPresentation(main, false, true);
             lastGet = sourceGet; lastMethod = sourceMethod; siteTitle = siteSection = "";

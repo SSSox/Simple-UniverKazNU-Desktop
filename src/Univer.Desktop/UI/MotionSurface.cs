@@ -1,6 +1,5 @@
 using System;
 using System.Linq;
-using System.Runtime.InteropServices;
 using System.Windows.Forms;
 
 namespace Univer.Desktop.UI
@@ -14,6 +13,8 @@ namespace Univer.Desktop.UI
         private int direction;
         private bool reduced;
         private System.Drawing.Point origin;
+        // Every key and press stops the whole window's motion; with none running that walk over its controls is skipped.
+        private static int running;
         internal float Progress { get { return progress; } }
         private MotionSurface() { TabStop = false; AccessibleRole = AccessibleRole.None; Size = System.Drawing.Size.Empty; }
         internal static void Stop(Control target)
@@ -22,7 +23,7 @@ namespace Univer.Desktop.UI
         }
         internal static void StopTree(Control target)
         {
-            if (target.IsDisposed) return;
+            if (running == 0 || target.IsDisposed) return;
             Stop(target);
             foreach (Control child in target.Controls.Cast<Control>().ToArray()) StopTree(child);
         }
@@ -30,7 +31,7 @@ namespace Univer.Desktop.UI
         {
             Stop(target);
             if (!Motion.Enabled || Motion.KeyboardInput || Motion.Reduced || target is Form || target.IsDisposed || !target.Visible || !target.IsHandleCreated || HasNativeViewer(target)) return;
-            var surface = new MotionSurface { target = target, direction = direction, origin = target.Location };
+            var surface = new MotionSurface { target = target, direction = direction, origin = target.Location }; running++;
             target.Controls.Add(surface); target.LocationChanged += surface.TargetMoved; surface.MoveFrame();
             surface.tween = Motion.Run(240, t => { if (!surface.IsDisposed) { surface.progress = Motion.EaseInOut(t); surface.MoveFrame(); } }, surface.Dispose);
         }
@@ -42,7 +43,7 @@ namespace Univer.Desktop.UI
             if (target == null || target.IsDisposed || !target.IsHandleCreated) return;
             var offset = reduced ? 0 : (int)Math.Round(8 * (1 - progress));
             moving = true;
-            try { SetWindowPos(target.Handle, IntPtr.Zero, origin.X + direction * offset, origin.Y + (direction == 0 ? offset : 0), 0, 0, 0x0015); }
+            try { Native.SetWindowPos(target.Handle, IntPtr.Zero, origin.X + direction * offset, origin.Y + (direction == 0 ? offset : 0), 0, 0, 0x0015); }
             finally { moving = false; }
         }
         // Layout moved the panel during the animation (a resize re-wrapped the chips): that place is where it now rests.
@@ -55,10 +56,8 @@ namespace Univer.Desktop.UI
         { return target is CefSharp.WinForms.ChromiumWebBrowser || target is PreviewHost || target.Controls.Cast<Control>().Any(HasNativeViewer); }
         protected override void Dispose(bool disposing)
         {
-            if (disposing) { tween?.Cancel(); progress = 1; if (target != null) target.LocationChanged -= TargetMoved; MoveFrame(); target = null; }
+            if (disposing) { tween?.Cancel(); progress = 1; if (target != null) { running--; target.LocationChanged -= TargetMoved; } MoveFrame(); target = null; }
             base.Dispose(disposing);
         }
-        [DllImport("user32.dll")]
-        private static extern bool SetWindowPos(IntPtr window, IntPtr insertAfter, int x, int y, int width, int height, uint flags);
     }
 }

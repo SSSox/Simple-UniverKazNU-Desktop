@@ -106,6 +106,36 @@ namespace Univer.Desktop.Tests
         [InlineData("Отчёт 08.10.2026", "")]
         [InlineData("archive.tar.gz", ".gz")]
         public void Extension_OnlyRecognisesRealSuffixes(string name, string expected) { Assert.Equal(expected, FileNames.Extension(name)); }
+        // A program or a script from the site is never kept under a name that one double click in Downloads would run.
+        // Its own name stays in front of ".bin", so the student still sees what the file is.
+        [Theory]
+        [InlineData("attachment; filename=setup.exe", null, "program", "setup.exe.bin")]
+        [InlineData("attachment; filename=report.pdf", null, "program", "report.pdf.bin")]
+        [InlineData(null, "Лабораторная 3", "program", "Лабораторная 3.bin")]
+        [InlineData("attachment; filename=tool", null, "elf", "tool.bin")]
+        [InlineData("attachment; filename=archive.bin", null, "program", "archive.bin")]
+        [InlineData("attachment; filename=run.bat", null, "text", "run.bat.bin")]
+        [InlineData("attachment; filename=\"macro.JS\"", null, "text", "macro.JS.bin")]
+        [InlineData("attachment; filename=lib.jar", null, "zip", "lib.jar.bin")]
+        [InlineData("attachment; filename=console.msc", null, "text", "console.msc.bin")]
+        [InlineData("attachment; filename=fix.diagcab", null, "text", "fix.diagcab.bin")]
+        [InlineData("attachment; filename=find.search-ms", null, "text", "find.search-ms.bin")]
+        [InlineData("attachment; filename=notes.txt", null, "text", "notes.txt")]
+        [InlineData("attachment; filename=report.pdf", null, "pdf", "report.pdf")]
+        public void Resolve_ProgramsAndScriptsGetANameThatDoesNotRun(string header, string hint, string payload, string expected)
+        {
+            byte[] bytes;
+            switch (payload)
+            {
+                case "program": bytes = new byte[256]; bytes[0] = (byte)'M'; bytes[1] = (byte)'Z'; bytes[2] = 0x90; bytes[4] = 3; bytes[60] = 0x80; break;
+                case "elf": bytes = new byte[64]; bytes[0] = 0x7f; bytes[1] = (byte)'E'; bytes[2] = (byte)'L'; bytes[3] = (byte)'F'; bytes[4] = 2; break;
+                case "zip": bytes = new byte[] { (byte)'P', (byte)'K', 3, 4, 20, 0, 0, 0 }; break;
+                case "pdf": bytes = Encoding.ASCII.GetBytes("%PDF-1.4 fixture"); break;
+                // A text that only starts with the letters of a program header.
+                default: bytes = Encoding.ASCII.GetBytes("MZ is how these lecture notes happen to begin; the rest is plain text, well past the header."); break;
+            }
+            Assert.Equal(expected, FileNames.Resolve(header, hint, "https://univer.kaznu.kz/student/umkd/get/1/2/2026/1", "application/octet-stream", bytes, bytes.Length));
+        }
         [Fact]
         public void Safe_LongServerNameKeepsTheExtension()
         { var result = FileNames.Safe(new string('я', 200) + ".docx"); Assert.EndsWith(".docx", result); Assert.True(result.Length <= 150); }

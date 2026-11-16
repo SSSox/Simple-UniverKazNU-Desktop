@@ -40,10 +40,15 @@ namespace Univer.Desktop.Core
         internal static Deck Read(byte[] file, CancellationToken cancellation)
         {
             var container = new CompoundFile(file);
-            var document = container.Stream("PowerPoint Document") ?? throw new InvalidDataException("Not a presentation");
-            var context = new Context { Document = document, Pictures = container.Stream("Pictures"), Deck = new Deck(), Cancellation = cancellation };
+            return Read(container.Stream("PowerPoint Document"), container.Stream("Current User"), container.Stream("Pictures"), cancellation);
+        }
+        // The streams of the compound file, already taken out of it.
+        internal static Deck Read(byte[] document, byte[] current, byte[] pictures, CancellationToken cancellation)
+        {
+            if (document == null) throw new InvalidDataException("Not a presentation");
+            var context = new Context { Document = document, Pictures = pictures, Deck = new Deck(), Cancellation = cancellation };
             uint documentRef;
-            var offsets = Persist(document, container.Stream("Current User"), out documentRef);
+            var offsets = Persist(document, current, out documentRef, cancellation);
             int at;
             if (!offsets.TryGetValue(documentRef, out at)) throw new InvalidDataException("Damaged presentation");
             var root = Header(document, at);
@@ -68,7 +73,7 @@ namespace Univer.Desktop.Core
                         foreach (var drawing in Children(document, record).Where(r => r.Type == 0x040C && r.Container))
                             foreach (var group in Children(document, drawing).Where(r => r.Type == 0xF002 && r.Container))
                                 foreach (var tree in Children(document, group).Where(r => r.Type == 0xF003 && r.Container))
-                                    result.Blocks.AddRange(Group(context, tree, true));
+                                    result.Blocks.AddRange(Group(context, tree, 0));
                 }
                 // Text that no shape refers to (older writers keep it only in the slide list) still shows, after the shapes.
                 var order = 1e9;
@@ -82,16 +87,21 @@ namespace Univer.Desktop.Core
             return context.Deck;
         }
         // Persist object id → offset in the PowerPoint Document stream, newest edit first.
-        private static Dictionary<uint, int> Persist(byte[] document, byte[] current, out uint documentRef)
+        private static Dictionary<uint, int> Persist(byte[] document, byte[] current, out uint documentRef, CancellationToken cancellation)
         {
             if (current == null || current.Length < 20) throw new InvalidDataException("Damaged presentation");
             var token = U32(current, 12);
             if (token == 0xF3D1C4DF) throw new InvalidDataException("Encrypted presentation");
             var edit = U32(current, 16);
             var offsets = new Dictionary<uint, int>(); documentRef = 0;
+            // An edit names the one before it. A chain that comes back to an edit it has passed is damage, and a directory
+            // that several edits name adds nothing after its first reading.
+            // Directories do not share their entries, so all of them together hold no more entries than the stream has
+            // words: a file whose directories overlap is damaged, and is not read once per directory.
+            var edits = new HashSet<uint>(); var directories = new HashSet<uint>(); long room = document.Length / 4;
             for (var guard = 0; ; guard++)
             {
-                if (guard > 4096 || edit + 8 > (uint)document.Length) throw new InvalidDataException("Damaged presentation");
+                if (guard > 4096 || !edits.Add(edit) || edit + 8 > (uint)document.Length) throw new InvalidDataException("Damaged presentation");
                 var record = Header(document, (int)edit);
                 if (record.Type != 0x0FF5 || record.Length < 28) throw new InvalidDataException("Damaged presentation");
                 if (guard == 0)
@@ -103,10 +113,13 @@ namespace Univer.Desktop.Core
                 if (directory + 8 > (uint)document.Length) throw new InvalidDataException("Damaged presentation");
                 var list = Header(document, (int)directory);
                 if (list.Type != 0x1772) throw new InvalidDataException("Damaged presentation");
-                for (var position = list.Body; position + 4 <= list.End;)
+                var fresh = directories.Add(directory);
+                for (var position = list.Body; fresh && position + 4 <= list.End;)
                 {
+                    cancellation.ThrowIfCancellationRequested();
                     var entry = U32(document, position); position += 4;
                     uint id = entry & 0xFFFFF, count = entry >> 20;
+                    if ((room -= 1 + count) < 0) throw new InvalidDataException("Damaged presentation");
                     for (var i = 0u; i < count && position + 4 <= list.End; i++, position += 4)
                         if (!offsets.ContainsKey(id + i)) offsets[id + i] = (int)U32(document, position);
                 }
@@ -148,16 +161,20 @@ namespace Univer.Desktop.Core
                         context.Blips.Add(offset); context.BlipSources.Add(source);
                     }
         }
-        private static List<SlideBlock> Group(Context context, Record tree, bool root)
+        // Groups lie inside one another a few levels deep. A file that nests them further is not followed: recursion as
+        // deep as a file says would overflow the stack, which ends the process.
+        private const int GroupDepth = 16;
+        private static List<SlideBlock> Group(Context context, Record tree, int depth)
         {
-            var document = context.Document; var blocks = new List<SlideBlock>(); var first = true;
+            var document = context.Document; var blocks = new List<SlideBlock>(); var first = true; var root = depth == 0;
+            if (depth > GroupDepth) return blocks;
             foreach (var child in Children(document, tree))
             {
                 context.Cancellation.ThrowIfCancellationRequested();
                 if (child.Type == 0xF003 && child.Container)
                 {
                     var cells = context.Cells; context.Cells = Table(document, child);
-                    var inner = Group(context, child, false);
+                    var inner = Group(context, child, depth + 1);
                     context.Cells = cells;
                     if (inner.Count == 0) continue;
                     // The first shape of a nested group is the group itself; its position orders the whole group.

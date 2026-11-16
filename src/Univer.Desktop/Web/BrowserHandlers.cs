@@ -17,6 +17,8 @@ namespace Univer.Desktop.Web
         protected override bool OnPreKeyEvent(IWebBrowser chromium, IBrowser browser, KeyType type, int windowsKeyCode,
             int nativeKeyCode, CefEventFlags modifiers, bool systemKey, ref bool shortcut)
         {
+            // Locked: no typing into the page under the lock screen, no shortcut.
+            if (LockGate.Engaged) return true;
             if (type != KeyType.RawKeyDown && type != KeyType.KeyDown) return false;
             handled.KeyDown(windowsKeyCode);
             var key = ShortcutKey(windowsKeyCode, modifiers);
@@ -42,6 +44,7 @@ namespace Univer.Desktop.Web
         protected override bool OnKeyEvent(IWebBrowser chromium, IBrowser browser, KeyType type, int windowsKeyCode,
             int nativeKeyCode, CefEventFlags modifiers, bool systemKey)
         {
+            if (LockGate.Engaged) return true;
             // Chromium 109's PDF guest can bypass OnPreKeyEvent. Handle its unconsumed
             // shortcut release, without issuing a second command after a handled key-down.
             if (type == KeyType.RawKeyDown || type == KeyType.KeyDown)
@@ -83,6 +86,10 @@ namespace Univer.Desktop.Web
         // Runs on Chromium's thread: whether a Moodle sign-in started from the sidebar is waiting for its exit.
         public Func<string, bool> HandOffPending { get; set; }
         public Action<string, string, List<KeyValuePair<string, string>>> OpenHandOff { get; set; }
+        // The test portal address the site's «Онлайн тест» route redirected to, after the student's own click.
+        public Action<string> OpenOnlineTest { get; set; }
+        // Until when (UTC ticks) that redirect may follow the click; read and written on Chromium's thread.
+        private long onlineTestUntil;
         // Runs on Chromium's thread: a direct address for a clicked page that would only redirect, or null.
         public Func<string, string> Shortcut { get; set; }
         public Action<string> Load { get; set; }
@@ -107,7 +114,7 @@ namespace Univer.Desktop.Web
         {
             get
             {
-                return External != null && OpenDocument != null && HandOffPending != null && OpenHandOff != null &&
+                return External != null && OpenDocument != null && HandOffPending != null && OpenHandOff != null && OpenOnlineTest != null &&
                     Shortcut != null && Load != null && Download != null && Language != null && Logout != null &&
                     LeaveDocument != null && Navigating != null && BeforeNavigate != null && LoginRedirect != null && Submissions != null;
             }
@@ -122,6 +129,9 @@ namespace Univer.Desktop.Web
             if (!frame.IsMain) return !SitePolicy.ChildFrame(url); // Remote frames get no automation or native privileges.
             if (!SitePolicy.Trusted(url))
             {
+                // «Онлайн тест»: the one server redirect answering the student's click goes to the portal; anything else stays refused.
+                if (SitePolicy.OnlineTestExit(url, method, isRedirect, DateTime.UtcNow.Ticks < System.Threading.Interlocked.Read(ref onlineTestUntil), viewer))
+                { System.Threading.Interlocked.Exchange(ref onlineTestUntil, 0); dispatch(() => OpenOnlineTest(url)); return true; }
                 // While a Moodle sign-in started from "СДО Moodle" is pending, only the site's own exit is handed to the user's browser.
                 var pending = HandOffPending(url);
                 var fields = pending && method == "POST" ? SingleSignOn.PostFields(request) : null;
@@ -135,6 +145,9 @@ namespace Univer.Desktop.Web
             if (SitePolicy.LoginPage(url) && (isRedirect || !userGesture)) { var asked = requestedGet; if (SitePolicy.Resumable(asked)) dispatch(() => LoginRedirect(asked)); }
             else if (userGesture && !isRedirect) dispatch(() => LoginRedirect(null));
             requestedGet = method == "GET" ? url : null;
+            // The student's own click on «Онлайн тест» arms its redirect for half a minute; any other click of theirs disarms it.
+            if (SitePolicy.OnlineTestClick(url, method, userGesture, isRedirect, viewer)) System.Threading.Interlocked.Exchange(ref onlineTestUntil, (DateTime.UtcNow + SitePolicy.OnlineTestWindow).Ticks);
+            else if (userGesture && !isRedirect) System.Threading.Interlocked.Exchange(ref onlineTestUntil, 0);
             // Only the user's own click on the site's exit link pauses automatic sign-in; a redirect or script reaching /user/logout
             // ends just the server session, and the login page signs in again.
             if (SitePolicy.UserLogout(url, userGesture, isRedirect)) { dispatch(Logout); return true; }

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
+using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using CefSharp;
@@ -59,8 +60,47 @@ namespace Univer.Desktop.UI
                 Check(downloadsView.RowsForQa == 1, "search works inside the chosen course", results);
                 downloadsView.SearchForQa.Text = ""; downloadsView.SubjectForQa = null;
                 Check(downloadsView.RowsForQa == records.Count && !downloadsView.SubjectButtonForQa.Selected, "all courses shows every file again", results);
+                Check(downloadsView.RowsSettledForQa, "rows out of view catch up with the list and rows no filter shows stay hidden", results);
+                // A download can end under another name: the chips and the order follow at once.
+                var chipsBefore = string.Join("|", System.Linq.Enumerable.Select(downloadsView.ChipsForQa, chip => chip.Note));
+                var renamed = records[3].Clone(); renamed.FileName = "Лекция 5.docx"; downloadsView.Upsert(renamed);
+                Check(string.Join("|", System.Linq.Enumerable.Select(downloadsView.ChipsForQa, chip => chip.Note)) != chipsBefore, "a file renamed while it downloads moves to its kind's chip", results);
+                downloadsView.Upsert(records[3]);
+                // A typed letter leaves the disk alone; a file that went away leaves the list and its history.
+                var vanishing = Path.Combine(folder, "Удалён QA.txt"); File.WriteAllText(vanishing, "QA");
+                var vanished = new DownloadRecord { FileName = Path.GetFileName(vanishing), Path = vanishing, State = DownloadState.Completed, Total = 2, Started = DateTime.Now };
+                OnDownloadChanged(vanished); var present = downloadsView.CanOpenForQa(vanished.Id); File.Delete(vanishing);
+                downloadsView.SearchForQa.Text = "удалён"; var typed = downloadsView.CanOpenForQa(vanished.Id); downloadsView.SearchForQa.Text = "";
+                await PruneDownloadsAsync();
+                Check(present && typed && !downloadsView.HasRowForQa(vanished.Id) && history.Items.All(x => x.Id != vanished.Id),
+                    "search does not touch the disk, and a file that went away leaves the list and its saved history", results);
+                // A file on a drive that does not answer (unplugged, an offline share) stays: that is no proof it is gone.
+                var free = "ZYXWVUTSRQPONMLKJIHG".Select(letter => letter + @":\").First(root => !Directory.Exists(root));
+                var offline = new DownloadRecord { FileName = "Флешка QA.pdf", Path = Path.Combine(free, "Лекция.pdf"), State = DownloadState.Completed, Total = 2, Started = DateTime.Now };
+                OnDownloadChanged(offline); await PruneDownloadsAsync();
+                Check(downloadsView.HasRowForQa(offline.Id) && history.Items.Any(x => x.Id == offline.Id), "a file on a drive that does not answer stays in the list", results);
+                ForgetRecord(offline.Id);
+                // A size learned late reorders the list, and a finished file moves to the day it finished.
+                downloadsView.SortForQa = DownloadSort.Size;
+                var grown = records[2].Clone(); grown.Total = 1L << 40; downloadsView.Upsert(grown);
+                Check(downloadsView.RowOrderForQa[0] == grown.FileName, "a size learned during the download reorders the list at once", results);
+                downloadsView.Upsert(records[2]); downloadsView.SortForQa = DownloadSort.Newest;
+                var overnight = new DownloadRecord { FileName = "Долгая загрузка.pdf", State = DownloadState.Running, Total = 10, Started = DateTime.Now.AddDays(-19) };
+                downloadsView.Upsert(overnight);
+                var opened = downloadsView.HeadingForQa(overnight.Id);
+                var finished = overnight.Clone(); finished.State = DownloadState.Completed; finished.Finished = DateTime.Now; downloadsView.Upsert(finished);
+                Check(opened != null && downloadsView.HeadingForQa(finished.Id) == null && downloadsView.HeadingForQa(records[4].Id) == opened, "a file that finishes moves to the group of the day it finished", results);
+                downloadsView.Remove(finished.Id);
+                // What the panel under the pages paints over stays blank until something repaints it, so it must leave a shown page alone.
+                using (var surface = new System.Drawing.Bitmap(canvas.Width, canvas.Height))
+                using (var paint = System.Drawing.Graphics.FromImage(surface))
+                {
+                    paint.Clear(System.Drawing.Color.Magenta); ((BackdropPanel)canvas).PaintForQa(paint, canvas.ClientRectangle);
+                    Check(surface.GetPixel(canvas.Width / 2, canvas.Height / 2).ToArgb() == System.Drawing.Color.Magenta.ToArgb(), "the panel under the pages never paints over a shown page", results);
+                }
                 SaveDownloadsBitmap(Path.Combine(qa, "downloads-list.png"));
                 OtherDownloadsQa(results);
+                StaleStatusQa(results);
                 await RepeatDownloadQaAsync(qa, records[0], results);
                 // The repeat notice moves focus, after which the desktop may minimize the hidden QA window: rows would lay out at width 0.
                 await RestoreQaWindowAsync();
@@ -92,9 +132,16 @@ namespace Univer.Desktop.UI
                     }
                     Check(ready, "preview content loads for " + Path.GetExtension(source), results);
                     await Task.Delay(700);
+                    await RestoreQaWindowAsync();
                     if (browser != null && browser.Visible && !downloadsView.OfficeForQa)
                         using (var client = browser.GetDevToolsClient())
-                            File.WriteAllBytes(Path.Combine(qa, "downloads-preview" + Path.GetExtension(source) + ".png"), (await client.Page.CaptureScreenshotAsync()).Data);
+                        {
+                            QaTrace("preview-capture " + Path.GetExtension(source) + " " + browser.Width + "x" + browser.Height);
+                            var capture = client.Page.CaptureScreenshotAsync();
+                            if (await Task.WhenAny(capture, Task.Delay(10000)) != capture)
+                                throw new TimeoutException("Preview screenshot did not complete: " + Path.GetExtension(source));
+                            File.WriteAllBytes(Path.Combine(qa, "downloads-preview" + Path.GetExtension(source) + ".png"), (await capture).Data);
+                        }
                     if (source == docx)
                         Check(!downloadsView.OfficeForQa && await EvaluateLocalPreviewAsync(browser,
                             "document.body.textContent.includes('Методические указания QA') && document.querySelector('table') ? 'docx' : ''") == "docx",

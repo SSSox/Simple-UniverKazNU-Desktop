@@ -114,11 +114,13 @@ namespace Univer.Desktop.Core
         // The presentation deadline passed. True unless a hard stop already needs the user.
         public bool Suspend() { CoverSuspended = true; return !Stopped; }
         public void Navigated() { CoverSuspended = false; }
+        // The user's Retry (F5, the button) lifts a block or a stop, but every attempt window and the refusal count stay:
+        // pressing it again and again with a wrong saved password never sends more than three logins in ten minutes, and
+        // after two refusals the next refusal stops at once. A new session (another account) starts a new guard.
         public void Retry()
         {
             Blocked = false; stopped = false; CoverSuspended = false; LoginDocument = null; ReauthChallenge = null;
             loginAt = null; reauthAt = null; blockedAt = null; blockedDocument = null; reauthDocument = null; completedReauth = null;
-            rejections = 0; reauthAttempts.Clear(); loginAttempts.Clear();
             Notices.Reset(); Agreements.Reset();
         }
     }

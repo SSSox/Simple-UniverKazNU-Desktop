@@ -20,14 +20,17 @@ namespace Univer.Desktop.UI
         private readonly Panel list = new SmoothPanel { AutoScroll = true };
         private readonly List<NoticeRow> rows = new List<NoticeRow>();
         private readonly ToolTip tips = new ToolTip { ShowAlways = true };
-        private readonly float scale;
+        private readonly StageView emptyStage = new StageView(StageScene.Notices) { Visible = false };
+        private readonly FloatingSurface floating = new FloatingSurface();
+        private readonly float baseScale;
+        private float scale, zoom = 1;
         private string language = "ru", drawn;
         // Control.Visible reads false while the panel itself is hidden, so the layout keeps what it shows.
         private bool checking, signedOut, unread, failed;
         private int D(int value) { return (int)Math.Round(value * scale); }
         public NoticesPanel(float scale)
         {
-            this.scale = scale;
+            baseScale = this.scale = scale;
             SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw | ControlStyles.UserPaint, true);
             Visible = false; BackColor = Theme.Surface; AccessibleRole = AccessibleRole.Dialog; Theme.Tips(tips);
             title.Font = Theme.Strong(Theme.Emphasis); title.ForeColor = Theme.Ink; title.AutoEllipsis = true; title.UseMnemonic = false;
@@ -38,13 +41,19 @@ namespace Univer.Desktop.UI
             refresh.Icon = UiIcon.Reload; close.Icon = UiIcon.Close; refresh.Compact = close.Compact = true;
             readAll.Look = ButtonLook.Quiet; readAll.Font = Theme.Font(Theme.Meta);
             foreach (var button in new[] { refresh, readAll, close }) { button.BackColor = Theme.Surface; Controls.Add(button); }
-            list.BackColor = Theme.Surface; list.Controls.Add(emptyTitle); list.Controls.Add(emptyText);
+            list.BackColor = Theme.Surface; list.Controls.Add(emptyStage); list.Controls.Add(emptyTitle); list.Controls.Add(emptyText);
             Controls.Add(title); Controls.Add(summary); Controls.Add(list);
             refresh.Click += (s, e) => CheckNow?.Invoke(); readAll.Click += (s, e) => ReadAll?.Invoke(); close.Click += (s, e) => CloseRequested?.Invoke();
             Resize += (s, e) => Arrange(); list.Resize += (s, e) => LayoutRows();
         }
         public string Language { get { return language; } }
+        // Rows carry their scale, so the next Render builds them again at this one.
+        public void SetZoom(float value) { zoom = value; scale = baseScale * value; drawn = null; NoticeRow.SetFonts(value); UiZoom.ApplyFonts(this, value); }
+        public void FloatIn() { floating.Show(this, D(Kit.RadiusLarge), Shape); }
+        public void FloatOut() { floating.Hide(this, D(Kit.RadiusLarge)); }
+        private void Shape() { if (Width > 0 && Height > 0) using (var path = Theme.Rounded(new RectangleF(0, 0, Width, Height), D(Kit.RadiusLarge))) Region = new Region(path); }
         internal int RowsForQa { get { return rows.Count; } }
+        internal float TitleSizeForQa { get { return title.Font.Size; } }
         internal string[] RowNamesForQa { get { return rows.Select(r => r.AccessibleName).ToArray(); } }
         internal void ReadFirstForQa() { if (rows.Count > 0) rows[0].PressReadForQa(); }
         internal void ReadAllForQa() { readAll.PerformClick(); }
@@ -76,7 +85,7 @@ namespace Univer.Desktop.UI
                 rows.Clear();
                 foreach (var notice in notices)
                 {
-                    var row = new NoticeRow(scale, notice, language);
+                    var row = new NoticeRow(scale, zoom, notice, language);
                     row.OpenNotice += item => OpenNotice?.Invoke(item); row.ReadNotice += key => ReadNotice?.Invoke(key);
                     rows.Add(row); list.Controls.Add(row);
                 }
@@ -84,7 +93,7 @@ namespace Univer.Desktop.UI
                 // The row under the reader's focus, or its neighbour once it was marked read and moved down.
                 if (focused >= 0 && rows.Count > 0) rows[Math.Min(focused, rows.Count - 1)].Focus();
             }
-            emptyTitle.Visible = emptyText.Visible = rows.Count == 0;
+            emptyTitle.Visible = emptyText.Visible = emptyStage.Visible = rows.Count == 0; emptyStage.SetLanguage(language);
             Arrange(); Invalidate();
         }
         // The first notification, or the close button when there is none.
@@ -94,7 +103,7 @@ namespace Univer.Desktop.UI
         public int PreferredHeight(int width)
         {
             var inner = Math.Max(D(160), width - D(2));
-            var content = rows.Count == 0 ? D(132) : rows.Sum(r => r.HeightFor(inner)) + D(6) * Math.Max(0, rows.Count - 1) + D(12);
+            var content = rows.Count == 0 ? D(224) : rows.Sum(r => r.HeightFor(inner)) + D(6) * Math.Max(0, rows.Count - 1) + D(12);
             return HeaderFor(width) + content + D(8);
         }
         // The status line wraps to a second line at a narrow width rather than cutting the message.
@@ -104,15 +113,15 @@ namespace Univer.Desktop.UI
             var size = TextRenderer.MeasureText(summary.Text, summary.Font, new Size(Math.Max(D(40), width - D(64)), int.MaxValue), TextFormatFlags.WordBreak | TextFormatFlags.NoPrefix);
             return Math.Min(D(44), size.Height + D(2));
         }
-        private int HeaderFor(int width) { var status = SummaryHeight(width); return status == 0 ? D(58) : D(46) + status + D(10); }
+        private int HeaderFor(int width) { var status = SummaryHeight(width); return status == 0 ? D(50) : D(42) + status + D(8); }
         private void Arrange()
         {
-            var button = D(32); var top = D(12); var x = Width - D(10) - button;
+            var button = D(28); var top = D(11); var x = Width - D(10) - button;
             close.SetBounds(x, top, button, button); x -= D(4) + button;
             refresh.SetBounds(x, top, button, button); x -= D(4);
             if (unread) { var width = TextRenderer.MeasureText(readAll.Text, readAll.Font).Width + D(24); readAll.SetBounds(x - width, top, width, button); x = readAll.Left; }
-            title.SetBounds(D(48), top + D(4), Math.Max(D(40), x - D(56)), D(24));
-            summary.SetBounds(D(48), top + button + D(2), Math.Max(D(40), Width - D(64)), Math.Max(1, SummaryHeight(Width))); summary.Visible = checking || failed;
+            title.SetBounds(D(40), top + D(4), Math.Max(D(40), x - D(48)), D(20));
+            summary.SetBounds(D(40), top + button + D(2), Math.Max(D(40), Width - D(56)), Math.Max(1, SummaryHeight(Width))); summary.Visible = checking || failed;
             var header = HeaderFor(Width);
             list.SetBounds(D(1), header, Width - D(2), Math.Max(0, Height - header - D(8)));
             LayoutRows();
@@ -121,7 +130,8 @@ namespace Univer.Desktop.UI
         {
             var width = list.ClientSize.Width - D(16); var y = D(4) + list.AutoScrollPosition.Y;
             foreach (var row in rows) { var height = row.HeightFor(width); row.SetBounds(D(8), y, width, height); y += height + D(6); }
-            emptyTitle.SetBounds(D(16), D(20), Math.Max(D(40), list.ClientSize.Width - D(32)), D(28));
+            emptyStage.SetBounds(D(16), D(10), Math.Max(D(40), list.ClientSize.Width - D(32)), D(112));
+            emptyTitle.SetBounds(D(16), emptyStage.Bottom + D(6), Math.Max(D(40), list.ClientSize.Width - D(32)), D(24));
             emptyText.SetBounds(D(24), emptyTitle.Bottom + D(4), Math.Max(D(40), list.ClientSize.Width - D(48)), D(64));
         }
         // Escape closes the panel from any of its controls.
@@ -133,16 +143,16 @@ namespace Univer.Desktop.UI
         protected override void OnPaint(PaintEventArgs e)
         {
             base.OnPaint(e); var g = e.Graphics; g.SmoothingMode = SmoothingMode.AntiAlias;
-            using (var path = Theme.Rounded(new RectangleF(0.5f, 0.5f, Width - 1.5f, Height - 1.5f), D(12))) using (var pen = new Pen(Theme.Border)) g.DrawPath(pen, path);
-            Icons.Draw(g, UiIcon.Bell, new RectangleF(D(16), D(17), D(22), D(22)), Theme.AccentInk);
-            using (var pen = new Pen(Theme.Border)) { var header = HeaderFor(Width); g.DrawLine(pen, D(12), header - D(1), Width - D(12), header - D(1)); }
+            using (var path = Theme.Rounded(new RectangleF(0.5f, 0.5f, Width - 1.5f, Height - 1.5f), D(Kit.RadiusLarge))) using (var pen = new Pen(Theme.Current.Control)) g.DrawPath(pen, path);
+            Icons.Draw(g, UiIcon.Bell, new RectangleF(D(14), D(17), D(16), D(16)), Theme.AccentInk);
+            using (var pen = new Pen(Theme.Current.Line)) { var header = HeaderFor(Width); g.DrawLine(pen, D(12), header - D(1), Width - D(12), header - D(1)); }
         }
         protected override void OnSizeChanged(EventArgs e)
         {
             base.OnSizeChanged(e);
-            if (Width > 0 && Height > 0) using (var path = Theme.Rounded(new RectangleF(0, 0, Width, Height), D(12))) Region = new Region(path);
+            if (!floating.Arriving) Shape();
         }
-        protected override void Dispose(bool disposing) { if (disposing) tips.Dispose(); base.Dispose(disposing); }
+        protected override void Dispose(bool disposing) { if (disposing) { floating.Dispose(); tips.Dispose(); } base.Dispose(disposing); }
     }
     // One notification: its kind badge, an unread dot, the title with the count, what the count lists (or the page's
     // message) and a check mark that marks it read. The whole row opens the page; Enter and Space do the same.
@@ -156,21 +166,25 @@ namespace Univer.Desktop.UI
         private readonly float scale;
         private readonly string heading, body;
         private bool hovered;
-        private static Font titleFont, bodyFont;
+        private static Font titleFont = Theme.Strong(Theme.Body), bodyFont = Theme.Font(Theme.Meta);
+        public static void SetFonts(float zoom)
+        {
+            titleFont.Dispose(); bodyFont.Dispose();
+            titleFont = Theme.Strong(Theme.Body * zoom); bodyFont = Theme.Font(Theme.Meta * zoom);
+        }
         private int D(int value) { return (int)Math.Round(value * scale); }
-        public NoticeRow(float scale, SiteNotice notice, string language)
+        public NoticeRow(float scale, float zoom, SiteNotice notice, string language)
         {
             this.scale = scale; this.notice = notice;
             SetStyle(ControlStyles.UserPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw | ControlStyles.Selectable | ControlStyles.AllPaintingInWmPaint, true);
             // An unread card is tinted; the check mark sits on the same colour.
             TabStop = true; Cursor = Cursors.Hand; BackColor = notice.Read ? Theme.Surface : Theme.Current.InfoFill; AccessibleRole = AccessibleRole.PushButton; Theme.Tips(tips);
-            if (titleFont == null) { titleFont = Theme.Strong(Theme.Body); bodyFont = Theme.Font(Theme.Meta); }
             var blocked = notice.Kind == SiteNotice.Blocked;
             heading = blocked ? notice.Title : notice.Title + " (" + Notices.Shown(notice) + ")";
             if (heading.Trim().Length == 0) heading = Strings.Get("notices", language);
             // A count shows what it counts (the open questionnaires and their dates); a page message is its own text.
             body = blocked ? notice.Text : string.Join("\n", notice.Details.Select(d => "• " + (d.Until.Length == 0 ? d.Title : string.Format(Strings.Get("noticeDetailUntil", language), d.Title, d.Until))));
-            read.BackColor = BackColor; read.Visible = !notice.Read;
+            read.BackColor = BackColor; read.Visible = !notice.Read; read.Zoom = zoom;
             read.AccessibleName = string.Format(Strings.Get("noticeMarkRead", language), heading); tips.SetToolTip(read, read.AccessibleName);
             read.Click += (s, e) => ReadNotice?.Invoke(notice.Key);
             Controls.Add(read);

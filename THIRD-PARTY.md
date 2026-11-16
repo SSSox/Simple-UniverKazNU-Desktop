@@ -11,6 +11,7 @@
 - **Среда выполнения Chromium** входит в пакеты CefSharp: ANGLE, SwiftShader и загрузчик Vulkan с открытыми лицензиями (см. лицензии CEF) и `d3dcompiler_47.dll`, закрытая системная библиотека DirectX от Microsoft, нужная для отрисовки. Такой же файл есть в самой Windows 8.1 и новее.
 - **System.Runtime.InteropServices.RuntimeInformation 4.3.0** (Modern, зависимость CefSharp), MIT. Лицензия: `licenses/RuntimeInformation-LICENSE.txt`, `licenses/RuntimeInformation-ThirdPartyNotices.txt`.
 - **Mozilla PDF.js (pdfjs-dist) 5.7.284**, legacy-сборка, Apache-2.0, [mozilla/pdf.js](https://github.com/mozilla/pdf.js): просмотр PDF в «Загрузках». Файлы в `src/Univer.Desktop/Assets/pdfjs` с лицензией `LICENSE`; обновляются только скриптом `scripts/update-pdfjs.ps1`, который сверяет закреплённый SHA-512 пакета из npm и пишет `VERSION.txt`. Вместе с PDF.js поставляются его данные, лицензии лежат рядом с ними: CMap Adobe (BSD-3-Clause, `cmaps/LICENSE`), стандартные шрифты PDFium/Foxit (BSD-3-Clause, `standard_fonts/LICENSE_FOXIT`), декодеры OpenJPEG (BSD-2-Clause), JBIG2 из PDFium (BSD-3-Clause) и qcms (MIT) в `wasm/`, CMYK-профиль CGATS001 (CC0, `iccs/LICENSE`). Шрифты Liberation и песочница QuickJS из пакета не берутся. PDF.js 6.x не работает в Chromium 109, поэтому версия закреплена на 5.7.
+- **Lucide 0.460**, ISC, [lucide-icons/lucide](https://github.com/lucide-icons/lucide): контуры значков окна приложения, перерисованные в `src/Univer.Desktop/UI/LucideIcons.cs`. Лицензия: `licenses/lucide.txt`.
 
 ## Только для сборки и тестов
 

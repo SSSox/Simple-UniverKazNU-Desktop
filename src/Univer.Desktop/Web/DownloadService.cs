@@ -24,12 +24,21 @@ namespace Univer.Desktop.Web
         private readonly Dictionary<string, CancellationTokenSource> active = new Dictionary<string, CancellationTokenSource>();
         private readonly Action<string> report;
         private readonly Action<DownloadRecord> changed;
-        public DownloadService(IRequestContext context, Action<string> report, Action<DownloadRecord> changed = null) { this.context = context; this.report = report; this.changed = changed; }
+        // removed: a record already shown that turned out to be no download at all (a teacher's link), by its id.
+        private readonly Action<string> removed;
+        public DownloadService(IRequestContext context, Action<string> report, Action<DownloadRecord> changed = null, Action<string> removed = null)
+        { this.context = context; this.report = report; this.changed = changed; this.removed = removed; }
         public void Cancel(string id) { CancellationTokenSource source; if (active.TryGetValue(id, out source)) source.Cancel(); }
+        public bool Busy(string url) { return url != null && running.Contains(url); }
         // Returns the status key of the outcome. "offOrigin" and "downloadBusy" mean nothing started, so no record was
-        // published; every other key describes the attempt itself.
-        public async Task<string> DownloadAsync(string url, string referer, string agent, string suggestedName = null, string source = null, string addressKey = null)
+        // published; every other key describes the attempt itself, except "studyLink" (below).
+        // subfolder: a folder under Downloads for the finished file (see StudyFolders); null keeps it in Downloads itself.
+        // link: a UMKD material that is a teacher's link, not a file, answers with a redirect to another site. That address
+        // is handed here unvisited (no Univer cookie leaves the site), no record is kept, and the result is "studyLink".
+        // status: where this download's messages go instead of the status line, for a caller that reports on its own.
+        public async Task<string> DownloadAsync(string url, string referer, string agent, string suggestedName = null, string source = null, string addressKey = null, string subfolder = null, Action<string> link = null, Action<string> status = null)
         {
+            var report = status ?? this.report;
             if (!SitePolicy.Trusted(url)) return "offOrigin";
             if (!running.Add(url)) return "downloadBusy";
             var item = new DownloadRecord { FileName = string.IsNullOrWhiteSpace(suggestedName) ? "" : FileNames.Safe(suggestedName), Source = source ?? "", Key = addressKey ?? "", State = DownloadState.Running };
@@ -42,30 +51,40 @@ namespace Univer.Desktop.Web
             var transfer = new Transfer { Item = item, Token = deadline.Token, Deadline = deadline, Publish = publish };
             try
             {
-                report("downloading"); publish();
                 using (var http = new SessionHttp(context, agent, referer, TimeSpan.FromMinutes(5)))
-                using (var response = await OpenAsync(http, url, transfer))
                 {
-                    Check(response);
-                    // Some real responses omit or use a non-standard Content-Disposition.
-                    // Read the raw header: the typed parser can discard otherwise useful names.
-                    IEnumerable<string> dispositions;
-                    var disposition = response.Content.Headers.TryGetValues("Content-Disposition", out dispositions) ? string.Join(";", dispositions) : null;
-                    var headerName = FileNames.HeaderName(disposition);
-                    if (!string.IsNullOrWhiteSpace(headerName)) item.FileName = FileNames.Safe(headerName);
-                    var length = response.Content.Headers.ContentLength;
-                    if (length > SizeLimit) throw new IOException("downloadTooLarge");
-                    item.Total = length ?? -1; publish();
-                    var folder = DownloadsFolder(); Directory.CreateDirectory(folder);
-                    using (var stream = await response.Content.ReadAsStreamAsync()) await WriteAsync(stream, folder, transfer);
-                    if (transfer.Total == 0 || (length.HasValue && transfer.Total != length.Value)) throw new IOException("downloadFailed");
-                    transfer.Token.ThrowIfCancellationRequested();
-                    var type = response.Content.Headers.ContentType;
-                    var name = FileNames.Resolve(disposition, suggestedName, transfer.Url, type == null ? null : type.MediaType, transfer.Prefix, transfer.PrefixLength, transfer.Temp);
-                    item.Path = Keep(transfer.Temp, folder, name); transfer.Temp = null;
-                    item.FileName = Path.GetFileName(item.Path);
-                    item.Received = item.Total = transfer.Total; item.State = DownloadState.Completed; item.Finished = DateTime.Now; publish();
-                    report("downloadComplete"); return "downloadComplete";
+                    var opening = OpenAsync(http, url, transfer); var shown = false;
+                    // A quick answer first tells whether this is a file at all, so a link never flashes up as a download, in
+                    // the list or in the status line; a slow one shows its row, with Cancel, while it waits.
+                    if (await Task.WhenAny(opening, Task.Delay(600)) != opening) { shown = true; report("downloading"); publish(); }
+                    using (var response = await opening)
+                    {
+                        // removed also takes back the «Скачивание…» of a row that turned out to be a link.
+                        if (response == null) { if (shown) removed?.Invoke(item.Id); link?.Invoke(transfer.Link); return "studyLink"; }
+                        if (!shown) { report("downloading"); publish(); }
+                        Check(response);
+                        // Some real responses omit or use a non-standard Content-Disposition.
+                        // Read the raw header: the typed parser can discard otherwise useful names.
+                        IEnumerable<string> dispositions;
+                        var disposition = response.Content.Headers.TryGetValues("Content-Disposition", out dispositions) ? string.Join(";", dispositions) : null;
+                        var headerName = FileNames.HeaderName(disposition);
+                        if (!string.IsNullOrWhiteSpace(headerName)) item.FileName = FileNames.Safe(headerName);
+                        var length = response.Content.Headers.ContentLength;
+                        if (length > SizeLimit) throw new IOException("downloadTooLarge");
+                        item.Total = length ?? -1; publish();
+                        // The temporary file stays in Downloads, where an interrupted one is found and removed at the next start.
+                        var downloads = DownloadsFolder(); Directory.CreateDirectory(downloads);
+                        using (var stream = await response.Content.ReadAsStreamAsync()) await WriteAsync(stream, downloads, transfer);
+                        if (transfer.Total == 0 || (length.HasValue && transfer.Total != length.Value)) throw new IOException("downloadFailed");
+                        transfer.Token.ThrowIfCancellationRequested();
+                        var type = response.Content.Headers.ContentType;
+                        var name = FileNames.Resolve(disposition, suggestedName, transfer.Url, type == null ? null : type.MediaType, transfer.Prefix, transfer.PrefixLength, transfer.Temp);
+                        var folder = Place(downloads, subfolder);
+                        item.Path = SavedFile.Keep(transfer.Temp, folder, StudyFolders.Fit(folder, name), SitePolicy.Home); transfer.Temp = null;
+                        item.FileName = Path.GetFileName(item.Path);
+                        item.Received = item.Total = transfer.Total; item.State = DownloadState.Completed; item.Finished = DateTime.Now; publish();
+                        report("downloadComplete"); return "downloadComplete";
+                    }
                 }
             }
             catch (OperationCanceledException)
@@ -91,12 +110,13 @@ namespace Univer.Desktop.Web
         private sealed class Transfer
         {
             public DownloadRecord Item; public CancellationToken Token; public CancellationTokenSource Deadline; public Action Publish;
-            public string Url, Temp; public long Total;
+            public string Url, Temp, Link; public long Total;
             // The first bytes, kept for recognising sign-in pages and the file type.
             public byte[] Prefix = new byte[4096]; public int PrefixLength;
         }
         // Follows the server's redirects within Univer and returns the final answer. Sign-in and read-notice pages,
-        // whether reached directly or by a redirect, mean the session has to be renewed first.
+        // whether reached directly or by a redirect, mean the session has to be renewed first. A UMKD material sent on to
+        // a web page on another site is a link: null is returned and the address is kept in transfer.Link, not visited.
         private static async Task<HttpResponseMessage> OpenAsync(SessionHttp http, string url, Transfer transfer)
         {
             var next = url;
@@ -110,7 +130,9 @@ namespace Univer.Desktop.Web
                 try { redirect = SessionHttp.Redirect(response, next); }
                 catch { response.Dispose(); throw; }
                 if (redirect == null) { transfer.Url = next; return response; }
-                response.Dispose(); next = redirect;
+                response.Dispose();
+                if (SitePolicy.MaterialLink(url, redirect)) { transfer.Link = redirect; return null; }
+                next = redirect;
             }
             throw new IOException("downloadFailed");
         }
@@ -125,13 +147,14 @@ namespace Univer.Desktop.Web
             var type = response.Content.Headers.ContentType;
             if (type != null && (type.MediaType == "text/html" || type.MediaType == "application/xhtml+xml")) throw new IOException("downloadLogin");
         }
-        // Reads the answer into a temporary file in folder, publishing progress a few times a second.
+        // Reads the answer into a temporary file in folder, publishing progress a few times a second. The chunks stay off the
+        // UI thread: a large file would otherwise post thousands of continuations to it; publishing marshals by itself.
         private static async Task WriteAsync(Stream stream, string folder, Transfer transfer)
         {
             var prefix = transfer.Prefix; var count = 0;
             while (count < prefix.Length)
             {
-                var read = await CancellableRead.ReadAsync(stream, prefix, count, prefix.Length - count, transfer.Token);
+                var read = await CancellableRead.ReadAsync(stream, prefix, count, prefix.Length - count, transfer.Token).ConfigureAwait(false);
                 if (read == 0) break; count += read;
             }
             transfer.PrefixLength = count;
@@ -141,29 +164,28 @@ namespace Univer.Desktop.Web
             var clock = Stopwatch.StartNew();
             using (var file = new FileStream(transfer.Temp, FileMode.CreateNew, FileAccess.Write, FileShare.None, 65536, true))
             {
-                await file.WriteAsync(prefix, 0, count, transfer.Token);
+                await file.WriteAsync(prefix, 0, count, transfer.Token).ConfigureAwait(false);
                 var buffer = new byte[65536]; int chunk;
-                while ((chunk = await CancellableRead.ReadAsync(stream, buffer, 0, buffer.Length, transfer.Token)) > 0)
+                while ((chunk = await CancellableRead.ReadAsync(stream, buffer, 0, buffer.Length, transfer.Token).ConfigureAwait(false)) > 0)
                 {
                     total += chunk;
                     if (total > SizeLimit) throw new IOException("downloadTooLarge");
-                    await file.WriteAsync(buffer, 0, chunk, transfer.Token);
+                    await file.WriteAsync(buffer, 0, chunk, transfer.Token).ConfigureAwait(false);
                     transfer.Item.Received = total; transfer.Deadline.CancelAfter(StallTimeout);
                     if (clock.ElapsedMilliseconds >= 150) { clock.Restart(); transfer.Publish(); }
                 }
             }
             transfer.Total = total;
         }
-        // Moves the finished file to its name in folder, adding " (1)", " (2)"… when that name is taken: File.Move never
-        // overwrites a user's existing file.
-        private static string Keep(string temp, string folder, string name)
+        // The folder for the finished file: the asked one under Downloads when it can be made, Downloads itself otherwise.
+        private static string Place(string downloads, string subfolder)
         {
-            for (var i = 0; ; i++)
-            {
-                var destination = Path.Combine(folder, i == 0 ? name : Path.GetFileNameWithoutExtension(name) + " (" + i + ")" + Path.GetExtension(name));
-                try { File.Move(temp, destination); return destination; }
-                catch (IOException) { if (i >= 999 || !File.Exists(destination)) throw; }
-            }
+            var folder = StudyFolders.Resolve(downloads, subfolder);
+            if (folder == downloads) return downloads;
+            try { Directory.CreateDirectory(folder); return folder; }
+            catch (IOException) { return downloads; }
+            catch (UnauthorizedAccessException) { return downloads; }
+            catch (NotSupportedException) { return downloads; }
         }
         private static void Finish(DownloadRecord item, DownloadState state, string error)
         {

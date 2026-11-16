@@ -128,12 +128,12 @@ namespace Univer.Desktop.UI
             {
                 form.Opacity = 0; form.Show(this); await Task.Delay(40);
                 form.SelectUpdatesForQa(); MotionSurface.Stop(form);
-                Check(form.UpdateStatusForQa.StartsWith(string.Format(Strings.Get("updateCurrent", prefs.Language), AppInfo.Version), StringComparison.Ordinal) && form.UpdateCheckForQa.Visible && !form.UpdateInstallForQa.Visible,
-                    "Settings shows the version and Check for updates", results);
+                Check(form.UpdateStatusForQa.StartsWith(string.Format(Strings.Get("updateCurrent", prefs.Language), AppInfo.Version), StringComparison.Ordinal) && form.UpdateCheckForQa.Visible && !form.UpdateInstallForQa.Visible && form.UpdateButtonsWholeForQa,
+                    "Settings shows the version and a whole Check for updates button", results);
                 form.UpdateCheckForQa.PerformClick();
                 await WaitQaAsync(() => service.Phase == UpdatePhase.Idle && service.Available != null);
                 await Task.Delay(40);
-                Check(form.UpdateStatusForQa.Contains("9.9.9") && form.UpdateInstallForQa.Visible && form.UpdateFitsForQa, "the button checks at once and Install appears, inside the window", results);
+                Check(form.UpdateStatusForQa.Contains("9.9.9") && form.UpdateInstallForQa.Visible && form.UpdateFitsForQa && form.UpdateButtonsWholeForQa, "the button checks at once and Install appears, inside the window", results);
                 QaSnapshot(Path.Combine(qa, "settings-updates.png"), form.Width, form.Height, bitmap => form.DrawToBitmap(bitmap, new Rectangle(Point.Empty, form.Size)));
                 form.UpdateInstallForQa.PerformClick();
                 await WaitQaAsync(() => form.UpdateRequested);

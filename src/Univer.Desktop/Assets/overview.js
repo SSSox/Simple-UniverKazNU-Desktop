@@ -6,16 +6,33 @@
     var common = window.__univerCommonV1, clean = common.clean;
     var language = 'ru', active = false, owned = [], loads = new Map(), generation = 0, scheduleTimer;
     function text() {
-        return language === 'en' ? {today:'Today', grades:'Grades', requests:'My requests', loading:'Loading…', failed:'Could not load. Open the page itself.', noClasses:'No classes today',
-                allSchedule:'Full schedule', allGrades:'All grades', allRequests:'All requests', noRequests:'No requests yet', now:'Now', next:'Next', done:'Finished', noGrades:'No grades yet', showAll:'Show all', collapse:'Show less', nextClasses:'Next classes', open:'Open request',
+        return language === 'en' ? {room:'Room', today:'Today', grades:'Grades', requests:'My requests', loading:'Loading…', failed:'Could not load. Open the page itself.', noClasses:'No classes today',
+                allSchedule:'Full schedule', allGrades:'All grades', allRequests:'All requests', noRequests:'No requests yet', now:'Now', next:'Next', done:'Finished', noGrades:'No grades yet', showAll:'Show all', collapse:'Show less', nextClasses:'Next classes', open:'Open request', upNow:'Class in progress', upNext:'Next class', then:'Then', last:'Last class today',
                 days:['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday']} :
-            language === 'kz' ? {today:'Бүгін', grades:'Үлгерім', requests:'Менің өтінімдерім', loading:'Жүктелуде…', failed:'Жүктеу мүмкін болмады. Бетті ашыңыз.', noClasses:'Бүгін сабақ жоқ',
-                allSchedule:'Толық кесте', allGrades:'Барлық бағалар', allRequests:'Барлық өтінімдер', noRequests:'Өтінімдер әлі жоқ', now:'Қазір', next:'Келесі', done:'Аяқталды', noGrades:'Бағалар әлі жоқ', showAll:'Барлығын көрсету', collapse:'Жасыру', nextClasses:'Келесі сабақтар', open:'Өтінімді ашу',
+            language === 'kz' ? {room:'Дәрісхана', today:'Бүгін', grades:'Үлгерім', requests:'Менің өтінімдерім', loading:'Жүктелуде…', failed:'Жүктеу мүмкін болмады. Бетті ашыңыз.', noClasses:'Бүгін сабақ жоқ',
+                allSchedule:'Толық кесте', allGrades:'Барлық бағалар', allRequests:'Барлық өтінімдер', noRequests:'Өтінімдер әлі жоқ', now:'Қазір', next:'Келесі', done:'Аяқталды', noGrades:'Бағалар әлі жоқ', showAll:'Барлығын көрсету', collapse:'Жасыру', nextClasses:'Келесі сабақтар', open:'Өтінімді ашу', upNow:'Сабақ жүріп жатыр', upNext:'Келесі сабақ', then:'Содан кейін', last:'Бүгінгі соңғы сабақ',
                 days:['Жексенбі','Дүйсенбі','Сейсенбі','Сәрсенбі','Бейсенбі','Жұма','Сенбі']} :
-            {today:'Сегодня', grades:'Успеваемость', requests:'Мои заявки', loading:'Загрузка…', failed:'Не удалось загрузить. Откройте страницу целиком.', noClasses:'Сегодня пар нет',
-                allSchedule:'Всё расписание', allGrades:'Вся успеваемость', allRequests:'Все заявки', noRequests:'Заявок пока нет', now:'Идёт', next:'Следующая', done:'Прошла', noGrades:'Оценок пока нет', showAll:'Показать все', collapse:'Свернуть', nextClasses:'Ближайшие пары', open:'Открыть заявку',
+            {room:'Ауд.', today:'Сегодня', grades:'Успеваемость', requests:'Мои заявки', loading:'Загрузка…', failed:'Не удалось загрузить. Откройте страницу целиком.', noClasses:'Сегодня пар нет',
+                allSchedule:'Всё расписание', allGrades:'Вся успеваемость', allRequests:'Все заявки', noRequests:'Заявок пока нет', now:'Идёт', next:'Следующая', done:'Прошла', noGrades:'Оценок пока нет', showAll:'Показать все', collapse:'Свернуть', nextClasses:'Ближайшие пары', open:'Открыть заявку', upNow:'Идёт пара', upNext:'Следующая пара', then:'Затем', last:'Это последняя пара сегодня',
                 days:['Воскресенье','Понедельник','Вторник','Среда','Четверг','Пятница','Суббота']};
     }
+    // The same countdown words as the schedule page's summary card: "через 2 ч 15 мин", "ещё 25 мин".
+    function duration(m) {
+        var u = language === 'en' ? ['d','h','min'] : language === 'kz' ? ['күн','сағ','мин'] : ['д','ч','мин'];
+        if (m < 60) return m + ' ' + u[2];
+        if (m < 1440) return Math.floor(m / 60) + ' ' + u[1] + (m % 60 ? ' ' + m % 60 + ' ' + u[2] : '');
+        var hours = Math.floor(m % 1440 / 60);
+        return Math.floor(m / 1440) + ' ' + u[0] + (hours ? ' ' + hours + ' ' + u[1] : '');
+    }
+    function until(m) { return language === 'en' ? 'in ' + duration(m) : language === 'kz' ? duration(m) + ' кейін' : 'через ' + duration(m); }
+    function left(m) { return language === 'en' ? duration(m) + ' left' : language === 'kz' ? duration(m) + ' қалды' : 'ещё ' + duration(m); }
+    // A label that counts down to a moment; the half-minute refresh rewrites only its words, so the panel does not redraw every minute.
+    function counter(node, prefix, kind, moment) { node.dataset.univerCountAt = String(moment); node.dataset.univerCountKind = kind; node.dataset.univerCountPrefix = prefix; tick(node, Date.now()); return node; }
+    function tick(node, now) {
+        var m = Math.max(1, Math.ceil((+node.dataset.univerCountAt - now) / 60000)), value = node.dataset.univerCountPrefix + (node.dataset.univerCountKind === 'left' ? left(m) : until(m));
+        if (node.textContent !== value) node.textContent = value;
+    }
+    function tickCounts(root) { var now = Date.now(); root.querySelectorAll('[data-univer-count-at]').forEach(function (node) { tick(node, now); }); }
     function element(tag, cls, content) { var e = document.createElement(tag); if (cls) e.className = cls; if (content != null) e.textContent = content; return e; }
     async function read(url) {
         var abort = new AbortController(), timeout = setTimeout(function () { abort.abort(); }, 12000);
@@ -61,7 +78,7 @@
             groups.forEach(function (group) {
                 var parts = Array.from(group.querySelectorAll('p')); if (!parts.length) parts = [group];
                 var texts = parts.map(function (p) { return p.classList.contains('params') ? Array.from(p.childNodes).map(clean).filter(Boolean).join(' / ') : clean(p); }).filter(Boolean);
-                if (texts.length) lessons.push({start:minutes(from[0]), end:minutes(to[to.length - 1]), subject:texts[0], details:texts.slice(1).join(' · ')});
+                if (texts.length) lessons.push({start:minutes(from[0]), end:minutes(to[to.length - 1]), subject:texts[0], details:texts.slice(1).join(' · '), parts:common.lesson(texts)});
             });
         });
         return lessons.sort(function (a, b) { return a.start - b.start; });
@@ -157,10 +174,15 @@
         if (window.__univerMotionUI) window.__univerMotionUI.change(body, render, 'content'); else render();
     }
     function fail(body) { settled(body, function () { body.replaceChildren(element('p', 'univer-app-overview-empty', text().failed)); }); }
-    function dayName(date) { return text().days[date.getDay()] + ', ' + date.toLocaleDateString(language === 'en' ? 'en-GB' : 'ru-RU', {day:'numeric', month:'long'}); }
+    // Kazakh month names from our own list: whether Chromium 109 and old Android WebViews format 'kk' dates was never checked.
+    var KZ_MONTHS = ['қаңтар','ақпан','наурыз','сәуір','мамыр','маусым','шілде','тамыз','қыркүйек','қазан','қараша','желтоқсан'];
+    function dayName(date) {
+        return text().days[date.getDay()] + ', ' + (language === 'kz' ? date.getDate() + ' ' + KZ_MONTHS[date.getMonth()] :
+            date.toLocaleDateString(language === 'en' ? 'en-GB' : 'ru-RU', {day:'numeric', month:'long'}));
+    }
     function renderToday(body, lessons, upcoming) {
         body.replaceChildren();
-        var now = new Date(), at = now.getHours() * 60 + now.getMinutes();
+        var now = new Date(), at = now.getHours() * 60 + now.getMinutes(), day = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
         body.appendChild(element('p', 'univer-app-overview-caption', dayName(now)));
         if (!lessons || !lessons.length || lessons.every(function (l) { return l.end <= at; })) {
             var finished = lessons && lessons.length;
@@ -168,17 +190,46 @@
             if (!upcoming) return;
             // A day off still answers "what is next": the first classes after it, with their day.
             body.appendChild(element('p', 'univer-app-overview-next-day', text().nextClasses + ' · ' + dayName(upcoming.date)));
-            lessons = upcoming.lessons; at = -1;
+            lessons = upcoming.lessons; at = -1; day = new Date(upcoming.date.getFullYear(), upcoming.date.getMonth(), upcoming.date.getDate()).getTime();
         }
-        var next = lessons.find(function (l) { return l.start > at; });
+        var next = lessons.find(function (l) { return l.start > at; }), live = lessons.find(function (l) { return l.start <= at && at < l.end; });
+        var moment = function (minutes) { return day + minutes * 60000; }, t = text();
+        // "What now" in one line before the list: the class under way and what follows it, or when the next one starts.
+        var lead = live || next;
+        if (lead) {
+            var up = element('div', 'univer-app-overview-upnext'); up.dataset.state = live ? 'now' : 'next'; up.setAttribute('role', 'status');
+            up.appendChild(live ? counter(element('b'), t.upNow + ' · ', 'left', moment(live.end)) : counter(element('b'), t.upNext + ' ', 'until', moment(next.start)));
+            var then = live ? lessons.find(function (l) { return l.start >= live.end; }) : null;
+            var detail = live ? (then ? t.then + ': ' + then.parts.name + ', ' + clock(then.start) : t.last)
+                : [next.parts.name, clock(next.start) + '–' + clock(next.end), next.parts.room ? t.room + ' ' + next.parts.room : ''].filter(Boolean).join(' · ');
+            up.appendChild(element('span', '', detail));
+            body.appendChild(up);
+        }
         var list = element('ol', 'univer-app-overview-lessons');
         lessons.forEach(function (lesson) {
             var state = lesson.start <= at && at < lesson.end ? 'now' : lesson === next ? 'next' : lesson.end <= at ? 'done' : '';
             var li = element('li', 'univer-app-overview-lesson' + (state ? ' univer-app-overview-' + state : ''));
-            var time = element('time', '', clock(lesson.start) + '–' + clock(lesson.end)), main = element('div', 'univer-app-overview-lesson-main');
-            main.appendChild(element('b', '', lesson.subject)); if (lesson.details) main.appendChild(element('span', '', lesson.details));
+            var time = element('time', ''), main = element('div', 'univer-app-overview-lesson-main'), parts = lesson.parts;
+            time.append(element('b', '', clock(lesson.start)), element('span', '', clock(lesson.end)));
+            time.setAttribute('aria-label', clock(lesson.start) + '–' + clock(lesson.end));
+            // The time leads; then what the class is, where it is and who teaches it, each on its own line.
+            var title = element('a', 'univer-app-lesson-name', parts.name); title.href = '/student/umkd/';
+            common.umkdHref(parts.name).then(function (href) { title.href = href; });
+            main.appendChild(title);
+            var facts = element('span', 'univer-app-lesson-facts');
+            if (parts.type) { var type = element('span', 'univer-app-lesson-type', parts.type); type.dataset.kind = parts.kind; facts.appendChild(type); }
+            if (parts.room) facts.appendChild(element('span', 'univer-app-lesson-room', text().room + ' ' + parts.room));
+            if (parts.faculty) facts.appendChild(element('span', '', parts.faculty));
+            if (facts.childElementCount) main.appendChild(facts);
+            var people = [parts.teacher].concat(parts.rest).filter(Boolean).join(' · ');
+            if (people) main.appendChild(element('span', 'univer-app-lesson-teacher', people));
+            if (parts.period) li.title = parts.period;
             li.append(time, main);
-            if (state) li.appendChild(element('span', 'univer-app-overview-state', text()[state]));
+            // The line above the list already counts down to the class under way or the next one; its row is only
+            // highlighted, so the time is never said twice. A finished class keeps its quiet "Прошла".
+            if (state === 'done') li.appendChild(element('span', 'univer-app-overview-state', t.done));
+            // The whole row leads to the course's materials.
+            li.addEventListener('click', function (event) { if (!event.target.closest('a,button')) title.click(); });
             list.appendChild(li);
         });
         body.appendChild(list); var more = limit(list, 4); if (more) body.appendChild(more);
@@ -248,7 +299,8 @@
                     var lessons = lessonsToday(scheduleDoc, now), upcoming = null, at = now.getHours() * 60 + now.getMinutes();
                     if (!lessons || !lessons.length || lessons.every(function (l) { return l.end <= at; })) { try { upcoming = await nextClasses(scheduleDoc, now); } catch (_) { upcoming = null; } }
                     var key = now.toDateString() + JSON.stringify([lessons, upcoming, (lessons || []).map(function (l) { return at < l.start ? 'next' : at < l.end ? 'now' : 'done'; })]);
-                    if (epoch === generation && key !== signature) {
+                    if (epoch === generation && key === signature) tickCounts(today.body);
+                    else if (epoch === generation) {
                         signature = key;
                         var expanded = today.body.querySelector('button[aria-expanded=true]'), focused = today.body.contains(document.activeElement);
                         settled(today.body, function () { renderToday(today.body, lessons, upcoming); });
@@ -284,6 +336,6 @@
         // Test hooks: the same readers on a supplied document.
         // A site page read once per visit (GET, same origin), shared with the tab-page helpers.
         page: function (url) { return once(url, url); },
-        lessonsToday: lessonsToday, courseScores: courseScores, requests: requests, nextClasses: nextClasses
+        lessonsToday: lessonsToday, courseScores: courseScores, requests: requests, nextClasses: nextClasses, renderToday: renderToday
     };
 })();

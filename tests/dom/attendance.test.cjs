@@ -25,7 +25,7 @@ test('subject pages select a complete course and combine with the lesson filter 
  const buttons=p.d.querySelectorAll('.univer-app-attendance-courses button');assert.deepEqual(Array.from(buttons).map(b=>b.textContent),['Все','История','Язык']);
  subject(p,2);assert.equal(visible(p,'course-a'),false);assert.equal(visible(p,'lecture'),false);assert.equal(visible(p,'course-b'),true);assert.equal(visible(p,'seminar-b'),true);
  assert.equal(p.d.querySelector('.univer-app-attendance-tools').closest('[hidden]'),null);
- const summaries=Array.from(p.d.querySelectorAll('.univer-app-attendance-summary')).filter(n=>!n.closest('[hidden]'));assert.equal(summaries.length,1);assert.match(summaries[0].textContent,/РК1 \(100\): 8/);
+ const summaries=Array.from(p.d.querySelectorAll('.univer-app-attendance-summary')).filter(n=>!n.closest('[hidden]'));assert.equal(summaries.length,1);assert.match(types(summaries[0]),/РК1 \(100\): 8/);
  select(p,'lecture');assert.equal(visible(p,'seminar-b'),false);assert.equal(visible(p,'course-b'),true);assert.match(p.d.querySelectorAll('.univer-app-attendance-summary')[1].textContent,/Нет занятий этого вида/);
  subject(p,0);assert.equal(visible(p,'course-a'),true);assert.equal(visible(p,'course-b'),true);assert.equal(visible(p,'lecture'),true);
  expandAll(p);assert.equal(visible(p,'lecture'),true);assert.equal(visible(p,'seminar-b'),false);
@@ -84,10 +84,10 @@ test('saved filter and late grade updates survive repeated polling without dupli
  p.w.__univerAttendanceV1.apply('ru');assert.match(p.d.querySelector('.univer-app-attendance-summary').textContent,/17.5/);
  assert.equal(p.d.querySelector('.univer-app-attendance-overall-value'),null);
  for(let i=0;i<5;i++)p.w.__univerAttendanceV1.apply('ru');
- assert.equal(p.d.querySelectorAll('.univer-app-attendance-filters').length,1);assert.equal(p.d.querySelectorAll('.univer-app-attendance-type-totals').length,2);
+ assert.equal(p.d.querySelectorAll('.univer-app-attendance-filters').length,1);assert.equal(p.d.querySelectorAll('.univer-app-attendance-summary').length,2);
  p.w.__univerAttendanceV1.apply('en');assert.match(p.d.querySelector('.univer-app-attendance-summary').textContent,/Independent work/);
  assert.equal(visible(p,'lecture'),false);select(p,'all');assert.equal(p.w.sessionStorage.getItem('univer.desktop.attendance-kind.v1'),'all');expandAll(p);assert.equal(visible(p,'lecture'),true);
- assert.match(p.d.querySelector('.univer-app-attendance-overall-value').textContent,/53,5/);p.close();
+ assert.match(p.d.querySelector('.univer-app-score-total .univer-app-score').getAttribute('aria-label'),/53,5/);p.close();
 });
 test('ungraded lessons and pre-hidden content are preserved, and types do not borrow another subject totals',()=>{
  const html=fixture.replace(matrix('sro','15'),'<div class="inner" id="sro">Оценки не выставлены</div>').replace('<div class="inner"><table class="inner" id="seminar-b"','<div class="inner" hidden><table class="inner" id="seminar-b"');
@@ -130,11 +130,16 @@ test('all courses open as a summary with score tiles, the class log opens on req
  assert.equal(visible(p,'course-a'),true);assert.equal(visible(p,'course-b'),true);assert.equal(visible(p,'lecture'),false);assert.equal(visible(p,'seminar-b'),false);
  const overview=p.d.querySelector('.univer-app-attendance-overview');assert.equal(overview.hidden,false);
  const rows=Array.from(overview.querySelectorAll('li'));assert.deepEqual(rows.map(r=>r.querySelector('button').textContent),['История','Язык']);
- assert.deepEqual(Array.from(rows[0].querySelectorAll('.univer-app-score')).map(t=>t.getAttribute('aria-label')),['РК1 (100): 51','РК2 (100): 5']);
- const tiles=p.d.querySelectorAll('.univer-app-attendance-summary')[0].querySelectorAll('.univer-app-attendance-overall-block .univer-app-score');
- assert.deepEqual(Array.from(tiles).map(t=>t.querySelector('.univer-app-score-value').textContent+' '+t.querySelector('.univer-app-score-max').textContent),['51 / 100','5 / 100']);
- assert.equal(tiles[0].querySelector('.univer-app-score-bar').style.getPropertyValue('--univer-score'),'51%');
- assert.equal(p.d.querySelector('.univer-app-attendance-overall-value').hidden,true);assert.equal(p.d.querySelector('.univer-app-attendance-filter-note').hidden,true);
+ assert.deepEqual(Array.from(rows[0].querySelectorAll('.univer-app-overview-score')).map(t=>t.getAttribute('aria-label')),['РК1: 51 / 100','РК2: 5 / 100']);
+ assert.equal(rows[0].querySelector('.univer-app-overview-score-bar').style.getPropertyValue('--univer-score'),'51%');
+ const caption=p.d.querySelector('p.univer-app-attendance-filter-caption'), bar=p.d.querySelector('.univer-app-attendance-filters');
+ assert.equal(caption.textContent,'Тип занятий'); assert.equal(bar.contains(caption),false); assert.equal(bar.getAttribute('aria-label'),'Тип занятий');
+ assert.ok(p.d.querySelector('td.univer-app-sum')&&p.d.querySelector('th.univer-app-sum'));
+ const totals=p.d.querySelectorAll('.univer-app-attendance-summary')[0].querySelectorAll('.univer-app-score-total .univer-app-score');
+ assert.deepEqual(Array.from(totals).map(t=>t.getAttribute('aria-label')),['Итого, РК1: 51 / 100','Итого, РК2: 5 / 100']);
+ assert.equal(totals[0].querySelector('.univer-app-score-bar').style.getPropertyValue('--univer-score'),'51%');
+ assert.deepEqual(Array.from(p.d.querySelectorAll('.univer-app-score-head')[0].children).map(n=>n.textContent),['Вид занятий','РК1из 100','РК2из 100']);
+ assert.equal(p.d.querySelectorAll('.univer-app-attendance-summary')[0].querySelector('.univer-app-attendance-overall-value'),null);assert.equal(p.d.querySelector('.univer-app-attendance-filter-note').hidden,true);
  const toggle=p.d.querySelectorAll('.univer-app-attendance-details-toggle')[1];assert.equal(toggle.textContent,'Показать журнал занятий');assert.equal(toggle.getAttribute('aria-expanded'),'false');
  toggle.click();assert.equal(visible(p,'seminar-b'),true);assert.equal(visible(p,'lecture'),false);
  const reopened=p.d.querySelectorAll('.univer-app-attendance-details-toggle')[1];
@@ -153,8 +158,24 @@ test('a course without classes or totals is one quiet line, and unrecognized tot
  const summaries=p.d.querySelectorAll('.univer-app-attendance-summary');assert.equal(summaries.length,3);
  assert.ok(summaries[2].classList.contains('univer-app-attendance-summary-empty'));assert.equal(summaries[2].textContent,'Занятия пока не добавлены');
  assert.equal(summaries[2].querySelector('.univer-app-attendance-details-toggle'),null);
- assert.equal(summaries[1].querySelector('.univer-app-attendance-overall-block .univer-app-score'),null);assert.equal(summaries[1].querySelector('.univer-app-attendance-overall-value').hidden,false);
+ assert.equal(summaries[1].querySelector('.univer-app-score-total'),null);assert.equal(summaries[1].querySelector('.univer-app-attendance-overall-value').hidden,false);
  const rows=p.d.querySelectorAll('.univer-app-attendance-overview li');
  assert.equal(rows[1].querySelector('.univer-app-attendance-overview-empty').textContent,'РК1 ещё не выставлен');
  assert.equal(rows[2].querySelector('.univer-app-attendance-overview-empty').textContent,'Оценки пока не выставлены');p.close();
+});
+test('a closed course keeps its totals inside the reading heading so courses can stand side by side',()=>{
+ const p=page(),wrap=id=>{const cell=p.d.getElementById(id),source=p.d.createElement('span'),header=p.d.createElement('div');source.className='univer-app-course-source';source.hidden=true;source.append(...cell.childNodes);header.className='univer-app-course-heading';cell.append(source,header);return header;};
+ const plain=p.d.getElementById('course-b');p.w.__univerAttendanceV1.apply('ru');
+ // Without the reading heading the totals keep their own row.
+ assert.equal(plain.querySelector('.univer-app-attendance-summary'),null);
+ const first=wrap('course-a'),second=wrap('course-b');
+ p.w.__univerAttendanceV1.apply('ru');
+ const box=first.nextElementSibling;assert.equal(box.className,'univer-app-attendance-summary');assert.equal(box.dataset.open,'false');assert.equal(box.parentElement.id,'course-a');
+ assert.equal(second.nextElementSibling.dataset.open,'false');assert.equal(p.d.querySelectorAll('.univer-app-attendance-summary').length,2);
+ assert.deepEqual(Array.from(p.d.querySelectorAll('.univer-app-attendance-courses button'),b=>b.textContent),['Все','История','Язык']);
+ box.querySelector('.univer-app-attendance-details-toggle').click();
+ // The totals in the cell are not read back as part of the course name: the opened course is still the same one.
+ assert.equal(first.nextElementSibling.dataset.open,'true');assert.equal(visible(p,'lecture'),true);assert.equal(second.nextElementSibling.dataset.open,'false');
+ assert.deepEqual(Array.from(p.d.querySelectorAll('.univer-app-attendance-courses button'),b=>b.textContent),['Все','История','Язык']);
+ p.w.__univerAttendanceV1.release();assert.equal(p.d.querySelector('.univer-app-attendance-summary'),null);assert.equal(p.d.querySelector('[data-open]'),null);p.close();
 });

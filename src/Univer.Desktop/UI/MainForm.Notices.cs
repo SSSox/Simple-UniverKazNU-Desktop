@@ -23,13 +23,14 @@ namespace Univer.Desktop.UI
         private readonly Timer noticeChecking = new Timer { Interval = 20000 };
         private long noticeFetchedAt = long.MinValue, noticeTriedAt = long.MinValue;
         private bool noticeScanDue = true, noticeBusy, noticeRefreshing, noticeRefreshQueued, noticeFailed, noticesClearPending, noticeBalloon;
-        private string noticeAnnouncement = "";
+        private string noticeHeading = "";
+        private int noticeCount;
         private int trayUnread = -1;
         private bool NoticesActive { get { return (credentials != null && !prefs.AutoLoginPaused && !guard.Stopped && !selfTest && !accountReview) || noticesQa; } }
         private bool NoticesShown { get { return noticesPanel != null && noticesPanel.Visible; } }
         private void BuildNotices()
         {
-            noticesButton.Compact = true; noticesButton.Size = new Size(36, 36); noticesButton.Icon = UiIcon.Bell;
+            noticesButton.Compact = true; noticesButton.Size = new Size(28, 28); noticesButton.Icon = UiIcon.Bell;
             toolbar.Controls.Add(noticesButton);
             noticesButton.Click += (s, e) => { if (NoticesShown) HideNotices(); else ShowNotices(); };
             noticesPanel = new NoticesPanel(layoutScale);
@@ -53,26 +54,26 @@ namespace Univer.Desktop.UI
             noticesButton.Badge = unread == 0 ? "" : unread > 99 ? "99+" : unread.ToString();
             var label = unread > 0 ? string.Format(Strings.Get("noticesBadge", prefs.Language), unread) : Strings.Get("notices", prefs.Language);
             noticesButton.AccessibleName = label; noticesButton.AccessibleDescription = Strings.Get("noticesHint", prefs.Language);
-            tips.SetToolTip(noticesButton, label + "\n" + Strings.Get("noticesHint", prefs.Language));
+            tips.SetToolTip(noticesButton, label);
             noticesPanel.Render(showing, prefs.Language, noticeRefreshing, !NoticesActive, noticeFailed);
             PlaceNotices();
             if (unread != trayUnread) { trayUnread = unread; LocalizeTray(); }
         }
-        private void PlaceNotices()
+        private void PlaceNotices(bool opening = false)
         {
-            if (noticesPanel == null || !noticesPanel.Visible) return;
+            if (noticesPanel == null || (!noticesPanel.Visible && !opening)) return;
             // Below the toolbar and any message banner: the canvas starts where both end.
-            var top = canvas.Top + D(8);
-            var width = Math.Min(D(440), workspace.ClientSize.Width - D(24));
-            var height = Math.Max(D(120), Math.Min(noticesPanel.PreferredHeight(width), workspace.ClientSize.Height - top - D(12)));
-            noticesPanel.SetBounds(workspace.ClientSize.Width - width - D(12), top, width, height);
+            var top = canvas.Top + SZ(8);
+            var width = Math.Min(SZ(440), workspace.ClientSize.Width - SZ(24));
+            var height = Math.Max(SZ(120), Math.Min(noticesPanel.PreferredHeight(width), workspace.ClientSize.Height - top - SZ(12)));
+            noticesPanel.SetBounds(workspace.ClientSize.Width - width - SZ(12), top, width, height);
         }
         private void ShowNotices()
         {
+            if (LockShown) return;
             if (closing || noticesPanel == null) return;
-            findBar.Close();
-            noticesPanel.Visible = true; RenderNotices(); noticesPanel.BringToFront();
-            MotionSurface.Reveal(noticesPanel);
+            findBar.Close(); tips.Hide(noticesButton);
+            RenderNotices(); PlaceNotices(true); noticesPanel.FloatIn();
             noticesPanel.FocusFirst();
             // An announcement is answered by opening the list.
             if (messages.Shows("noticesNew")) { messages.ClearNotices(); RenderFeedback(); }
@@ -80,7 +81,7 @@ namespace Univer.Desktop.UI
         private void HideNotices()
         {
             if (!NoticesShown) return;
-            var focused = noticesPanel.ContainsFocus; noticesPanel.Visible = false;
+            var focused = noticesPanel.ContainsFocus; noticesPanel.FloatOut();
             if (focused) { if (Active != null && !Active.IsDisposed && Active.Visible) Active.Focus(); else noticesButton.Focus(); }
         }
         // Opens the page that resolves the notice (the questionnaire list, the section with the message) and marks it read.
@@ -153,11 +154,11 @@ namespace Univer.Desktop.UI
         private void ReceiveNoticeMessage(CefSharp.WinForms.ChromiumWebBrowser browser, bool viewer, string value, bool trusted, bool mainFrame)
         {
             if (browser != main || viewer || !trusted || !mainFrame) return;
-            var message = value.Substring(Notices.MessagePrefix.Length);
-            var scan = Notices.Parse(message, true, NoticeGeneration);
-            if (scan != null) { QueueAsync(() => ApplyNoticeScanAsync(scan, NoticeGeneration)); return; }
+            var message = value.Substring(Notices.MessagePrefix.Length); var generation = NoticeGeneration;
+            var scan = Notices.Parse(message, true, generation);
+            if (scan != null) { QueueAsync(() => ApplyNoticeScanAsync(scan, generation)); return; }
             int read, failed;
-            if (!Notices.ParseDone(message, NoticeGeneration, out read, out failed)) return;
+            if (!Notices.ParseDone(message, generation, out read, out failed)) return;
             // Any read of the sections, requested or periodic, says whether the list is current.
             if (noticeRefreshing) EndNoticeCheck(failed > 0); else if (noticeFailed != failed > 0) { noticeFailed = failed > 0; RenderNotices(); }
         }
@@ -207,16 +208,19 @@ namespace Univer.Desktop.UI
         {
             if (NoticesShown) return;
             var lang = prefs.Language;
-            noticeAnnouncement = fresh.Count == 1 ? Heading(fresh[0]) : string.Format(Strings.Get("noticesNewMany", lang), fresh.Count);
+            noticeCount = fresh.Count; noticeHeading = fresh.Count == 1 ? Heading(fresh[0]) : "";
             if (!Visible || WindowState == FormWindowState.Minimized)
             {
                 if (trayIcon == null) return;
                 noticeBalloon = true;
-                trayIcon.ShowBalloonTip(8000, Strings.Get("noticesNew", lang), noticeAnnouncement, ToolTipIcon.Info);
+                trayIcon.ShowBalloonTip(8000, Strings.Get("noticesNew", lang), NoticeAnnouncement(), ToolTipIcon.Info);
                 return;
             }
             SetStatus("noticesNew");
         }
+        // While the PIN lock is up, the tray and the window say only how many notifications came (Notices.Announced).
+        private string NoticeAnnouncement()
+        { return Notices.Announced(noticeCount, noticeHeading, LockShown) ?? string.Format(Strings.Get("noticesNewMany", prefs.Language), noticeCount); }
         private static string Heading(SiteNotice notice) { return notice.Kind == SiteNotice.Blocked ? notice.Title : notice.Title + " (" + Notices.Shown(notice) + ")"; }
     }
 }

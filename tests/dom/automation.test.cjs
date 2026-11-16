@@ -127,6 +127,17 @@ test('notice inside a same-origin visible frame is found and clicked', () => {
 function reauthHtml() {
   return '<div id="auth_modal"><span id="auth_try">1</span><form id="modal_auth_frm" action="/user/ajl"><input id="modal_auth_login" name="login" type="text" readonly value="fixture-account"><input id="modal_auth_pass" name="password" type="password"><input id="modal_auth_key" name="key" type="hidden" value="fixture-key"><input name="cheat" type="hidden" value="fixture-cheat"><input id="modal_auth_ajl_btn" type="submit"></form></div>';
 }
+test('the login form notes a hash of the account it signs in, by a click or Enter, never the login itself', () => {
+  const p = page('<form id="login_frm"><input type="text" value=" Student.One "><input type="password" value="x"><button type="button">Войти</button></form>', 'https://univer.kaznu.kz/user/login');
+  p.w.document.querySelector('button').click();
+  const mark = p.w.localStorage.getItem('univer.app.account.v1');
+  assert.match(mark, /^a[0-9a-f]+$/); assert.ok(!mark.includes('student'));
+  p.w.document.querySelector('input').value = 'student.one';
+  p.w.document.querySelector('input').dispatchEvent(new p.w.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+  assert.equal(p.w.localStorage.getItem('univer.app.account.v1'), mark, 'case and spaces do not make another account');
+  p.w.document.querySelector('input').value = 'student.two'; p.w.document.querySelector('button').click();
+  assert.notEqual(p.w.localStorage.getItem('univer.app.account.v1'), mark); p.close();
+});
 test('reauth preserves readonly login and nonce; success requires AJAX code 1', () => {
   const p = page(reauthHtml(), 'https://univer.kaznu.kz/student/news'); p.w.ajl = () => {};
   let clicks = 0;
@@ -140,6 +151,14 @@ test('reauth preserves readonly login and nonce; success requires AJAX code 1', 
   assert.equal(p.api.probe().reauthOutcome, 'pending');
   p.hooks['ajaxSuccess.univerApp'](null, { responseText: '{"code":1}' }, { url: '/user/ajl', type: 'POST' });
   assert.equal(p.api.probe().reauthOutcome, 'success'); assert.equal(clicks, 1); p.close();
+});
+test('reauth accepts the bound login in another case or with spaces, and keeps the readonly field as the site wrote it', () => {
+  const p = page(reauthHtml(), 'https://univer.kaznu.kz/student/news'); p.w.ajl = () => {};
+  p.w.document.querySelector('#modal_auth_ajl_btn').addEventListener('click', e => e.preventDefault());
+  p.w.document.querySelector('#modal_auth_login').value = ' Fixture-Account ';
+  const probe = p.api.probe();
+  assert.equal(p.api.reauthenticate(probe.document, probe.reauthChallenge, 'fixture-account', 'local-fixture-password'), 'submitted');
+  assert.equal(p.w.document.querySelector('#modal_auth_login').value, ' Fixture-Account '); p.close();
 });
 test('reauth rejects a different account and a failed AJAX response', () => {
   const p = page(reauthHtml(), 'https://univer.kaznu.kz/student/news'); p.w.ajl = () => {};
@@ -178,10 +197,12 @@ test('desktop mode keeps the original DOM, handlers and attendance matrix', () =
   assert.equal(p.w.document.querySelector('table'), table); assert.equal(cell.rowSpan, 2);
   p.w.document.querySelector('#check').click(); assert.equal(clicks, 1); p.close();
 });
-test('scripted flag click never claims a user language setting', () => {
-  const p = page('<div class="header"><a href="/lang/change/en/">English</a></div>', 'https://univer.kaznu.kz/student/news');
+test('a flag click sends no language message: only the native navigation check changes the language', () => {
+  const p = page('<div class="header"><a href="/lang/change/en/">English</a></div>', 'https://univer.kaznu.kz/student/news'), sent = [];
+  p.w.__univerNative = value => sent.push(value);
   p.w.document.querySelector('a').addEventListener('click', e => e.preventDefault());
-  p.w.eval(desktop); p.w.document.querySelector('a').click(); assert.equal(p.w.__univerDesktop.language, ''); p.close();
+  p.w.eval(desktop); p.w.document.querySelector('a').click();
+  assert.deepEqual(sent, []); assert.equal(p.w.__univerDesktop.language, undefined); p.close();
 });
 test('legacy document Back asks to close the viewer', () => {
   const p = page('<p>Document</p>', 'https://univer.kaznu.kz/student/transcript');
@@ -203,10 +224,10 @@ test('schedule retains rowspan times, visible-week groups, working links and bot
   const agenda=p.w.document.querySelector('.univer-app-schedule');
   assert.equal(agenda.dataset.allDays,'true');
   assert.equal(agenda.querySelectorAll('.univer-app-lesson').length,2);
-  assert.equal(agenda.querySelector('time').textContent,'09:00–10:50');
+  assert.equal(agenda.querySelector('time').getAttribute('aria-label'),'09:00–10:50');assert.equal(agenda.querySelector('time>b').textContent,'09:00');
   assert.ok(agenda.textContent.includes('101 / Корпус 2'));
   assert.equal(agenda.textContent.includes('Геометрия'),false);
-  agenda.querySelector('a').click(); assert.equal(clicks,1);
+  agenda.querySelector('a.univer-app-page-link').click(); assert.equal(clicks,1);
   agenda.querySelectorAll('.univer-app-days button')[1].click();
   assert.equal(agenda.querySelectorAll('.univer-app-day:not([hidden])').length,1);
   agenda.querySelectorAll('.univer-app-schedule-modes button')[1].click();
@@ -387,7 +408,7 @@ test('UMKD course cards keep double-click navigation and restore original cells'
 
 test('AJAX outcome bridge sends only a matching challenge and result without account data', () => {
   const p = page(reauthHtml(), 'https://univer.kaznu.kz/student/news'), sent = [];
-  p.w.CefSharp = { PostMessage: value => sent.push(value) }; p.w.ajl = () => {};
+  p.w.__univerNative = value => sent.push(value); p.w.ajl = () => {};
   p.w.document.querySelector('#modal_auth_ajl_btn').addEventListener('click', e => e.preventDefault());
   const first = p.api.probe(); p.api.reauthenticate(first.document, first.reauthChallenge, 'fixture-account', 'fixture password');
   p.hooks['ajaxSuccess.univerApp'](null, { responseText:'{"code":1,"key":"not-for-the-bridge"}' }, { url:'https://external.test/user/ajl', type:'POST' });

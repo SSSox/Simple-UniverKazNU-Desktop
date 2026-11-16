@@ -11,8 +11,11 @@ namespace Univer.Desktop.Core
         public const string Home = Origin + "/";
         private static readonly Regex PrintPath = Path(@"^/student/(?:iup(?:/\d+)*/?|transcript(?:/\d+)?/?|recbook(?:/\d+)?/?|interactive/syllabus/print/\d+/\d+/?|myschedule/print/\d+/\d+/?)$");
         private static readonly Regex ProtectedPath = Path(@"^/student/umkd/get/\d+/\d+/\d+/\d+/?$");
-        private static readonly Regex DocumentPath = Path(@"\.(?:pdf|docx?|xlsx?|pptx?|odt|ods|rtf|zip|rar)$");
+        private static readonly Regex MaterialsPath = Path(@"^/student/umkd/\d+/\d+/\d+/?$");
+        private static readonly Regex DocumentPath =Path(@"\.(?:pdf|docx?|xlsx?|pptx?|odt|ods|rtf|zip|rar)$");
         private static readonly Regex SingleSignOnPath = Path(@"^/user/loginMoodle/?$");
+        private static readonly Regex OnlineTestPath = Path(@"^/student/AuthorizationOnOnlineTestForm/?$");
+        public const string OnlineTestHost = "online-test.kaznu.kz";
         private static readonly Regex LanguagePath = new Regex(@"^/lang/change/(ru|kz|en)/?$", RegexOptions.CultureInvariant);
         private static readonly Regex LogoutPath = new Regex(@"^/user/logout/?$", RegexOptions.CultureInvariant);
         private static readonly Regex LoginPath = Path(@"^/user/login/?$");
@@ -56,6 +59,32 @@ namespace Univer.Desktop.Core
         }
         // Univer's own hand-off to Moodle; the signed redirect is opened in the user's browser.
         public static bool SingleSignOn(string url) { return TrustedPath(url, SingleSignOnPath); }
+        // «Онлайн тест»: the site's route that signs the student in to the test portal with a server redirect.
+        public static bool OnlineTest(string url) { return TrustedPath(url, OnlineTestPath); }
+        // That portal: HTTPS on port 443 at exactly online-test.kaznu.kz, without a user name.
+        public static bool OnlineTestPortal(string url)
+        {
+            Uri uri;
+            return Uri.TryCreate(url, UriKind.Absolute, out uri) && !ControlCharacter.IsMatch(url) && uri.Scheme == "https" &&
+                uri.Host.Equals(OnlineTestHost, StringComparison.OrdinalIgnoreCase) && uri.Port == 443 && string.IsNullOrEmpty(uri.UserInfo);
+        }
+        // Only the server's redirect that answers the student's own «Онлайн тест» click leaves for the portal; a script
+        // navigation, a form, a late or a repeated redirect, and the printed-document viewer do not.
+        public static bool OnlineTestExit(string url, string method, bool isRedirect, bool armed, bool viewer)
+        { return armed && !viewer && isRedirect && string.Equals(method, "GET", StringComparison.OrdinalIgnoreCase) && OnlineTestPortal(url); }
+        // The click that arms that redirect: a GET of the route with a user gesture, not a redirect, in the site window.
+        public static bool OnlineTestClick(string url, string method, bool userGesture, bool isRedirect, bool viewer)
+        { return userGesture && !isRedirect && !viewer && string.Equals(method, "GET", StringComparison.OrdinalIgnoreCase) && OnlineTest(url); }
+        // How long the student's «Онлайн тест» click waits for the server's redirect to the portal.
+        public static readonly TimeSpan OnlineTestWindow = TimeSpan.FromSeconds(30);
+        // The page the site window returns to once the portal opens: the student's own page, not the route itself or an
+        // account, login or notice address it passed through.
+        public static string OnlineTestReturnPage(string lastGet) { return Trusted(lastGet) && !OnlineTest(lastGet) && !AccountPage(lastGet) ? lastGet : null; }
+        // Opened from the student's own page, the route returns there. A second click from the route itself (or from an
+        // account page) finds no such page and keeps the one found first, within the window. After an automatic sign-in the
+        // route reopens from the page the sign-in landed on, so that page is the one the site window returns to.
+        public static string OnlineTestReturnPage(string lastGet, string stored, DateTime storedAt, DateTime now)
+        { return OnlineTestReturnPage(lastGet) ?? (stored != null && now - storedAt <= OnlineTestWindow ? stored : null); }
         // The same site page regardless of a trailing slash or the case of its path; the query must match.
         public static bool SamePage(string first, string second)
         {
@@ -72,6 +101,8 @@ namespace Univer.Desktop.Core
             return Trusted(url) && NewsShortcut(url) == null && !DocumentDownload(url) && !ProtectedDownload(url) && !PrintDocument(url) &&
                 new Uri(url).AbsolutePath.Length > 1 && !AccountPath.IsMatch(new Uri(url).AbsolutePath);
         }
+        // Account, language, logout and read-notice addresses: GET requests there change the session or the site's settings.
+        public static bool AccountPage(string url) { return TrustedPath(url, AccountPath); }
         public static bool UserLogout(string url, bool userGesture, bool isRedirect) { return userGesture && !isRedirect && Logout(url); }
         public static bool Logout(string url) { return TrustedPath(url, LogoutPath); }
         public static bool External(string url)
@@ -81,5 +112,20 @@ namespace Univer.Desktop.Core
             return (uri.Scheme == "https" || uri.Scheme == "http") ? string.IsNullOrEmpty(uri.UserInfo) :
                 uri.Scheme == "mailto" || uri.Scheme == "tel";
         }
+        // A course's materials in UMKD (/student/umkd/{course}/{year}/{term}), where a teacher may leave links to other sites.
+        public static bool StudyMaterials(string url) { return TrustedPath(url, MaterialsPath); }
+        // A teacher's link from UMKD: a plain web page on a named host. Mail and phone links, addresses with a user name,
+        // bare IP addresses and local names are not study sources.
+        public static bool StudyLink(string url)
+        {
+            Uri uri;
+            if (!External(url) || !Uri.TryCreate(url, UriKind.Absolute, out uri) || (uri.Scheme != "https" && uri.Scheme != "http")) return false;
+            return uri.HostNameType == UriHostNameType.Dns && uri.Host.IndexOf('.') > 0 && !uri.Host.EndsWith(".", StringComparison.Ordinal) &&
+                !uri.Host.Equals("univer.kaznu.kz", StringComparison.OrdinalIgnoreCase);
+        }
+        // A UMKD material the server sends on to a web page on another site: the teacher left a link there, not a file.
+        public static bool MaterialLink(string material, string target) { return ProtectedDownload(material) && !Trusted(target) && StudyLink(target); }
+        // The host of an outside address as the user should read it, or "".
+        public static string Host(string url) { Uri uri; return Uri.TryCreate(url, UriKind.Absolute, out uri) ? uri.Host : ""; }
     }
 }

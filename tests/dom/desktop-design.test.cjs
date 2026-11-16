@@ -158,7 +158,7 @@ test('content entrances retarget current opacity and keyboard interruption cance
     records.push(record); return record;
   };
   p.w.__univerMotionUI.reveal(node, 'content');
-  assert.match(records[0].frames[0].transform, /translateY.*scale/); assert.equal(records[0].options.duration, 220);
+  assert.match(records[0].frames[0].transform, /translateY/); assert.equal(records[0].options.duration, 200);
   node.style.opacity = '.65'; p.w.__univerMotionUI.reveal(node, 'content');
   assert.equal(records[0].cancelled, true); assert.equal(records[1].frames[0].opacity, '0.65');
   p.d.dispatchEvent(new p.w.KeyboardEvent('keydown', {key:'Tab',bubbles:true}));
@@ -365,11 +365,11 @@ test('today marks finished, in-progress and next classes with live countdowns', 
 
 test('summary card follows the day: before classes, in class, break, and after the last class', async () => {
   const p = clocked(smartFixture([2], october), [2026, 9, 7, 8, 30]);
-  assert.deepEqual(p.card(), { hidden: false, state: 'first', title: 'До первой пары', count: 'через 30 мин', subject: 'Первая', meta: '09:00–09:50 · Аудитория 1', note: 'Сегодня 3 пары, 09:00–11:50', action: '', progress: '' });
+  assert.deepEqual(p.card(), { hidden: false, state: 'first', title: 'До первой пары', count: 'через 30 мин', subject: 'Первая', meta: '09:00–09:50 · Ауд. 1', note: 'Сегодня 3 пары, 09:00–11:50', action: '', progress: '' });
   await p.at([2026, 9, 7, 10, 15]);
-  assert.deepEqual(p.card(), { hidden: false, state: 'now', title: 'Идёт пара', count: 'ещё 35 мин', subject: 'Вторая', meta: '10:00–10:50 · Аудитория 1', note: 'Затем: Третья, 11:00', action: '', progress: '30%' });
+  assert.deepEqual(p.card(), { hidden: false, state: 'now', title: 'Идёт пара', count: 'ещё 35 мин', subject: 'Вторая', meta: '10:00–10:50 · Ауд. 1', note: 'Затем: Третья, 11:00', action: '', progress: '30%' });
   await p.at([2026, 9, 7, 10, 55]);
-  assert.deepEqual(p.card(), { hidden: false, state: 'pause', title: 'Перемена', count: 'через 5 мин', subject: 'Третья', meta: '11:00–11:50 · Аудитория 1', note: 'Осталось 1 пара, до 11:50', action: '', progress: '' });
+  assert.deepEqual(p.card(), { hidden: false, state: 'pause', title: 'Перемена', count: 'через 5 мин', subject: 'Третья', meta: '11:00–11:50 · Ауд. 1', note: 'Осталось 1 пара, до 11:50', action: '', progress: '' });
   await p.at([2026, 9, 7, 11, 30]);
   assert.equal(p.card().note, 'Это последняя пара сегодня');
   let loads = 0; p.d.getElementById('weekSelect').addEventListener('change', () => loads++);
@@ -383,7 +383,7 @@ test('summary card follows the day: before classes, in class, break, and after t
 test('a free weekday counts down to the next class and can open its day', async () => {
   // Tuesday 6 October 2026 with classes only on Thursday.
   const p = clocked(smartFixture([3], october), [2026, 9, 6, 10, 0]);
-  assert.deepEqual(p.card(), { hidden: false, state: 'free', title: 'Сегодня пар нет', count: 'через 1 д 23 ч', subject: 'Первая', meta: 'в четверг в 09:00 · Аудитория 1', note: '', action: 'Показать день', progress: '' });
+  assert.deepEqual(p.card(), { hidden: false, state: 'free', title: 'Сегодня пар нет', count: 'через 1 д 23 ч', subject: 'Первая', meta: 'в четверг в 09:00 · Ауд. 1', note: '', action: 'Показать день', progress: '' });
   assert.equal(p.d.querySelectorAll('.univer-app-day')[3].querySelector('.univer-app-lesson-badge').textContent, 'Следующая · через 1 д 23 ч');
   p.d.querySelector('.univer-app-now-action').click();
   await p.at([2026, 9, 6, 10, 0]);
@@ -400,13 +400,13 @@ test('on a day off the next week shows a real countdown after the current week i
   select.addEventListener('change', () => { table.rows[1].cells[1].querySelector('p').textContent = 'Алгебра'; });
   p.d.querySelector('.univer-app-now-action').click();
   await p.at([2026, 9, 11, 12, 0]);
-  assert.deepEqual(p.card(), { hidden: false, state: 'dayOff', title: 'Сегодня выходной', count: 'через 21 ч', subject: 'Алгебра', meta: 'завтра в 09:00 · Аудитория 1', note: '', action: '', progress: '' });
+  assert.deepEqual(p.card(), { hidden: false, state: 'dayOff', title: 'Сегодня выходной', count: 'через 21 ч', subject: 'Алгебра', meta: 'завтра в 09:00 · Ауд. 1', note: '', action: '', progress: '' });
   p.close();
 });
 
 test('a later week opened directly names its first class and a past week hides the card', async () => {
   const p = clocked(smartFixture([0, 5], october), [2026, 9, 9, 12, 0]);
-  assert.equal(p.card().meta, 'завтра в 09:00 · Аудитория 1');
+  assert.equal(p.card().meta, 'завтра в 09:00 · Ауд. 1');
   p.d.getElementById('weekSelect').selectedIndex = 1;
   await p.at([2026, 9, 9, 12, 0]);
   assert.equal(p.card().title, 'Первая пара этой недели'); assert.equal(p.card().count, 'через 2 д 21 ч');
@@ -457,5 +457,25 @@ test('typing and clicking change the keyboard class only when the modality chang
   apply(p, false);
   p.d.dispatchEvent(new p.w.KeyboardEvent('keydown', { key: 'Tab', bubbles: true }));
   assert.equal(p.d.documentElement.classList.contains('univer-app-keyboard'), false);
+  p.close();
+});
+
+test('arrows beside the week list step to the neighbouring week through the site\'s own change handler, and Original puts the list back', () => {
+  const weeks = [...october, 'Неделя 08. 19.10.2026 - 25.10.2026'];
+  const p = page(smartFixture([2], weeks), 'https://univer.kaznu.kz/student/myschedule/'); apply(p);
+  const select = p.d.getElementById('weekSelect'), nav = p.d.querySelector('.univer-app-week-nav');
+  assert.equal(select.parentElement, nav);
+  const [back, forward] = Array.from(nav.querySelectorAll('button.univer-app-week-step'));
+  assert.deepEqual([back.getAttribute('aria-label'), forward.getAttribute('aria-label')], ['Предыдущая неделя', 'Следующая неделя']);
+  // The first week has nothing before it.
+  assert.equal(back.disabled, true); assert.equal(forward.disabled, false);
+  let changes = 0; select.addEventListener('change', () => changes++);
+  back.click(); assert.equal(select.selectedIndex, 0); assert.equal(changes, 0);
+  forward.click(); assert.equal(select.selectedIndex, 1); assert.equal(changes, 1);
+  assert.equal(back.disabled, false); forward.click(); assert.equal(select.selectedIndex, 2); assert.equal(changes, 2);
+  assert.equal(forward.disabled, true); forward.click(); assert.equal(select.selectedIndex, 2); assert.equal(changes, 2);
+  back.click(); assert.equal(select.selectedIndex, 1);
+  apply(p, false);
+  assert.equal(p.d.querySelector('.univer-app-week-nav'), null); assert.equal(select.parentElement.tagName, 'TD'); assert.equal(select.selectedIndex, 1);
   p.close();
 });

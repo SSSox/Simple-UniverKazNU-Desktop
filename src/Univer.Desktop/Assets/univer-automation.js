@@ -9,6 +9,28 @@
     var episodes = {notice: {}, agreement: {}, reauth: {}};
     var ajax = {reauth: {state: '', challenge: ''}, agreement: {state: '', challenge: ''}};
     var hooked = new WeakSet();
+    /* The account the next pages belong to, noted when the login form is sent (by the student or by automatic sign-in),
+       so a page cache of one student (the syllabus tasks) is not shown to another student signing in on the same profile.
+       Only a short hash of the login is kept, in the site's own storage that goes with the profile. */
+    var ACCOUNT_KEY = 'univer.app.account.v1';
+    function accountMark(login) {
+        var text = String(login || '').trim().toLowerCase(), hash = 0x811c9dc5;
+        for (var i = 0; i < text.length; i++) { hash ^= text.charCodeAt(i); hash = Math.imul(hash, 0x01000193) >>> 0; }
+        return text ? 'a' + hash.toString(16) : '';
+    }
+    if (window === window.top && /^\/user\/login\/?$/i.test(location.pathname)) ['click', 'keydown', 'submit'].forEach(function (type) {
+        document.addEventListener(type, function (event) {
+            var form = event.target && event.target.closest ? event.target.closest('form#login_frm') : null;
+            if (!form || (type === 'keydown' && event.key !== 'Enter')) return;
+            if (type === 'click' && !event.target.closest('button,input[type=submit],input[type=button],input[type=image],a')) return;
+            var field = Array.from(form.querySelectorAll('input')).find(function (input) {
+                var kind = (input.getAttribute('type') || 'text').toLowerCase();
+                return (kind === 'text' || kind === 'email') && input.value.trim();
+            });
+            var mark = field ? accountMark(field.value) : '';
+            if (mark) { try { localStorage.setItem(ACCOUNT_KEY, mark); } catch (_) { } }
+        }, true);
+    });
     function visible(el) {
         if (!el || el.hidden || !el.getClientRects().length) return false;
         var win = el.ownerDocument.defaultView;
@@ -51,8 +73,7 @@
         // Forward only the correlated outcome, never fields, response bodies or account data.
         if (/^(success|failure)$/.test(result.state)) {
             var payload = 'univer-ajax|' + kind + '|' + result.challenge + '|' + result.state;
-            if (typeof window.__univerNativeNotify === 'function') window.__univerNativeNotify(payload);
-            else if (window.CefSharp) CefSharp.PostMessage(payload);
+            if (typeof __univerNative === 'function') __univerNative(payload);
         }
     }
     function hookAjax(doc) {
@@ -263,7 +284,8 @@
             if (e.clicked || ajax.reauth.state === 'pending') return 'wait';
             if (!target || !target.ready || target.attempt !== 1 || e.id !== challenge) return 'not-ready';
             // Do not replace the account bound by the site's readonly reauthentication field.
-            if (target.login.readOnly && target.login.value !== login) return 'account-mismatch';
+            // The site may show the login in another case or with spaces around it (as Android compares); it is only read.
+            if (target.login.readOnly && target.login.value.trim().toLowerCase() !== String(login).trim().toLowerCase()) return 'account-mismatch';
             e.clicked = true; ajax.reauth = {state: 'pending', challenge: e.id, doc: target.form.ownerDocument};
             if (!target.login.readOnly) setValue(target.login, login);
             setValue(target.password, password);

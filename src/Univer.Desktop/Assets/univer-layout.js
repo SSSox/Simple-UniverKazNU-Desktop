@@ -14,9 +14,9 @@
     var headerMoves = [], schedules = new Map(), weekViews = new Map(), upcomingTimer = 0, finishedWeek = null;
     var punctuation = new Map(), usabilityMoves = [], catalogHidden = new WeakMap(), pageMarkers = new Map();
     function labels() {
-        return selectedLanguage === 'en' ? {account:'Account', university:'About KazNU', open:'Open', all:'All days', empty:'No classes', files:'Download', sections:'All sections', close:'Close', today:'Today', now:'In progress', next:'Next', done:'Done', days:['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday']} :
-            selectedLanguage === 'kz' ? {account:'Аккаунт', university:'ҚазҰУ туралы', open:'Ашу', all:'Барлық күндер', empty:'Сабақ жоқ', files:'Жүктеу', sections:'Барлық бөлімдер', close:'Жабу', today:'Бүгін', now:'Жүріп жатыр', next:'Келесі', done:'Өтті', days:['Дүйсенбі','Сейсенбі','Сәрсенбі','Бейсенбі','Жұма','Сенбі','Жексенбі']} :
-            {account:'Аккаунт', university:'О КазНУ', open:'Открыть', all:'Все дни', empty:'Нет занятий', files:'Скачать', sections:'Все разделы', close:'Закрыть', today:'Сегодня', now:'Идёт', next:'Следующая', done:'Прошла', days:['Понедельник','Вторник','Среда','Четверг','Пятница','Суббота','Воскресенье']};
+        return selectedLanguage === 'en' ? {account:'Account', university:'About KazNU', open:'Open', all:'All days', empty:'No classes', files:'Download', sections:'All sections', close:'Close', weekBack:'Previous week', weekForward:'Next week', today:'Today', now:'In progress', next:'Next', done:'Done', days:['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday']} :
+            selectedLanguage === 'kz' ? {account:'Аккаунт', university:'ҚазҰУ туралы', open:'Ашу', all:'Барлық күндер', empty:'Сабақ жоқ', files:'Жүктеу', sections:'Барлық бөлімдер', close:'Жабу', weekBack:'Алдыңғы апта', weekForward:'Келесі апта', today:'Бүгін', now:'Жүріп жатыр', next:'Келесі', done:'Өтті', days:['Дүйсенбі','Сейсенбі','Сәрсенбі','Бейсенбі','Жұма','Сенбі','Жексенбі']} :
+            {account:'Аккаунт', university:'О КазНУ', open:'Открыть', all:'Все дни', empty:'Нет занятий', files:'Скачать', sections:'Все разделы', close:'Закрыть', weekBack:'Предыдущая неделя', weekForward:'Следующая неделя', today:'Сегодня', now:'Идёт', next:'Следующая', done:'Прошла', days:['Понедельник','Вторник','Среда','Четверг','Пятница','Суббота','Воскресенье']};
     }
     function weekDates(option) {
         return (cleanText(option).match(/\d{1,2}\.\d{1,2}\.\d{4}/g) || []).map(function (value) {
@@ -98,7 +98,7 @@ html.univer-mobile #l3 a { display:inline-block!important; float:none!important;
 html.univer-mobile #l4 td.center { padding:8px!important; }
 html.univer-mobile table.mt>tbody>tr>td.ct,
 html.univer-mobile table.mt>tbody>tr>td.tt { padding:8px!important; white-space:normal; overflow-wrap:anywhere; }
-html.univer-mobile table.mt>tbody>tr.top>td.ct { font-weight:600; }
+html.univer-mobile table.mt>tbody>tr.top>td.ct { font-weight:500; }
 html.univer-mobile .univer-app-shell table.mt :is(p,li) { text-align:start!important; word-spacing:normal!important; }
 html.univer-mobile .univer-app-shell table.mt :is(ol,ul) { padding-inline-start:24px!important; margin-inline:4px!important; }
 html.univer-mobile #tools .tool { float:none!important; width:100%!important; height:auto!important; margin:0!important; background:white!important; border:0!important; }
@@ -112,14 +112,14 @@ html.univer-mobile #tools li:last-child { border-bottom:0; }
 html.univer-mobile #tools li, html.univer-mobile #tools li a { line-height:1.5!important; font-size:16px!important; }
 html.univer-mobile #tools li a { display:block; padding:12px!important; min-height:24px; color:#164e80; text-decoration:none; }
 html.univer-mobile .univer-app-category { margin:8px; background:#fff; border:1px solid #d7e3ef; border-radius:8px; }
-html.univer-mobile .univer-app-category>summary { padding:12px; min-height:24px; font-size:16px; font-weight:600; color:#184f86; cursor:pointer; }
+html.univer-mobile .univer-app-category>summary { padding:12px; min-height:24px; font-size:16px; font-weight:500; color:#184f86; cursor:pointer; }
 html.univer-mobile .univer-app-category[open]>summary { border-bottom:1px solid #d7e3ef; }
 html.univer-mobile #tools .univer-app-menu-footer { display:none!important; }
 html.univer-mobile .univer-app-menu [hidden] { display:none!important; }
 html.univer-mobile .univer-app-menu input[type=search] { display:block; box-sizing:border-box; width:calc(100% - 16px); margin:8px; padding:12px; border:1px solid #bdcfe3; border-radius:8px; min-height:48px; font:inherit; background:white; }
 html.univer-mobile .univer-app-menu .univer-app-empty { margin:12px; color:#46596b; }
 html.univer-mobile .univer-app-menu, html.univer-mobile .univer-app-info { margin:4px 8px 10px; background:#eef4fb; border:1px solid #c7d9ed; border-radius:10px; }
-html.univer-mobile .univer-app-menu>summary, html.univer-mobile .univer-app-info>summary { cursor:pointer; padding:12px; font-size:16px; font-weight:600; color:#184f86; }
+html.univer-mobile .univer-app-menu>summary, html.univer-mobile .univer-app-info>summary { cursor:pointer; padding:12px; font-size:16px; font-weight:500; color:#184f86; }
 html.univer-mobile .univer-app-menu[open]>summary, html.univer-mobile .univer-app-info[open]>summary { border-bottom:1px solid #c7d9ed; }
 html.univer-mobile #login_frm table.cols,
 html.univer-mobile #login_frm table.cols>tbody,
@@ -180,7 +180,7 @@ html.univer-mobile #modal_auth_frm input:not([type=hidden]) { display:block; wid
 html.univer-mobile #modal_auth_frm input[type=text], html.univer-mobile #modal_auth_frm input[type=password] { border:1px solid #a9bbce; border-radius:6px; padding:10px; }
 html.univer-mobile #modal_auth_login { background:#f4f7fa; color:#405468; text-align:start!important; }
 html.univer-mobile #modal_auth_ajl_btn, html.univer-mobile #modal_agreement .btn-confirm,
-html.univer-mobile #attentionSt #btn { background:#246298; color:white; border:0; border-radius:8px; padding:10px 12px; font-weight:600; }
+html.univer-mobile #attentionSt #btn { background:#246298; color:white; border:0; border-radius:8px; padding:10px 12px; font-weight:500; }
 html.univer-mobile #modal_auth_ajl_btn:disabled, html.univer-mobile #modal_agreement .btn-confirm:disabled,
 html.univer-mobile #attentionSt #btn:disabled { opacity:0.5; }
 html.univer-mobile #modal_agreement button:not(.btn-confirm) { border:1px solid #a9bbce; border-radius:8px; color:#184f86; background:#f4f7fa; padding:10px 12px; }
@@ -237,7 +237,7 @@ html.univer-mobile .univer-app-study-panel .ct.message li { display:inline-block
 html.univer-mobile .univer-app-page-link { display:block; box-sizing:border-box; margin:6px 0; padding:10px 12px; min-height:44px; border:1px solid #d7e3ef; border-radius:8px; background:white; color:#164e80; text-decoration:none; }
 html.univer-mobile .univer-app-breadcrumb { display:flex!important; flex-wrap:wrap; gap:6px; }
 html.univer-mobile .univer-app-breadcrumb>.univer-app-page-link { margin:0; font-size:14px!important; }
-html.univer-mobile .univer-app-breadcrumb>.univer-app-page-link:last-of-type { flex-basis:100%; font-size:18px!important; font-weight:600; }
+html.univer-mobile .univer-app-breadcrumb>.univer-app-page-link:last-of-type { flex-basis:100%; font-size:18px!important; font-weight:500; }
 html.univer-mobile #weekSelect { display:block; box-sizing:border-box; width:100%!important; border:1px solid #bdcfe3; border-radius:8px; padding:10px 8px; background:white; color:#20374d; }
 html.univer-mobile table.univer-app-schedule-source { display:none!important; }
 html.univer-mobile .univer-app-schedule { min-width:0; width:100%; }
@@ -245,6 +245,11 @@ html.univer-mobile .univer-app-days { display:grid; grid-template-columns:repeat
 html.univer-mobile .univer-app-days button { min-width:44px; border:1px solid #bdcfe3; border-radius:8px; padding:8px; font:inherit; background:white; color:#164e80; }
 html.univer-mobile .univer-app-days button:last-child { grid-column:1/-1; }
 html.univer-mobile .univer-app-week-label { display:none; }
+html.univer-mobile .univer-app-week-nav { display:flex; align-items:center; gap:8px; }
+html.univer-mobile .univer-app-week-nav #weekSelect { flex:1 1 auto; width:auto!important; min-width:0; }
+html.univer-mobile #l4 button.univer-app-week-step { flex:0 0 auto; width:40px; height:40px; margin:0; padding:0; border:1px solid #bdcfe3; border-radius:8px; background:white; color:#164e80; font:inherit; font-size:20px; line-height:1; cursor:pointer; }
+html.univer-mobile #l4 button.univer-app-week-step:hover:not(:disabled) { background:#eaf2fb; }
+html.univer-mobile #l4 button.univer-app-week-step:disabled { opacity:.4; cursor:default; }
 @media(max-width:360px) {
     html.univer-mobile .univer-app-days { grid-template-columns:repeat(3,minmax(44px,1fr)); }
     html.univer-mobile .univer-app-week-label { display:block; margin:8px 0 12px; font-size:14px!important; line-height:1.5; color:#61758a; }
@@ -253,21 +258,21 @@ html.univer-mobile .univer-app-days button[aria-pressed=true] { background:#164e
 html.univer-mobile .univer-app-day h3 { font-size:18px; margin:12px 0; color:#164e80; }
 html.univer-mobile .univer-app-day[hidden] { display:none!important; }
 html.univer-mobile .univer-app-lesson { background:white; border:1px solid #bfd3ea; border-radius:10px; padding:14px; margin:0 0 12px; }
-html.univer-mobile .univer-app-lesson time { display:inline-block; padding:4px 8px; border-radius:6px; background:#eef4fb; color:#164e80; font-size:14px; font-weight:700; }
+html.univer-mobile .univer-app-lesson time { display:inline-block; padding:4px 8px; border-radius:6px; background:#eef4fb; color:#164e80; font-size:14px; font-weight:600; }
 html.univer-mobile .univer-app-lesson p { margin:8px 0 0; line-height:1.5; }
-html.univer-mobile .univer-app-lesson .univer-app-subject { font-weight:700; }
+html.univer-mobile .univer-app-lesson .univer-app-subject { font-weight:600; }
 html.univer-mobile .univer-app-no-classes { background:#fff; padding:16px; border:1px dashed #bdcfe3; border-radius:10px; }
 /* UMKD cards use the original rows, download anchors and rating handlers. */
 html.univer-mobile .univer-app-shell table.inner.univer-app-materials,
 html.univer-mobile .univer-app-shell table.inner.univer-app-courses { display:block; width:100%!important; min-width:0!important; table-layout:fixed!important; }
 html.univer-mobile :is(.univer-app-materials,.univer-app-courses)>tbody { display:block; width:100%; }
 html.univer-mobile :is(.univer-app-materials,.univer-app-courses)>tbody>tr:has(>th:nth-child(2)) { display:none!important; }
-html.univer-mobile .univer-app-materials>tbody>tr:has(>th:only-child) { display:block; }
-html.univer-mobile .univer-app-materials>tbody>tr>th:only-child { display:block; padding:16px 4px 8px!important; background:none!important; color:#164e80!important; text-align:start!important; line-height:1.5; border:0!important; }
+html.univer-mobile .univer-app-materials>tbody>tr:has(>th:only-of-type) { display:block; }
+html.univer-mobile .univer-app-materials>tbody>tr>th:only-of-type { display:block; padding:16px 4px 8px!important; background:none!important; color:#164e80!important; text-align:start!important; line-height:1.5; border:0!important; }
 html.univer-mobile .univer-app-materials tr.file, html.univer-mobile .univer-app-courses tr.link { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:10px; background:white!important; border:1px solid #d7e3ef; border-radius:10px; margin:8px 0 12px; padding:14px; }
 html.univer-mobile :is(.univer-app-materials,.univer-app-courses)>tbody>tr>td { display:block; width:auto!important; min-width:0!important; border:0!important; padding:0!important; text-align:start!important; line-height:1.5; background:none!important; }
 html.univer-mobile :is(.univer-app-materials tr.file,.univer-app-courses tr.link)>td:first-child { display:none!important; }
-html.univer-mobile :is(.univer-app-materials tr.file,.univer-app-courses tr.link)>td:nth-child(2) { grid-column:1/-1; font-weight:700; }
+html.univer-mobile :is(.univer-app-materials tr.file,.univer-app-courses tr.link)>td:nth-child(2) { grid-column:1/-1; font-weight:600; }
 html.univer-mobile .univer-app-materials tr.file>td:nth-child(3), html.univer-mobile .univer-app-materials tr.file>td:last-child { grid-column:1/-1; }
 html.univer-mobile .univer-app-materials td[data-univer-field]::before { content:attr(data-univer-field); display:block; font-size:12px; font-weight:500; color:#61758a; }
 html.univer-mobile .univer-app-materials tr.file>td:nth-child(3):empty { display:none; }
@@ -303,7 +308,7 @@ html.univer-mobile .univer-app-card-header.univer-app-sort-head { display:flex!i
 html.univer-mobile .univer-app-sort-head>th { display:block!important; min-width:0!important; width:auto!important; padding:12px!important; border:1px solid #d7e3ef!important; border-radius:8px; font-size:12px!important; }
 html.univer-mobile .univer-app-card-row { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:10px; margin:8px 0 12px; padding:14px; background:white; border:1px solid #d7e3ef; border-radius:10px; }
 html.univer-mobile .univer-app-card-row>:is(td,th) { display:block; width:auto!important; min-width:0!important; border:0!important; padding:0!important; white-space:normal!important; overflow-wrap:anywhere; line-height:1.5; }
-html.univer-mobile .univer-app-card-row>td:first-child { grid-column:1/-1; font-weight:600; }
+html.univer-mobile .univer-app-card-row>td:first-child { grid-column:1/-1; font-weight:500; }
 html.univer-mobile .univer-app-card-row>td[data-univer-field]::before { content:attr(data-univer-field); display:block; font-size:12px; font-weight:400; color:#61758a; margin-bottom:4px; }
 html.univer-mobile .univer-app-card-row>td:has(a,input,textarea,select), html.univer-mobile .univer-app-card-row>.univer-app-long-field { grid-column:1/-1; }
 html.univer-mobile .univer-app-card-row a { display:block; min-height:24px; padding:10px 0; overflow-wrap:anywhere; }
@@ -337,16 +342,16 @@ html.univer-mobile.univer-app-document[data-univer-corner^=BOTTOM] body { paddin
 html.univer-mobile[data-univer-corner^=TOP] body:has(#attentionSt):not(:has(#l1)) { padding-top:76px!important; }
 /* Keep study content first; auxiliary information belongs after it. */
 html.univer-mobile .univer-app-quick { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; margin:8px; }
-html.univer-mobile .univer-app-quick a { display:flex; align-items:center; justify-content:center; min-height:48px; box-sizing:border-box; padding:10px; border:1px solid #c7d9ed; border-radius:10px; background:white; color:#164e80; text-decoration:none; text-align:center; font-weight:600; }
+html.univer-mobile .univer-app-quick a { display:flex; align-items:center; justify-content:center; min-height:48px; box-sizing:border-box; padding:10px; border:1px solid #c7d9ed; border-radius:10px; background:white; color:#164e80; text-decoration:none; text-align:center; font-weight:500; }
 /* The current menu page: a tint plus a left bar, so the state does not rest on colour alone. */
-html.univer-mobile #tools a[aria-current=page] { background:#e4effb; color:#123f69; font-weight:700; border-left:3px solid #246298; }
+html.univer-mobile #tools a[aria-current=page] { background:#e4effb; color:#123f69; font-weight:600; border-left:3px solid #246298; }
 html.univer-mobile .univer-app-menu-return { position:fixed; top:8px; left:8px; z-index:999; padding:10px 14px; min-height:44px; border:1px solid #bdcfe3; border-radius:10px; background:#fff; color:#164e80; box-shadow:0 2px 8px #193a5b22; }
 html.univer-mobile[data-univer-corner=TOP_LEFT] .univer-app-menu-return { left:76px; }
 html.univer-mobile .univer-app-menu-return[hidden] { display:none!important; }
 html.univer-mobile .univer-app-shell :is(.scrool,.scrool200) { width:100%!important; max-width:100%!important; min-width:0!important; box-sizing:border-box; }
 html.univer-mobile .univer-app-catalog .scrool200 { height:auto!important; max-height:none!important; overflow:visible!important; }
 html.univer-mobile .univer-app-catalog, html.univer-mobile .univer-app-faq { margin:8px 0; border:1px solid #d7e3ef; border-radius:10px; background:white; }
-html.univer-mobile :is(.univer-app-catalog,.univer-app-faq)>summary { cursor:pointer; padding:12px; min-height:24px; font-weight:600; color:#164e80; }
+html.univer-mobile :is(.univer-app-catalog,.univer-app-faq)>summary { cursor:pointer; padding:12px; min-height:24px; font-weight:500; color:#164e80; }
 html.univer-mobile .univer-app-catalog-title { display:none!important; }
 html.univer-mobile .univer-app-catalog>table.mt, html.univer-mobile .univer-app-catalog>table.mt>tbody,
 html.univer-mobile .univer-app-catalog>table.mt>tbody>tr, html.univer-mobile .univer-app-catalog>table.mt>tbody>tr>td { display:block; width:100%!important; min-width:0!important; box-sizing:border-box; border:0!important; background:none!important; padding:0!important; }
@@ -361,7 +366,7 @@ html.univer-mobile .univer-app-catalog tr.file { display:grid; grid-template-col
 html.univer-mobile .univer-app-catalog tr.file[hidden] { display:none!important; }
 html.univer-mobile .univer-app-catalog tr.file>td { display:block; min-width:0!important; width:auto!important; border:0!important; padding:0!important; overflow-wrap:anywhere; }
 html.univer-mobile .univer-app-catalog tr.file>td:nth-child(-n+2) { display:none; }
-html.univer-mobile .univer-app-catalog tr.file>td:nth-child(3) { grid-column:1/-1; font-weight:600; }
+html.univer-mobile .univer-app-catalog tr.file>td:nth-child(3) { grid-column:1/-1; font-weight:500; }
 html.univer-mobile .univer-app-catalog tr.file>td[data-univer-field]::before { content:attr(data-univer-field); display:block; color:#61758a; font-size:12px; font-weight:400; }
 html.univer-mobile .univer-app-catalog-search { width:100%; box-sizing:border-box; min-height:48px; margin:8px 0 12px; padding:12px; border:1px solid #bdcfe3; border-radius:8px; font:inherit; }
 html.univer-mobile .univer-app-catalog-download { display:block; width:100%; margin-top:10px; border:0; border-radius:8px; background:#eef4fb; padding:10px; color:#164e80; }
@@ -402,9 +407,9 @@ html.univer-mobile #l4 .univer-app-content-columns>tbody,
 html.univer-mobile #l4 .univer-app-content-columns>tbody>tr,
 html.univer-mobile #l4 .univer-app-content-columns>tbody>tr>td { display:block!important; width:100%!important; min-width:0!important; box-sizing:border-box; padding:0!important; }
 html.univer-mobile #l4 .univer-app-content-columns>tbody>tr>td+td { margin-top:16px; }
-html.univer-mobile #l4 :is(input[type=button],input[type=submit],button):not(.univer-app-course-open):not(.univer-app-catalog-download):not(.univer-app-sort-toggle):not(.univer-app-days button):not(.univer-app-schedule-modes button):not(.univer-app-news-tools button):not(.univer-app-news-jump button):not(.univer-app-attendance-overview-name):not(.univer-app-attendance-details-toggle) { padding:9px 16px!important; border:1px solid #1b5fa6; border-radius:6px; background:#1b5fa6; color:white; cursor:pointer; }
+html.univer-mobile #l4 :is(input[type=button],input[type=submit],button):not(.univer-app-course-open):not(.univer-app-catalog-download):not(.univer-app-sort-toggle):not(.univer-app-days button):not(.univer-app-schedule-modes button):not(.univer-app-news-tools button):not(.univer-app-news-jump button):not(.univer-app-attendance-overview-name):not(.univer-app-attendance-details-toggle):not(.univer-app-week-step):not([class^=univer-app-syl-]):not(.univer-app-fold-all) { padding:9px 16px!important; border:1px solid #1b5fa6; border-radius:6px; background:#1b5fa6; color:white; cursor:pointer; }
 html.univer-mobile #l4 :is(input[type=button],input[type=submit],button):disabled { opacity:.55; cursor:default; }
-html.univer-mobile .univer-app-data th { padding:10px!important; color:#16283b!important; background:#e9f1fb!important; font-weight:600; }
+html.univer-mobile .univer-app-data th { padding:10px!important; color:#16283b!important; background:#e9f1fb!important; font-weight:500; }
 html.univer-mobile .univer-app-empty-result { height:auto!important; min-height:64px!important; max-height:none!important; overflow:auto!important; }
 html.univer-mobile .univer-app-empty-result .univer-app-card-section td { text-align:center!important; }
 html.univer-mobile #l4 .ct>a { margin-inline-end:8px; }
@@ -429,8 +434,8 @@ html.univer-mobile #login_frm table.cols>tbody>tr>td { background:transparent!im
 html.univer-mobile #login_frm>table.mt>tbody>tr.mid>td.tt { background:transparent!important; border:0!important; padding:0!important; }
 html.univer-mobile #login_frm a { color:#1b5fa6!important; text-decoration:underline; }
 html.univer-mobile #login_form :is(p,strong,label) { line-height:1.5!important; }
-html.univer-mobile #login_form input.text { border:1px solid #bccbda; border-radius:7px; padding:10px 12px; background:white; }
-html.univer-mobile #login_form input[type=submit] { background:#1b5fa6; color:white; border:0; border-radius:7px; padding:10px 22px; cursor:pointer; }
+html.univer-mobile #login_form input.text { border:1px solid #bccbda; border-radius:6px; padding:10px 12px; background:white; }
+html.univer-mobile #login_form input[type=submit] { background:#1b5fa6; color:white; border:0; border-radius:6px; padding:10px 22px; cursor:pointer; }
 html.univer-mobile #simplemodal-container, html.univer-mobile .univer-app-modal-toolbar { max-width:720px!important; }
 html.univer-mobile.univer-app-document body { padding:24px!important; background:white!important; }
 @media (min-width:900px) {
@@ -587,9 +592,22 @@ html.univer-mobile.univer-app-document body { padding:24px!important; background
     // page-common.js may be missing, so it keeps its own.
     function ownRows(table) { return Array.from(table.rows).filter(function (r) { return r.closest('table') === table; }); }
     function cleanText(node) { return (node?.textContent || '').replace(/\s+/g, ' ').trim(); }
-    function setText(node, text) { if (node.textContent !== text) node.textContent = text; }
+    // A long "go to another semester" link reads as the semester it leads to; its full wording stays its accessible name.
+    function shortenSemesters() {
+        document.querySelectorAll('#l4 td.ts>a.lt,#l4 td.ts>a.rt').forEach(function (a) {
+            var full = a.hasAttribute('data-univer-short') ? a.title : cleanText(a), year = full.match(/\d{4}(?:\s*-\s*\d{4})?/), term = full.match(/весенн\S*|осенн\S*|көктем\S*|күз\S*|spring|fall|autumn/i);
+            if (!year || !term || a.classList.contains('syllabus-info')) return;
+            var word = term[0].charAt(0).toLocaleUpperCase() + term[0].slice(1), short = word + ' ' + (selectedLanguage === 'en' ? 'semester' : 'семестр') + ' ' + year[0].replace(/\s*-\s*/, '–');
+            if (a.getAttribute('data-univer-short') === short) return;
+            a.setAttribute('data-univer-short', short); a.title = full; a.setAttribute('aria-label', full);
+        });
+    }
+    function setText(node, text) { if (node.textContent === text) return; if (window.__univerKitV1 && !node.childElementCount) window.__univerKitV1.roll(node, text); else node.textContent = text; }
     function adaptStudyPages() {
-        weekViews.forEach(function (record, select) { if (!select.isConnected) { select.removeEventListener('change', record.update); record.caption.remove(); weekViews.delete(select); } });
+        // The section of the cabinet, for the few page-wide rules that differ between sections (the width of the reading column).
+        var section = (location.pathname.match(/^\/student\/([a-z]+)(?:\/|$)/) || ['', ''])[1];
+        if (document.documentElement.dataset.univerPage !== section) document.documentElement.dataset.univerPage = section;
+        weekViews.forEach(function (record, select) { if (!select.isConnected) { select.removeEventListener('change', record.update); record.caption.remove(); record.nav.remove(); weekViews.delete(select); } });
         if (/^\/student\/(myschedule|umkd)(\/|$)/.test(location.pathname)) {
             document.querySelectorAll('#l4 table.mt').forEach(function (table) {
                 if (table.closest('#tools,.univer-app-info,form')) return;
@@ -597,10 +615,11 @@ html.univer-mobile.univer-app-document body { padding:24px!important; background
                 ownRows(table).forEach(function (row) { if (!cleanText(row) && !row.querySelector('input,select,img')) row.classList.add('univer-app-study-empty'); });
             });
             document.querySelectorAll('#l4 a[href]').forEach(function (a) {
-                if (!a.closest('#tools') && /^\/student\/(myschedule|umkd|interactive\/syllabus)\//.test(new URL(a.href, location.href).pathname) && !a.classList.contains('downLoad'))
+                if (!a.closest('#tools') && /^\/student\/(myschedule|umkd|interactive\/syllabus)\//.test(new URL(a.href, location.href).pathname) && !a.classList.contains('downLoad') && !a.classList.contains('univer-app-lesson-name') && !a.closest('.univer-app-syl-panel,.univer-app-syl-task'))
                     a.classList.add('univer-app-page-link');
             });
         }
+        if (/^\/student\/(myschedule|umkd|attendance|attestation)(\/|$)/.test(location.pathname)) shortenSemesters();
         var week = document.getElementById('weekSelect');
         if (week?.tagName === 'SELECT') {
             var controls = week.closest('.ts') || week.parentElement;
@@ -608,7 +627,27 @@ html.univer-mobile.univer-app-document body { padding:24px!important; background
             if (!weekViews.has(week)) {
                 var caption = document.createElement('p'); caption.className = 'univer-app-week-label';
                 var update = function () { var value = cleanText(week.options[week.selectedIndex]); if (caption.textContent !== value) caption.textContent = value; };
-                week.after(caption); week.addEventListener('change', update); weekViews.set(week, {caption:caption, update:update});
+                var nav = document.createElement('div'); nav.className = 'univer-app-week-nav';
+                var step = function (direction, glyph) {
+                    var button = document.createElement('button'); button.type = 'button'; button.className = 'univer-app-week-step'; button.textContent = glyph;
+                    button.addEventListener('click', function () {
+                        var at = neighbourWeek(week, direction); if (at < 0) return;
+                        // The site's own change handler loads the week, exactly as when the list is used.
+                        week.selectedIndex = at; week.dispatchEvent(new Event('change', {bubbles:true}));
+                    });
+                    return button;
+                };
+                var back = step(-1, '‹'), forward = step(1, '›');
+                var describe = function () {
+                    var L = labels(), left = neighbourWeek(week, -1) < 0, right = neighbourWeek(week, 1) < 0;
+                    if (back.disabled !== left) back.disabled = left;
+                    if (forward.disabled !== right) forward.disabled = right;
+                    if (back.getAttribute('aria-label') !== L.weekBack) { back.setAttribute('aria-label', L.weekBack); back.title = L.weekBack; }
+                    if (forward.getAttribute('aria-label') !== L.weekForward) { forward.setAttribute('aria-label', L.weekForward); forward.title = L.weekForward; }
+                };
+                week.before(nav); nav.append(back, week, forward); nav.after(caption);
+                var refresh = function () { update(); describe(); };
+                week.addEventListener('change', refresh); weekViews.set(week, {caption:caption, update:refresh, nav:nav});
             }
             weekViews.get(week).update();
         }
@@ -634,7 +673,19 @@ html.univer-mobile.univer-app-document body { padding:24px!important; background
                     Array.from(row.cells).forEach(function (cell, i) {
                         if (i > 1 && cleanText(header.cells[i]) && !cell.hasAttribute('data-univer-field'))
                             cell.setAttribute('data-univer-field', cleanText(header.cells[i]));
+                        // A dash says nothing; the row drops it instead of showing an empty column.
+                        if (i > 1 && cleanText(cell) === '-' && !cell.hasAttribute('data-univer-blank')) cell.setAttribute('data-univer-blank', 'true');
                     });
+                    // The file's type, read from its name, stands in for the site's generic file icon.
+                    var name = cleanText(row.querySelector('a.downLoad')), type = (name.match(/\.([a-z0-9]{2,5})\s*$/i)?.[1] || 'file').toLowerCase();
+                    var kind = /^pdf$/.test(type) ? 'pdf' : /^docx?$|^rtf$|^odt$/.test(type) ? 'word' : /^xlsx?$|^csv$/.test(type) ? 'excel' : /^pptx?$/.test(type) ? 'slides' : /^(png|jpe?g|gif|webp|bmp)$/.test(type) ? 'image' : 'other';
+                    // A material without a file type and with a zero size is a teacher's link: the site answers its address with a
+                    // redirect to that page, so the row reads as a link, not as a file to save.
+                    if (type === 'file' && Array.from(row.cells).some(function (cell, i) { return i > 1 && /^0(?:[.,]0+)?\s*(?:б|b|байт|bytes?)$/i.test(cleanText(cell)); })) kind = 'link';
+                    if (row.cells[0] && row.cells[0].getAttribute('data-univer-kind') !== kind) {
+                        row.cells[0].setAttribute('data-univer-kind', kind);
+                        row.cells[0].setAttribute('data-univer-ext', kind === 'word' ? 'DOC' : kind === 'excel' ? 'XLS' : kind === 'slides' ? 'PPT' : kind === 'image' ? 'IMG' : type === 'file' ? '' : type.slice(0, 3).toUpperCase());
+                    }
                 });
             } else if (table.querySelector('tr.link[id]') && header.cells.length === 3) {
                 table.classList.add('univer-app-courses');
@@ -651,6 +702,8 @@ html.univer-mobile.univer-app-document body { padding:24px!important; background
                         row.cells[row.cells.length - 1].appendChild(button);
                     }
                     if (button.textContent !== labels().open) button.textContent = labels().open;
+                    var named = labels().open + ': ' + cleanText(row.cells[1]);
+                    if (button.getAttribute('aria-label') !== named) button.setAttribute('aria-label', named);
                 });
             }
         });
@@ -659,6 +712,18 @@ html.univer-mobile.univer-app-document body { padding:24px!important; background
     function slots(lessons) { return lessons.filter(function (l, i) { return !lessons.slice(0, i).some(function (o) { return o.from === l.from; }); }).length; }
     function minutesUntil(from, to) { return Math.max(1, Math.ceil((to - from) / 60000)); }
     function clock(minutes) { return String(Math.floor(minutes / 60)).padStart(2, '0') + ':' + String(minutes % 60).padStart(2, '0'); }
+    // The option of the week before (-1) or after (1) the selected one, by its dates and, for undated options, by list order; -1 at either end.
+    function neighbourWeek(select, direction) {
+        var options = Array.from(select.options), at = select.selectedIndex;
+        if (at < 0) return -1;
+        var from = weekDates(options[at])[0], found = -1, best = null;
+        if (!from) return at + direction >= 0 && at + direction < options.length ? at + direction : -1;
+        options.forEach(function (option, i) {
+            var date = weekDates(option)[0]; if (!date) return;
+            if (direction > 0 ? date > from && (!best || date < best) : date < from && (!best || date > best)) { best = date; found = i; }
+        });
+        return found;
+    }
     // The option of the week right after the displayed one, found by its dates rather than by list order.
     function followingWeek(week) {
         if (!week.select) return -1;
@@ -693,7 +758,7 @@ html.univer-mobile.univer-app-document body { padding:24px!important; background
             }
             var badge = lesson.card.querySelector('.univer-app-lesson-badge');
             if (!state) { if (badge) badge.remove(); return; }
-            if (!badge) { badge = document.createElement('span'); badge.className = 'univer-app-lesson-badge'; lesson.card.querySelector('time').after(badge); }
+            if (!badge) { badge = document.createElement('span'); badge.className = 'univer-app-lesson-badge'; lesson.card.querySelector('.univer-app-subject').appendChild(badge); }
             setText(badge, text);
         });
         var card = record.card;
@@ -725,7 +790,7 @@ html.univer-mobile.univer-app-document body { padding:24px!important; background
         if (lead) {
             setText(card.subject, shown.map(function (l) { return l.subject; }).filter(function (v, i, a) { return a.indexOf(v) === i; }).join(' / '));
             var shift = Math.round((dayStart(new Date(lead.from)) - week.today) / 86400000);
-            setText(card.meta, (state === 'now' || shift === 0 ? clock(lead.start) + '–' + clock(lead.end) : L.when(shift, lead.day, clock(lead.start))) + (lead.details ? ' · ' + lead.details : ''));
+            setText(card.meta, (state === 'now' || shift === 0 ? clock(lead.start) + '–' + clock(lead.end) : L.when(shift, lead.day, clock(lead.start))) + (lead.place ? ' · ' + lead.place : ''));
             if (state !== 'now' && lead.day !== today && record.selected !== -1 && record.selected !== lead.day) {
                 actionText = L.showDay; action = function () { record.select(lead.day); };
             }
@@ -813,8 +878,10 @@ html.univer-mobile.univer-app-document body { padding:24px!important; background
             var tabs = document.createElement('div'); tabs.className = 'univer-app-days';
             tabs.setAttribute('aria-label', selectedLanguage === 'en' ? 'Day of week' : selectedLanguage === 'kz' ? 'Апта күні' : 'День недели');
             view.appendChild(tabs); var sections = [], buttons = [];
-            var record = {view:view, signature:signature, selected:selected, mode:previous?.mode || 'days', lessons:[], card:agendaCard(), select:select};
+            var record = {view:view, signature:signature, selected:selected, mode:previous?.mode || 'days', lessons:[], cards:[], card:agendaCard(), select:select};
             tabs.before(record.card.root);
+            // How many days the week has: in a wide window they share its whole width.
+            view.style.setProperty('--univer-days', String(header.cells.length - 1));
             function select(index, event) {
                 var previousIndex = record.selected;
                 if (previousIndex !== index) sections.forEach(function (section) { window.__univerMotionUI?.stop(section); });
@@ -845,23 +912,40 @@ html.univer-mobile.univer-app-document body { padding:24px!important; background
                     groups.forEach(function (group) {
                         if (!cleanText(group) || group.hidden || getComputedStyle(group).display === 'none') return;
                         var card = document.createElement('article'); card.className = 'univer-app-lesson';
-                        var time = document.createElement('time'); time.textContent = timeText; card.appendChild(time);
+                        // The time leads; then what the class is, where it is and who teaches it, each on its own line.
+                        var time = document.createElement('time'), times = timeText.split('–'), at = document.createElement('b'), till = document.createElement('span');
+                        at.textContent = times[0]; till.textContent = times[1] || ''; time.append(at, till); time.setAttribute('aria-label', timeText); card.appendChild(time);
+                        var main = document.createElement('div'); main.className = 'univer-app-lesson-main'; card.appendChild(main);
                         var parts = Array.from(group.querySelectorAll('p')), texts = []; if (!parts.length) parts = [group];
-                        parts.forEach(function (part, index) {
+                        parts.forEach(function (part) {
                             var content = cleanText(part); if (!content) return;
                             // Add space between metadata spans; textContent alone joins faculty and room.
                             if (part.classList.contains('params')) content = Array.from(part.childNodes).map(cleanText).filter(Boolean).join(' / ');
-                            var p = document.createElement('p'); p.textContent = content; texts.push(content);
-                            if (index === 0) p.className = 'univer-app-subject'; card.appendChild(p);
+                            texts.push(content);
                         });
+                        var facts = window.__univerCommonV1.lesson(texts), head = document.createElement('p'); head.className = 'univer-app-subject';
+                        var name = document.createElement('a'); name.className = 'univer-app-lesson-name'; name.href = '/student/umkd/'; name.textContent = facts.name; head.appendChild(name); main.appendChild(head);
+                        window.__univerCommonV1.umkdHref(facts.name).then(function (href) { name.href = href; });
+                        var line = document.createElement('p'); line.className = 'univer-app-lesson-facts';
+                        var fact = function (value, cls, kind) { if (!value) return; var span = document.createElement('span'); span.textContent = value; if (cls) span.className = cls; if (kind) span.dataset.kind = kind; line.appendChild(span); };
+                        var roomLabel = selectedLanguage === 'en' ? 'Room' : selectedLanguage === 'kz' ? 'Дәрісхана' : 'Ауд.';
+                        fact(facts.type, 'univer-app-lesson-type', facts.kind); fact(facts.room ? roomLabel + ' ' + facts.room : '', 'univer-app-lesson-room'); fact(facts.faculty);
+                        if (line.childElementCount) main.appendChild(line);
+                        var people = [facts.teacher].concat(facts.rest).filter(Boolean).join(' · ');
+                        if (people) { var who = document.createElement('p'); who.className = 'univer-app-lesson-teacher'; who.textContent = people; main.appendChild(who); }
+                        if (facts.period) card.title = facts.period;
                         group.querySelectorAll('a[href]').forEach(function (original) {
                             var link = document.createElement('a'); link.textContent = cleanText(original); link.href = original.href;
-                            link.className = 'univer-app-page-link'; link.addEventListener('click', function (e) { e.preventDefault(); original.click(); }); card.appendChild(link);
+                            link.className = 'univer-app-page-link'; link.addEventListener('click', function (e) { e.preventDefault(); original.click(); }); main.appendChild(link);
                         });
+                        // The whole card leads to the course's materials.
+                        card.addEventListener('click', function (event) { if (!event.target.closest('a,button')) name.click(); });
+                        // Every class card with what the syllabus adapter needs to find its topic.
+                        record.cards.push({card:card, main:main, day:dayIndex, order:count, time:times[0], subject:facts.name, type:facts.type, teacher:facts.teacher});
                         section.appendChild(card); count++;
                         var from = (start[0] || '').split(':'), to = (end[end.length - 1] || '').split(':');
                         if (from.length === 2 && to.length === 2)
-                            record.lessons.push({card:card, day:dayIndex, start:+from[0] * 60 + +from[1], end:+to[0] * 60 + +to[1], state:'', subject:texts[0] || '', details:texts.slice(1).join(' · ')});
+                            record.lessons.push({card:card, day:dayIndex, start:+from[0] * 60 + +from[1], end:+to[0] * 60 + +to[1], state:'', subject:facts.name, details:texts.slice(1).join(' · '), place:facts.room ? roomLabel + ' ' + facts.room : ''});
                     });
                 });
                 var times = record.lessons.filter(function (l) { return l.day === dayIndex; });
@@ -1245,7 +1329,7 @@ html.univer-mobile.univer-app-document body { padding:24px!important; background
             if (search) { var title=selectedLanguage==='en'?'Find a document…':selectedLanguage==='kz'?'Құжатты іздеу…':'Найти документ…'; search.placeholder=title; search.setAttribute('aria-label',title); }
             filterCatalog();
         }
-        if (/^\/my\/faq\/?$/.test(path)) { document.querySelectorAll('#l4 td.tt>table.inner').forEach(function (table) {
+        if (/^\/my\/faq(\/\d+)?\/?$/.test(path)) { document.querySelectorAll('#l4 td.tt>table.inner').forEach(function (table) {
             if (table.closest('.univer-app-faq') || ownRows(table).length !== 2) return;
             var answer = table.closest('tr'), question = answer?.previousElementSibling?.querySelector('.ct');
             if (!question || !cleanText(question)) return;
@@ -1303,6 +1387,7 @@ html.univer-mobile.univer-app-document body { padding:24px!important; background
         window.__univerStudyV1?.apply(selectedLanguage);
         window.__univerAttendanceV1?.apply(selectedLanguage);
         adaptSchedules();
+        window.__univerSyllabusV1?.apply(selectedLanguage, Array.from(schedules.values()));
         adaptRecords();
         document.querySelectorAll('table.inner').forEach(function (table) {
             if (!table.classList.contains('univer-app-news') && table.querySelector('tr.news') &&
@@ -1324,6 +1409,7 @@ html.univer-mobile.univer-app-document body { padding:24px!important; background
         // Page-specific layouts read the record and data classes set above.
         window.__univerPagesV1?.apply(selectedLanguage);
         window.__univerTasksV1?.apply(selectedLanguage);
+        window.__univerPolishV1?.apply(selectedLanguage);
         dialogViewport();
         document.querySelectorAll('.univer-app-modal-toolbar').forEach(function (bar) {
             if (!bar.__univerContainer?.isConnected) { bar.remove(); return; }
@@ -1520,7 +1606,7 @@ html.univer-mobile.univer-app-document body { padding:24px!important; background
             window.visualViewport?.removeEventListener('scroll', dialogViewport);
             ['--univer-dialog-top','--univer-dialog-height','--univer-frame-height'].forEach(function (key) { document.documentElement.style.removeProperty(key); });
             document.documentElement.classList.remove('univer-mobile','univer-app-document','univer-app-schedule-page','univer-app-unified');
-            delete document.documentElement.dataset.univerCorner;
+            delete document.documentElement.dataset.univerCorner; delete document.documentElement.dataset.univerPage;
             punctuation.forEach(function (value, node) { node.data = value; }); punctuation.clear();
             var recordClasses = ['univer-app-pairs','univer-app-form-table','univer-app-cards','univer-app-card-header',
                 'univer-app-card-row','univer-app-card-section','univer-app-long-field','univer-app-matrix',
@@ -1536,12 +1622,15 @@ html.univer-mobile.univer-app-document body { padding:24px!important; background
             document.getElementById('univer-app-mobile-style')?.remove();
             headerMoves.slice().reverse().forEach(function (move) { if (move.home.parentNode) move.home.parentNode.replaceChild(move.node, move.home); }); headerMoves = [];
             document.querySelectorAll('.univer-app-header,.univer-app-account,.univer-app-course-open').forEach(function (node) { node.remove(); });
+            window.__univerSyllabusV1?.release();
             schedules.forEach(function (record) { record.view.remove(); }); schedules.clear();
             if (upcomingTimer) { clearTimeout(upcomingTimer); upcomingTimer = 0; }
             finishedWeek = null;
-            weekViews.forEach(function (record, select) { select.removeEventListener('change', record.update); record.caption.remove(); }); weekViews.clear();
+            weekViews.forEach(function (record, select) { select.removeEventListener('change', record.update); record.caption.remove(); if (record.nav.parentNode) record.nav.replaceWith(select); }); weekViews.clear();
             document.querySelectorAll('[data-univer-field]').forEach(function (node) { node.removeAttribute('data-univer-field'); });
             document.querySelectorAll('[data-univer-time]').forEach(function (node) { node.removeAttribute('data-univer-time'); });
+            document.querySelectorAll('[data-univer-short]').forEach(function (node) { ['data-univer-short','title','aria-label'].forEach(function (name) { node.removeAttribute(name); }); });
+            document.querySelectorAll('[data-univer-ext],[data-univer-kind],[data-univer-blank]').forEach(function (node) { ['data-univer-ext','data-univer-kind','data-univer-blank'].forEach(function (name) { node.removeAttribute(name); }); });
             document.querySelectorAll('.univer-app-schedule-source,.univer-app-courses,.univer-app-materials,.univer-app-page-link,.univer-app-study-panel,.univer-app-study-empty').forEach(function (node) {
                 node.classList.remove('univer-app-schedule-source','univer-app-courses','univer-app-materials','univer-app-page-link','univer-app-study-panel','univer-app-study-empty');
             });
@@ -1558,6 +1647,7 @@ html.univer-mobile.univer-app-document body { padding:24px!important; background
             window.__univerStudyV1?.release();
             window.__univerPagesV1?.release();
             window.__univerTasksV1?.release();
+            window.__univerPolishV1?.release();
             window.__univerAttendanceV1?.release();
             document.querySelectorAll('.univer-app-menu-close,.univer-app-quick,.univer-app-menu-return,.univer-app-catalog,.univer-app-catalog-search,.univer-app-catalog-empty,.univer-app-catalog-download,.univer-app-faq,.univer-app-sort-toggle,.univer-app-semester-nav,.univer-app-academic-meta,.univer-app-video-link').forEach(function(node){node.remove();});
             document.querySelectorAll('#tools li').forEach(function (li) { if (menuHidden.has(li)) li.hidden = menuHidden.get(li); });

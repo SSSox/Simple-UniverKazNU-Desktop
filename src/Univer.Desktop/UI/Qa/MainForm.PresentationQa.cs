@@ -21,9 +21,18 @@ namespace Univer.Desktop.UI
             await WaitQaPresentationAsync();
             QaTrace("qa-first " + await AutomationController.EvaluateAsync(main, "JSON.stringify({first:window.qaFirstOpacity,firstGate:window.qaGateFirst,bootOrigin:window.qaBootOrigin,gate:!!window.__univerPaintV1,origin:location.origin,ready:document.readyState,sheets:document.adoptedStyleSheets.length})"));
             Check(await AutomationController.EvaluateAsync(main, "window.qaFirstOpacity==='0'?'covered':''") == "covered", "document-start cover precedes first page script", results);
-            await AutomationController.EvaluateAsync(main, "window.__univerNativeNotify('univer-language:kz');'sent'"); await Task.Delay(250);
-            Check(prefs.Language == "kz", "native message uses a verified main execution context", results);
-            prefs.Language = "ru"; Localize();
+            // The page's own scripts never see the binding, and a message without the run's key (here sent through a
+            // same-origin frame's binding) changes neither the language nor the home tiles.
+            var pinsBefore = Shortcuts.ToJson(prefs.Pins);
+            var pageBinding = await AutomationController.EvaluateAsync(main, "(function(){var t=typeof window.__univerNativeNotify;var f=document.createElement('iframe');f.id='qa-same';document.body.appendChild(f);var w=f.contentWindow;try{w.__univerNativeNotify('univer-language:kz');w.__univerNativeNotify('univer-pin:'+JSON.stringify({pin:true,title:'Forged',url:'https://example.com/forged'}))}catch(e){}return t+'/'+typeof w.__univerNativeNotify})()");
+            // The frame's own document script also takes the binding away; either way nothing the page sends is keyed.
+            QaTrace("qa-page-binding " + pageBinding);
+            await Task.Delay(400);
+            Check(pageBinding != null && pageBinding.StartsWith("undefined/", StringComparison.Ordinal) && prefs.Language == "ru" && Shortcuts.ToJson(prefs.Pins) == pinsBefore, "page scripts cannot reach the native channel or forge a language or pin", results);
+            await AutomationController.EvaluateAsync(main, "document.getElementById('qa-same').remove();'removed'");
+            // The self-test set its preferences directly; later pages need document scripts registered with them
+            // (the app's own settings changes do this, and the old language-message check did it as a side effect).
+            prefs.Language = "ru"; Localize(); await RefreshDocumentScriptsAsync();
             await AutomationController.EvaluateAsync(main, "window.addEventListener('message',function(e){if(typeof e.data==='string'&&e.data.indexOf('qa-bound:')===0)window.qaBound=e.data});var f=document.createElement('iframe');f.id='qa-opaque';f.setAttribute('sandbox','allow-scripts');f.srcdoc=\"<script>parent.postMessage('qa-bound:'+typeof __univerNativeNotify,'*');__univerNativeNotify('univer-language:en')<\\/script>\";document.body.appendChild(f);'sandbox'"); await Task.Delay(250);
             var opaqueUntil = DateTime.UtcNow.AddSeconds(3); string opaqueBinding;
             do { opaqueBinding = await AutomationController.EvaluateAsync(main, "window.qaBound"); if (opaqueBinding != null) break; await Task.Delay(100); } while (DateTime.UtcNow < opaqueUntil);
@@ -33,7 +42,7 @@ namespace Univer.Desktop.UI
             Check((opaqueBinding == "qa-bound:function" || opaqueBinding == "qa-bound:undefined") && prefs.Language == "ru", "opaque frame cannot change native language through the binding", results);
             QaTrace("qa-opaque-safe " + opaqueBinding);
             await AutomationController.EvaluateAsync(main, "document.getElementById('qa-opaque').remove();'removed'");
-            Check(await AutomationController.EvaluateAsync(main, "(function(){var t=document.querySelector('.univer-app-courses'),c=t.rows[1].cells[1];return getComputedStyle(t).display==='table'&&c.getBoundingClientRect().width>160&&getComputedStyle(t.rows[1].cells[0]).display!=='none'?'wide':''})()") == "wide", "UMKD wide table keeps readable discipline and aligned first column", results);
+            Check(await AutomationController.EvaluateAsync(main, "(function(){var t=document.querySelector('.univer-app-courses'),r=t.rows[1],c=r.cells[1],o=r.querySelector('.univer-app-course-open').getBoundingClientRect(),b=r.getBoundingClientRect();return getComputedStyle(t.tBodies[0]).display==='grid'&&c.getBoundingClientRect().width>160&&getComputedStyle(r.cells[0]).display!=='none'&&Math.abs(o.width-b.width)<=2&&Math.abs(o.height-b.height)<=2?'wide':''})()") == "wide", "UMKD courses are cards, readable, and the whole card opens the course", results);
             using (var client = main.GetDevToolsClient()) File.WriteAllBytes(Path.Combine(qa, "umkd-wide.png"), (await client.Page.CaptureScreenshotAsync()).Data);
             Width = 900; await Task.Delay(250);
             Check(await AutomationController.EvaluateAsync(main, "document.querySelector('.univer-app-courses').rows[1].cells[1].getBoundingClientRect().width>160?'readable':''") == "readable", "UMKD narrow card keeps discipline readable", results);
@@ -58,6 +67,7 @@ namespace Univer.Desktop.UI
             await NewsQaAsync(qa, results, heading);
             await AttendanceQaAsync(qa, results, heading);
             await StudyPagesQaAsync(qa, results, heading);
+            await StudyFeaturesQaAsync(qa, results, heading);
             await InterfaceDetailsQaAsync(qa, results, heading);
             await MotionQaAsync(qa, results, heading);
             var notice = @"<p>Синтетическая страница</p><form id='attentionSt' action='/student/attentionStudents/1'><input id='check' type='checkbox' onclick='document.getElementById(&quot;btn&quot;).disabled=false'><label for='check'>Я подтверждаю, что прочёл данное уведомление</label><button id='btn' type='submit' disabled onclick='event.preventDefault();window.qaSubmits++;this.closest(&quot;form&quot;).remove()'>Отправить</button></form>";
@@ -130,11 +140,13 @@ namespace Univer.Desktop.UI
             Check(await AutomationController.EvaluateAsync(main, "(function(){var box=document.getElementById('legacy-schedule-scroll');return getComputedStyle(box).overflow==='visible'&&box.getBoundingClientRect().height>120?'expanded':''})()") == "expanded", "observed DIV.inner timetable container no longer clips the agenda", results);
             Check(await AutomationController.EvaluateAsync(main, "(function(){var v=document.querySelector('.univer-app-schedule');return v.getBoundingClientRect().height>150&&v.querySelectorAll('.univer-app-lesson').length===2&&getComputedStyle(document.querySelector('table.schedule')).display==='none'?'agenda':''})()") == "agenda", "schedule agenda is visible in a wide window with the source grid hidden", results);
             Check(await AutomationController.EvaluateAsync(main, "(function(){var w=document.getElementById('weekSelect').getBoundingClientRect(),h=document.getElementById('grid-title').getBoundingClientRect();return w.height>=40&&w.bottom<=h.top+1?'clear':''})()") == "clear", "week selector is readable and does not overlap the next heading", results);
-            Check(await AutomationController.EvaluateAsync(main, "document.querySelector('.univer-app-lesson time').textContent==='09:00–10:50'?'time':''") == "time", "schedule agenda keeps the rowspan lesson duration", results);
-            await AutomationController.EvaluateAsync(main, "document.querySelector('.univer-app-schedule a').click();document.querySelectorAll('.univer-app-days button')[1].click();'clicked'");
+            Check(await AutomationController.EvaluateAsync(main, "(function(){var t=document.querySelector('.univer-app-lesson time'),b=getComputedStyle(t.querySelector('b')),n=document.querySelector('a.univer-app-lesson-name');return t.getAttribute('aria-label')==='09:00–10:50'&&t.querySelector('b').textContent==='09:00'&&b.fontSize==='17px'&&+b.fontWeight>=700&&n&&!n.classList.contains('univer-app-page-link')&&new URL(n.href).pathname.indexOf('/student/umkd/')===0?'time':t.textContent})()") == "time", "a class leads with its time in bold, keeps its rowspan duration and links to UMKD", results);
+            await AutomationController.EvaluateAsync(main, "document.querySelector('.univer-app-schedule a.univer-app-page-link').click();document.querySelectorAll('.univer-app-days button')[1].click();'clicked'");
             Check(await AutomationController.EvaluateAsync(main, "window.qaLessonClicks===1&&document.querySelectorAll('.univer-app-day:not([hidden])').length===1?'interactive':''") == "interactive", "schedule links and day filters retain working handlers", results);
             await AutomationController.EvaluateAsync(main, "document.querySelector('.univer-app-days button:last-child').click();'all'");
             using (var client = main.GetDevToolsClient()) File.WriteAllBytes(Path.Combine(qa, "schedule-wide.png"), (await client.Page.CaptureScreenshotAsync()).Data);
+            var scheduleSizes = await AutomationController.EvaluateAsync(main, EvenControlsQa); QaTrace("qa-even-schedule " + scheduleSizes);
+            Check(scheduleSizes == "even", "every control of the schedule has one size, day buttons included", results);
             Width = 900; await Task.Delay(200);
             Check(await AutomationController.EvaluateAsync(main, "(function(){var v=document.querySelector('.univer-app-schedule');return v.getBoundingClientRect().height>150&&document.documentElement.scrollWidth<=innerWidth+2?'narrow':''})()") == "narrow", "schedule agenda fits a narrow window", results);
             using (var client = main.GetDevToolsClient()) File.WriteAllBytes(Path.Combine(qa, "schedule-narrow.png"), (await client.Page.CaptureScreenshotAsync()).Data);

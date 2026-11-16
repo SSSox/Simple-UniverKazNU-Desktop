@@ -13,9 +13,9 @@
             filter = {query:saved.query, from:saved.from, to:saved.to, important:saved.important === true, page:Math.max(1, Math.min(1000, +saved.page || 1))};
     } catch (_) { /* Storage may be unavailable; filtering still works in this document. */ }
     function text() {
-        return language === 'en' ? {search:'Search news…', from:'From', to:'To', important:'Important only', shown:'Shown', of:'of', all:'Search all pages', reset:'Reset', searching:'Searching…', page:'Page', go:'Go', none:'No news match these filters', failed:'Search is incomplete. Retry to check the remaining pages.', retry:'Continue search', invalid:'The start date must not be after the end date.'} :
-            language === 'kz' ? {search:'Жаңалықтарды іздеу…', from:'Бастап', to:'Дейін', important:'Тек маңызды', shown:'Көрсетілді', of:'/', all:'Барлық беттерден іздеу', reset:'Тазалау', searching:'Іздеу…', page:'Бет', go:'Өту', none:'Бұл сүзгілерге сәйкес жаңалықтар жоқ', failed:'Іздеу аяқталмады. Қалған беттерді тексеру үшін қайталаңыз.', retry:'Іздеуді жалғастыру', invalid:'Басталу күні аяқталу күнінен кейін болмауы керек.'} :
-            {search:'Поиск по новостям…', from:'С', to:'По', important:'Только важные', shown:'Показано', of:'из', all:'Искать на всех страницах', reset:'Сбросить', searching:'Поиск…', page:'Страница', go:'Перейти', none:'По этим условиям новостей нет', failed:'Поиск не завершён. Повторите, чтобы проверить остальные страницы.', retry:'Продолжить поиск', invalid:'Дата «С» должна быть не позже даты «По».'};
+        return language === 'en' ? {period:'Period', anyDate:'Any date', week:'Past week', month:'Past month', half:'Past 6 months', search:'Search news…', from:'From', to:'To', important:'Important only', shown:'Shown', of:'of', all:'Search all pages', reset:'Reset', searching:'Searching…', page:'Page', go:'Go', previous:'Previous page', next:'Next page', none:'No news match these filters', failed:'Search is incomplete. Retry to check the remaining pages.', retry:'Continue search', invalid:'The start date must not be after the end date.'} :
+            language === 'kz' ? {period:'Кезең', anyDate:'Кез келген күн', week:'Соңғы апта', month:'Соңғы ай', half:'Соңғы 6 ай', search:'Жаңалықтарды іздеу…', from:'Бастап', to:'Дейін', important:'Тек маңызды', shown:'Көрсетілді', of:'/', all:'Барлық беттерден іздеу', reset:'Тазалау', searching:'Іздеу…', page:'Бет', go:'Өту', previous:'Алдыңғы бет', next:'Келесі бет', none:'Бұл сүзгілерге сәйкес жаңалықтар жоқ', failed:'Іздеу аяқталмады. Қалған беттерді тексеру үшін қайталаңыз.', retry:'Іздеуді жалғастыру', invalid:'Басталу күні аяқталу күнінен кейін болмауы керек.'} :
+            {period:'Период', anyDate:'Любая дата', week:'За неделю', month:'За месяц', half:'За полгода', search:'Поиск по новостям…', from:'С', to:'По', important:'Только важные', shown:'Показано', of:'из', all:'Искать на всех страницах', reset:'Сбросить', searching:'Поиск…', page:'Страница', go:'Перейти', previous:'Предыдущая страница', next:'Следующая страница', none:'По этим условиям новостей нет', failed:'Поиск не завершён. Повторите, чтобы проверить остальные страницы.', retry:'Продолжить поиск', invalid:'Дата «С» должна быть не позже даты «По».'};
     }
     function clean(node) {
         // Search and signatures use the complete article, excluding our disclosure control.
@@ -23,7 +23,7 @@
         return (node?.textContent || '').replace(/\s+/g, ' ').trim();
     }
     function foldText() {
-        return language === 'en' ? {expand:'Show full news', collapse:'Collapse'} :
+        return language === 'en' ? {expand:'Show the full article', collapse:'Collapse'} :
             language === 'kz' ? {expand:'Толық көрсету', collapse:'Жасыру'} : {expand:'Показать полностью', collapse:'Свернуть'};
     }
     function updateFold(record) {
@@ -130,6 +130,16 @@
             if (filtered) a.addEventListener('click', e => { e.preventDefault(); filter.page = p; save(); render(); state.bar.scrollIntoView?.({block:'start'}); });
             nav.appendChild(a);
         };
+        // One step back and forward around the numbers: the long feed can be paged through without typing a number.
+        var step = function (p, label, cls) {
+            var reachable = p >= 1 && (!exact || p <= count), a = document.createElement(reachable ? 'a' : 'span');
+            a.className = 'univer-app-news-step ' + cls; a.setAttribute('aria-label', label); a.title = label;
+            if (!reachable) { a.setAttribute('aria-disabled', 'true'); return a; }
+            a.href = filtered ? '#news-results-' + p : href(p);
+            if (filtered) a.addEventListener('click', e => { e.preventDefault(); filter.page = p; save(); render(); state.bar.scrollIntoView?.({block:'start'}); });
+            return a;
+        };
+        nav.appendChild(step(current - 1, t.previous, 'univer-app-news-previous'));
         var pages = new Set([1, count]);
         for (var first = 1; first <= Math.min(5, count); first++) pages.add(first);
         for (var p = Math.max(1, current - 2); p <= Math.min(count, current + 2); p++) pages.add(p);
@@ -138,11 +148,15 @@
             if (previous && p > previous + 1) { var gap = document.createElement('span'); gap.className = 'univer-app-news-gap'; gap.textContent = '…'; nav.appendChild(gap); }
             add(p); previous = p;
         });
+        // An unconfirmed count may still grow, so the step forward stays while the site reports a following page.
+        nav.appendChild(step(current < count || !exact ? current + 1 : 0, t.next, 'univer-app-news-next'));
         var form = document.createElement('form'); form.className = 'univer-app-news-jump';
         var caption = document.createElement('span'); caption.className = 'univer-app-news-jump-label'; caption.textContent = t.page;
         var number = document.createElement('input'); number.type = 'number'; number.min = '1'; if (exact) number.max = String(count); number.value = String(current); number.setAttribute('aria-label', t.page);
         var go = document.createElement('button'); go.type = 'submit'; go.textContent = t.go;
         form.append(caption, number, go); nav.appendChild(form);
+        // A few pages are reached by their numbers; the field only helps in a long feed.
+        form.hidden = exact && count <= 7;
         form.addEventListener('submit', e => {
             e.preventDefault(); var target = Math.min(exact ? count : 4096, Math.max(1, parseInt(number.value, 10) || 1));
             if (filtered) { filter.page = target; save(); render(); } else location.assign(href(target));
@@ -170,7 +184,10 @@
             if (row.hidden === visible) row.hidden = !visible;
             if (visible) shown++;
         });
-        state.reset.hidden = !active();
+        state.reset.hidden = !active(); state.line.hidden = !active();
+        var from = state.from.value, to = state.to.value, short = v => v.slice(8, 10) + '.' + v.slice(5, 7);
+        setText(state.periodName, from || to ? (from ? short(from) : '…') + ' – ' + (to ? short(to) : '…') : t.period);
+        state.period.classList.toggle('univer-app-news-period-on', !!(from || to));
         state.all.hidden = !active() || state.running || !state.searched || state.complete || !valid();
         setText(state.all, state.next > 1 ? t.retry : t.all);
         if (!active()) {
@@ -290,11 +307,16 @@
             var important = button('important'), reset = button('reset'), all = button('all'); important.setAttribute('aria-pressed',String(filter.important));
             var dateLabel = function (control) { var label = document.createElement('label'); label.className = 'univer-app-news-date'; label.append(document.createElement('span'), control); return label; };
             var counter = document.createElement('span'); counter.className = 'univer-app-news-count'; counter.setAttribute('role','status');
-            bar.append(query,dateLabel(from),dateLabel(to),important,reset,all,counter);
+            // Dates are the rarest filter, so they live behind one button with the usual ranges first.
+            var period = document.createElement('details'), periodName = document.createElement('summary'), periodBox = document.createElement('div'), presets = document.createElement('div');
+            period.className = 'univer-app-news-period'; periodBox.className = 'univer-app-news-period-box'; presets.className = 'univer-app-news-presets';
+            periodBox.append(presets,dateLabel(from),dateLabel(to)); period.append(periodName,periodBox);
+            var line = document.createElement('div'); line.className = 'univer-app-news-state'; line.hidden = true; line.append(counter,all,reset);
+            bar.append(query,period,important,line);
             var results = document.createElement('section'); results.className = 'univer-app-news-results'; results.hidden = true;
             var anchor = table.closest('.univer-app-table-scroll') || table; anchor.before(bar,results);
             var rows = Array.from(table.querySelectorAll('tr.news'));
-            state = {table,anchor,bar,query,from,to,important,reset,all,counter,results,hidden:new Map(),pages:new Map([[pageNumber(),rows]]),more:new Map(),next:1,complete:pageNumber()===1&&!hasNext(document,1),running:false,searched:false,generation:0,pageSize:Math.max(1,rows.length)};
+            state = {table,anchor,bar,query,from,to,important,reset,all,counter,results,period,periodName,presets,line,hidden:new Map(),pages:new Map([[pageNumber(),rows]]),more:new Map(),next:1,complete:pageNumber()===1&&!hasNext(document,1),running:false,searched:false,generation:0,pageSize:Math.max(1,rows.length)};
             if (typeof ResizeObserver === 'function') foldObserver = new ResizeObserver(scheduleFolds);
             window.addEventListener('resize',scheduleFolds);
             state.known=pageNumber()+(hasNext(document,pageNumber())?1:0); state.total=hasNext(document,pageNumber())?0:pageNumber();
@@ -303,12 +325,30 @@
             important.addEventListener('click',() => { important.setAttribute('aria-pressed',String(important.getAttribute('aria-pressed')!=='true')); changed(); });
             reset.addEventListener('click',() => { query.value=from.value=to.value=''; important.setAttribute('aria-pressed','false'); changed(); });
             all.addEventListener('click',search);
+            [['anyDate',0],['week',7],['month',31],['half',183]].forEach(item => {
+                var preset = button('preset'); preset.dataset.key = item[0];
+                preset.addEventListener('click',() => {
+                    var day = new Date(Date.now() - item[1] * 86400000), iso = day.getFullYear() + '-' + String(day.getMonth() + 1).padStart(2,'0') + '-' + String(day.getDate()).padStart(2,'0');
+                    from.value = item[1] ? iso : ''; to.value = ''; period.open = false; changed();
+                });
+                presets.appendChild(preset);
+            });
+            // The list hangs from the button's right edge; a button that wrapped to the left opens it the other way.
+            period.addEventListener('toggle',() => {
+                if (!period.open) return;
+                periodBox.classList.remove('univer-app-news-period-start');
+                if (periodBox.getBoundingClientRect().left < 8) periodBox.classList.add('univer-app-news-period-start');
+                window.__univerMotionUI?.reveal(periodBox,'popup');
+            });
+            state.closePeriod = event => { if (period.open && !period.contains(event.target)) period.open = false; };
+            document.addEventListener('pointerdown',state.closePeriod,true);
             if (active()) timer = setTimeout(search,200);
             else if (!state.total) timer = setTimeout(discoverPages,400);
         }
         var t = text(); state.query.placeholder=t.search; state.query.setAttribute('aria-label',t.search);
         var captions = state.bar.querySelectorAll('.univer-app-news-date>span'); setText(captions[0],t.from); setText(captions[1],t.to);
         setText(state.important,t.important); setText(state.reset,t.reset);
+        Array.from(state.presets.children).forEach(preset => setText(preset,t[preset.dataset.key]));
         document.querySelectorAll('#l4 td.tb').forEach(cell => { if (cell.querySelector('a[href*="/my/news/"]') || /^(Страница|Page|Бет)\s*\d+/i.test(clean(cell))) cell.classList.add('univer-app-news-pager-source'); });
         // Native polling calls apply repeatedly; only rerender on actual language/content changes.
         var signature = language + '|' + Array.from(table.querySelectorAll('tr.news')).map(clean).join('|');
@@ -323,6 +363,7 @@
         foldObserver?.disconnect(); foldObserver = null;
         folds.forEach(unfold); folds.clear(); foldSources = new WeakMap(); expanded = new WeakMap();
         state.hidden.forEach((hidden,row) => { row.hidden=hidden; }); state.table.removeAttribute('data-univer-news-source');
+        document.removeEventListener('pointerdown',state.closePeriod,true);
         state.bar.remove(); state.results.remove(); document.querySelectorAll('.univer-app-news-pager').forEach(n=>n.remove());
         document.querySelectorAll('.univer-app-news-pager-source').forEach(n=>n.classList.remove('univer-app-news-pager-source')); state=null;
     }

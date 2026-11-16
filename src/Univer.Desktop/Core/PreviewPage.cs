@@ -12,7 +12,7 @@ namespace Univer.Desktop.Core
                 .Append(":root{--bg:#eef2f6;--card:#fff;--ink:#1d2b39;--muted:#5b6b7c;--line:#dfe5ec;--grid:#c8d3df;--head:#f3f6f9;--link:#1b5fa6;--shadow:rgba(16,40,70,.08);color-scheme:light}")
                 .Append("html.dark{--bg:#15191e;--card:#1d2229;--ink:#e3e8ee;--muted:#9aa8b7;--line:#2c343e;--grid:#3a4552;--head:#232a33;--link:#7fb2ec;--shadow:rgba(0,0,0,.45);color-scheme:dark}")
                 .Append("html{background:var(--bg)}body{box-sizing:border-box;max-width:1280px;margin:20px auto;padding:36px;background:var(--card);color:var(--ink);")
-                .Append("font:15px/1.6 'Segoe UI Variable Text','Segoe UI',Calibri,Arial,sans-serif;border:1px solid var(--line);border-radius:10px;box-shadow:0 1px 8px var(--shadow)}")
+                .Append("font:15px/1.6 'Segoe UI Variable Text','Segoe UI',Calibri,Arial,sans-serif;border:1px solid var(--line);border-radius:8px;box-shadow:0 1px 2px var(--shadow)}")
                 .Append("p{margin:0 0 10px}h1,h2,h3{line-height:1.3;margin:18px 0 10px}h1{font-size:24px}h2{font-size:20px}h3{font-size:17px}")
                 .Append("body>p,body>h1,body>h2,body>h3{overflow-wrap:anywhere}.table-help,.note{color:var(--muted);font-size:13px;margin:0 0 22px}.table-help::before,.note::before{content:attr(data-text)}")
                 .Append(".table-scroll{box-sizing:border-box;max-width:100%;overflow:auto;max-height:calc(100vh - 160px);margin:14px 0 22px;border:1px solid var(--grid)}")

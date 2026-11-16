@@ -17,8 +17,7 @@
         }
         if (!pending) {
             pending = true;
-            if (typeof window.__univerNativeNotify === 'function') window.__univerNativeNotify('univer-busy');
-            else if (window.CefSharp) CefSharp.PostMessage('univer-busy');
+            if (typeof __univerNative === 'function') __univerNative('univer-busy');
         }
     }
     function visible(node) {

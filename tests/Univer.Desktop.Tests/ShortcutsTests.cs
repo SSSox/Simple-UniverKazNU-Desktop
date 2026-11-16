@@ -13,6 +13,26 @@ namespace Univer.Desktop.Tests
         private readonly string root = Path.Combine(Path.GetTempPath(), "Univer.Desktop.UnitTests", Guid.NewGuid().ToString("N"));
         private const string Messages = "https://univer.kaznu.kz/my/messages/index/";
         [Fact]
+        public void HiddenTiles_AcceptOnlyFixedTiles_AndRejectMalformedRequests()
+        {
+            var umkd = SitePolicy.Origin + "/student/umkd/";
+            Assert.Equal(new[] { umkd }, Shortcuts.ApplyHidden("{\"hidden\":[\"" + umkd + "\",\"" + umkd + "\"]}"));
+            Assert.Empty(Shortcuts.ApplyHidden("{\"hidden\":[]}"));
+            Assert.Null(Shortcuts.ApplyHidden("{\"hidden\":[\"https://lib.kaznu.kz/\"]}"));
+            Assert.Null(Shortcuts.ApplyHidden("{\"hidden\":[\"" + SitePolicy.Origin + "/my/messages/index/\"]}"));
+            Assert.Null(Shortcuts.ApplyHidden("{\"hidden\":\"" + umkd + "\"}"));
+            Assert.Null(Shortcuts.ApplyHidden("{\"order\":[]}"));
+            Assert.Null(Shortcuts.ApplyHidden("not json"));
+            Assert.Equal(new[] { umkd }, Shortcuts.NormalizeHidden(new[] { umkd, "https://lib.kaznu.kz/", null }));
+            Assert.Equal("[\"" + umkd + "\"]", Shortcuts.HiddenJson(new[] { umkd }));
+        }
+        [Fact]
+        public void PageSources_AreToldApartFromCourses()
+        {
+            foreach (var page in new[] { "Новости", "Сегодня", "Сообщения", "Журнал посещений и успеваемости", "Информационный бюллетень для студентов", "Мой кабинет" }) Assert.True(FileKinds.PageSource(page), page);
+            foreach (var course in new[] { "Социология", "История Казахстана", "Введение в информационную безопасность", "" }) Assert.False(FileKinds.PageSource(course), course);
+        }
+        [Fact]
         public void TileOrder_PersistsWithPins_ClonesIndependently_AndRejectsMalformedRequests()
         {
             var order = Shortcuts.ApplyOrder("{\"order\":[\"" + Messages + "\",\"https://univer.kaznu.kz/student/myschedule/\"]}");

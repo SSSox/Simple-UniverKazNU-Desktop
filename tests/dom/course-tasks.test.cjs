@@ -64,7 +64,7 @@ function page(content, url, { routes = {}, referrer, storage } = {}) {
   w.HTMLElement.prototype.getClientRects = function () { return this.closest('[hidden]') ? [] : [{ width: 100, height: 30 }]; };
   w.HTMLElement.prototype.scrollIntoView = function () { w.__scrolled = this.id; };
   w.jQuery = () => ({ bind() {} });
-  w.__univerNativeNotify = () => {};
+  w.__univerNative = () => {};
   if (storage) Object.entries(storage).forEach(([key, value]) => w.sessionStorage.setItem(key, value));
   w.fetch = (address, options) => {
     requests.push({ address, options });
@@ -84,7 +84,7 @@ const siteRoutes = {
   '/student/discussion/task/list/501/7101/2026/1/7/': taskList([{ id: 9002, title: 'Прошлое синтетическое задание', start: -17, end: -12 }], 7)
 };
 
-test('the course list shows current assignments from the nearby weeks and links each to its task and course weeks', async () => {
+test('the course list shows open and closed assignments of every week and links each to its task and course weeks', async () => {
   const p = page(index, 'https://univer.kaznu.kz/student/discussion/index/', { routes: siteRoutes });
   apply(p);
   const box = p.d.querySelector('.univer-app-tasks');
@@ -94,8 +94,19 @@ test('the course list shows current assignments from the nearby weeks and links 
   assert.equal(box.nextElementSibling, p.d.getElementById('courses').closest('table.mt'));
   await settle();
   assert.equal(box.dataset.busy, 'false');
+  assert.equal(box.querySelector('.univer-app-tasks-state').textContent, 'По всем неделям каждой дисциплины');
+  const views = Array.from(box.querySelectorAll('.univer-app-tasks-filter button'));
+  assert.deepEqual(views.map(b => [b.dataset.view, b.textContent, b.getAttribute('aria-pressed')]), [['open', 'Открытые1', 'true'], ['closed', 'Закрытые1', 'false']]);
+  views[1].click();
+  assert.deepEqual(views.map(b => b.getAttribute('aria-pressed')), ['false', 'true']);
+  const past = box.querySelectorAll('.univer-app-task-item');
+  assert.equal(past.length, 1, 'the closed view lists the task of week 7, two weeks before the current one');
+  assert.equal(past[0].dataset.state, 'past');
+  assert.equal(past[0].querySelector('a').getAttribute('href'), '/student/discussion/task/preview/9002/501/7101/2026/1/7/0/0/0/');
+  assert.match(past[0].querySelector('.univer-app-task-status').textContent, /срок прошёл$/);
+  views[0].click();
   const items = box.querySelectorAll('.univer-app-task-item');
-  assert.equal(items.length, 1, 'week 7 is not next to the current week 9, so its task list is not read');
+  assert.equal(items.length, 1, 'the open view lists only what can still be handed in');
   const link = items[0].querySelector('a.univer-app-task-link');
   assert.equal(link.getAttribute('href'), '/student/discussion/task/preview/9001/501/7101/2026/1/9/0/0/0/');
   assert.equal(link.querySelector('.univer-app-task-title').textContent, 'Синтетическое задание по истории');
@@ -103,19 +114,21 @@ test('the course list shows current assignments from the nearby weeks and links 
   const chip = link.querySelector('.univer-app-task-status');
   assert.equal(chip.dataset.state, 'urgent'); assert.match(chip.textContent, /^до \d\d\.\d\d · остался 1 день$/);
   assert.match(link.getAttribute('aria-label'), /^Открыть задание: Синтетическое задание по истории, до /);
-  const course = p.d.getElementById('7101').querySelector('.univer-app-course-tasks');
-  assert.equal(course.textContent, '1 задание');
-  assert.equal(course.getAttribute('href'), '/student/discussion/acpos/week/list/501/7101/2026/1/', 'a single curriculum row links straight to the weeks');
+  const chips = Array.from(p.d.getElementById('7101').querySelectorAll('.univer-app-course-tasks')), course = chips[0];
+  assert.deepEqual(chips.map(c => [c.dataset.state, c.textContent]), [['open', 'Открыто: 1'], ['closed', 'Закрыто: 1']], 'the course row counts both, open first');
+  assert.ok(chips.every(c => c.getAttribute('href') === '/student/discussion/acpos/week/list/501/7101/2026/1/'), 'a single curriculum row links straight to the weeks');
+  assert.equal(chips[1].nextElementSibling, p.d.getElementById('7101').querySelector('.univer-app-course-open'), 'the counts stand before the Open button');
   assert.equal(p.d.getElementById('7102').querySelector('.univer-app-course-tasks'), null);
   assert.equal(box.querySelector('.univer-app-tasks-note').textContent, 'Не удалось проверить: Политология');
   assert.equal(p.d.getElementById('7101').querySelector('.univer-app-course-open').getAttribute('aria-label'), 'Открыть дисциплину: История Казахстана (0)', 'the course badge is not part of the button name');
   assert.deepEqual(p.requests.map(r => r.address).sort(), ['/student/discussion/acpos/list/7101/2026/1/', '/student/discussion/acpos/list/7102/2026/1/',
-    '/student/discussion/acpos/week/list/501/7101/2026/1/', '/student/discussion/task/list/501/7101/2026/1/9/']);
+    '/student/discussion/acpos/week/list/501/7101/2026/1/', '/student/discussion/task/list/501/7101/2026/1/7/', '/student/discussion/task/list/501/7101/2026/1/9/']);
   assert.ok(p.requests.every(r => r.options.credentials === 'same-origin' && r.options.redirect === 'error' && !r.options.method && !r.options.body), 'plain same-origin GET, no redirects');
   apply(p, true, 'en');
   assert.equal(box.querySelector('.univer-app-tasks-title').textContent, 'Assignments');
   assert.match(box.querySelector('.univer-app-task-status').textContent, /^due \d\d\.\d\d · 1 day left$/);
-  assert.equal(course.isConnected ? course.textContent : p.d.getElementById('7101').querySelector('.univer-app-course-tasks').textContent, '1 assignment');
+  assert.equal(p.d.getElementById('7101').querySelector('.univer-app-course-tasks').textContent, 'Open: 1');
+  assert.equal(box.querySelector('.univer-app-tasks-filter button').textContent, 'Open1');
   const cached = Object.keys(p.w.sessionStorage).find(key => key.startsWith('univer-app-course-tasks:'));
   assert.ok(cached, 'the result is kept for this browser session');
   const stored = p.w.sessionStorage.getItem(cached);
@@ -139,8 +152,60 @@ test('an expired session or a login page in a background read counts as a failed
   apply(p); await settle();
   assert.equal(p.d.querySelectorAll('.univer-app-task-item').length, 0);
   assert.equal(p.d.querySelector('.univer-app-tasks-note').textContent, 'Не удалось проверить: История Казахстана, Политология');
-  assert.equal(p.d.querySelector('.univer-app-tasks-empty').textContent, 'Текущих заданий нет');
+  assert.equal(p.d.querySelector('.univer-app-tasks-empty').textContent, 'Открытых заданий нет');
+  assert.equal(p.d.querySelector('.univer-app-tasks-filter'), null, 'nothing to switch between when no assignment was read');
   apply(p, false); p.close();
+});
+
+const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
+const until = async (done, turns = 300) => { for (let i = 0; i < turns && !done(); i++) await pause(5); return done(); };
+
+test('background reads share one gate: never more than three requests are on the wire at once', async () => {
+  // Two courses with three curricula each: 2 curriculum lists, 6 week lists and 12 task lists.
+  const routes = { ...siteRoutes, '/student/discussion/acpos/list/7101/2026/1/': plans(['501', '502', '503']), '/student/discussion/acpos/list/7102/2026/1/': plans(['601', '602', '603']) };
+  ['502', '503', '601', '602', '603'].forEach(id => { routes[`/student/discussion/acpos/week/list/${id}/7101/2026/1/`] = weeks; });
+  const p = page(index, 'https://univer.kaznu.kz/student/discussion/index/', { routes });
+  const answer = p.w.fetch; let active = 0, most = 0;
+  p.w.fetch = async (address, options) => { active++; most = Math.max(most, active); await pause(3); active--; return answer(address, options); };
+  apply(p);
+  assert.ok(await until(() => p.requests.length === 20 && active === 0), 'every page is read: ' + p.requests.length);
+  await settle();
+  assert.equal(most, 3, 'the gate is full and never over');
+  assert.equal(p.d.querySelector('.univer-app-tasks-note'), null, 'no course is left unchecked');
+  assert.equal(p.d.getElementById('7101').querySelector('.univer-app-course-tasks').textContent, 'Открыто: 3');
+  apply(p, false); p.close();
+});
+
+test('a read the server never answers ends at its deadline: the course is named as not checked and the count completes', async () => {
+  const p = page(index, 'https://univer.kaznu.kz/student/discussion/index/', { routes: siteRoutes });
+  // The fifteen-second deadline, shortened for the test.
+  const timer = p.w.setTimeout.bind(p.w); p.w.setTimeout = (run, ms, ...rest) => timer(run, ms >= 15000 ? 40 : ms, ...rest);
+  const answer = p.w.fetch, signals = [];
+  p.w.fetch = (address, options) => {
+    if (!/\/acpos\/list\/7102\//.test(address)) return answer(address, options);
+    signals.push(options.signal); return new Promise(() => {});
+  };
+  apply(p);
+  const box = p.d.querySelector('.univer-app-tasks');
+  assert.ok(await until(() => box.querySelector('.univer-app-tasks-note')), 'the unanswered course is reported');
+  assert.equal(box.querySelector('.univer-app-tasks-note').textContent, 'Не удалось проверить: Политология');
+  assert.doesNotMatch(box.textContent, /Проверяю дисциплины/, 'the count does not wait for it');
+  assert.equal(box.querySelectorAll('.univer-app-task-item').length, 1, 'the other course is shown');
+  assert.ok(signals.length === 1 && signals[0].aborted, 'the request itself is cancelled');
+  apply(p, false); p.close();
+});
+
+test('Original cancels the reads in flight and starts none of those still waiting', async () => {
+  const p = page(index, 'https://univer.kaznu.kz/student/discussion/index/', { routes: siteRoutes });
+  const signals = [];
+  p.w.fetch = (address, options) => { p.requests.push({ address, options }); signals.push(options.signal); return new Promise(() => {}); };
+  apply(p);
+  assert.equal(signals.length, 2, 'both courses are being read');
+  apply(p, false);
+  assert.ok(signals.every(signal => signal.aborted), 'both requests are cancelled');
+  await settle();
+  assert.equal(p.requests.length, 2, 'nothing else is requested');
+  p.close();
 });
 
 test('a course list without the site handler template reads nothing and adds nothing', async () => {

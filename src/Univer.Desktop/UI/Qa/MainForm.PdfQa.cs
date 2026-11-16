@@ -37,6 +37,9 @@ namespace Univer.Desktop.UI
             var before = await ReaderScreenWidthQaAsync(browser);
             SetZoom(150); await Task.Delay(900);
             var after = await ReaderScreenWidthQaAsync(browser);
+            var sideways = await EvaluateLocalPreviewAsync(browser, "(()=>{const r=document.documentElement,o=r.scrollWidth-r.clientWidth;return o<=1||Math.abs(window.scrollX-o/2)<=2?'centred':window.scrollX+'/'+o})()");
+            QaTrace("qa-reader-centre " + sideways);
+            Check(sideways == "centred", "a page wider than the window stands in the middle after a zoom", results);
             ProcessCmdKey(ref open, System.Windows.Forms.Keys.Control | System.Windows.Forms.Keys.F);
             Check(findBar.Searching && findBar.Top >= canvas.Top + downloadsView.PreviewBarHeight && downloadsView.PreviewBarHeight > D(56),
                 "at 150% the find bar opens below the file's taller bar", results);

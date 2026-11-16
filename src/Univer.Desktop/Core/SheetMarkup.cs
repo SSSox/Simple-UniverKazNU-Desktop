@@ -31,6 +31,10 @@ namespace Univer.Desktop.Core
     internal sealed class SheetData
     {
         public const int ColumnCount = 16384;
+        // Merged areas kept for the whole workbook, in the file's order. Drawing costs a search for each and never more
+        // cells than the grid has, so the limit only keeps memory in hand, whatever number of sheets a file names; a
+        // real workbook, even long statements with several merged cells in every row, stays well under it.
+        public const int MergeLimit = 1000000;
         public string Name;
         public readonly Dictionary<long, SheetCell> Cells = new Dictionary<long, SheetCell>();
         public readonly List<SheetRange> Merges = new List<SheetRange>();
@@ -38,12 +42,19 @@ namespace Univer.Desktop.Core
         public readonly HashSet<int> HiddenRows = new HashSet<int>(), HiddenColumns = new HashSet<int>();
         public static long Key(int row, int column) { return (long)row * ColumnCount + column; }
         public SheetCell Cell(int row, int column) { SheetCell cell; return Cells.TryGetValue(Key(row, column), out cell) ? cell : null; }
+        public void Merge(Workbook book, int top, int left, int bottom, int right)
+        {
+            if (book.Merged >= MergeLimit) return;
+            book.Merged++; Merges.Add(new SheetRange { Top = top, Left = left, Bottom = bottom, Right = right });
+        }
     }
     // Workbooks of both formats in one look: a list of sheets, then each sheet as a grid with column letters and row
     // numbers, merged cells, column widths, fonts, fills and alignment. Formulas show their saved results.
     internal sealed class Workbook
     {
         public readonly List<SheetData> Sheets = new List<SheetData>();
+        // Merged areas kept in all sheets together.
+        public int Merged;
         public readonly List<SheetStyle> Styles = new List<SheetStyle>();
     }
     internal static class SheetMarkup
@@ -104,17 +115,21 @@ namespace Univer.Desktop.Core
             if (cut)
                 html.Append("<p class=\"note\" data-text=\"").Append(WebUtility.HtmlEncode(string.Format(CultureInfo.InvariantCulture, options.Label("sheetTruncated"), rows.Count, columns.Count))).Append("\"></p>");
             // Merged areas over the shown rows and columns: the first shown cell carries the spans, the rest are skipped.
-            var rowIndex = new Dictionary<int, int>(); for (var i = 0; i < rows.Count; i++) rowIndex[rows[i]] = i;
-            var columnIndex = new Dictionary<int, int>(); for (var i = 0; i < columns.Count; i++) columnIndex[columns[i]] = i;
             var covered = new HashSet<long>(); var spans = new Dictionary<long, int[]>();
+            // Merged areas of a real sheet do not overlap, so together they fit the grid; what a file adds past that is
+            // not drawn. The shown rows and columns are in order, so an area finds its own by search, not by walking.
+            var room = (long)rows.Count * columns.Count;
             foreach (var merge in sheet.Merges)
             {
-                int top = -1, bottom = -1, left = -1, right = -1;
-                for (var r = merge.Top; r <= merge.Bottom && r <= lastRow; r++) { int index; if (rowIndex.TryGetValue(r, out index)) { if (top < 0) top = index; bottom = index; } }
-                for (var c = merge.Left; c <= merge.Right && c <= lastColumn; c++) { int index; if (columnIndex.TryGetValue(c, out index)) { if (left < 0) left = index; right = index; } }
-                if (top < 0 || left < 0 || top == bottom && left == right) continue;
+                html.Cancellation.ThrowIfCancellationRequested();
+                int top = FirstAtLeast(rows, merge.Top), bottom = FirstAtLeast(rows, (long)merge.Bottom + 1) - 1;
+                int left = FirstAtLeast(columns, merge.Left), right = FirstAtLeast(columns, (long)merge.Right + 1) - 1;
+                if (top > bottom || left > right || top == bottom && left == right) continue;
                 var anchor = SheetData.Key(rows[top], columns[left]);
                 if (covered.Contains(anchor) || spans.ContainsKey(anchor)) continue;
+                var area = (long)(bottom - top + 1) * (right - left + 1);
+                if (area > room) continue;
+                room -= area;
                 spans[anchor] = new[] { bottom - top + 1, right - left + 1, merge.Top, merge.Left };
                 for (var r = top; r <= bottom; r++) for (var c = left; c <= right; c++) if (r != top || c != left) covered.Add(SheetData.Key(rows[r], columns[c]));
             }
@@ -153,6 +168,13 @@ namespace Univer.Desktop.Core
             }
             html.Append("</tbody></table></div></section>");
             return written;
+        }
+        // Index of the first value not below the given one in an ascending list, or the list's length.
+        private static int FirstAtLeast(List<int> values, long value)
+        {
+            int low = 0, high = values.Count;
+            while (low < high) { var middle = (low + high) / 2; if (values[middle] < value) low = middle + 1; else high = middle; }
+            return low;
         }
         private static bool HasVisibleAfter(SheetData sheet, int shown, int last)
         { for (var r = shown + 1; r <= last; r++) if (!sheet.HiddenRows.Contains(r)) return true; return false; }

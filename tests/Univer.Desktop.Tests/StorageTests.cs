@@ -72,6 +72,58 @@ namespace Univer.Desktop.Tests
             Assert.True(storage.LoadPreferences().LegacyWarningDismissed);
             Assert.False(new Storage(Path.Combine(root, "another-user")).LoadPreferences().LegacyWarningDismissed);
         }
+        // A logout saves its mark with the pause before the browser profiles are replaced. A run that ends in between
+        // (a crash, a kill, a power cut) leaves the old profile, with the session's cookies, as the current one.
+        [Fact]
+        public void InterruptedLogout_IsFinishedByTheNextStart()
+        {
+            var storage = new Storage(root);
+            var stopped = new Preferences { AutoLoginPaused = true, SessionClearPending = true };
+            storage.SavePreferences(stopped);
+            Directory.CreateDirectory(storage.ProfilePath(stopped.Profile)); Directory.CreateDirectory(storage.WebProfilePath(stopped.WebProfile));
+            File.WriteAllText(Path.Combine(root, "notices.json"), "[]");
+
+            var next = new Storage(root); var prefs = next.Load().Preferences;
+            Assert.True(prefs.SessionClearPending);
+            Assert.True(next.FinishSessionClear(prefs));
+            Assert.NotEqual(stopped.Profile, prefs.Profile); Assert.NotEqual(stopped.WebProfile, prefs.WebProfile);
+            Assert.True(prefs.AutoLoginPaused); Assert.False(prefs.SessionClearPending);
+            var saved = next.LoadPreferences();
+            Assert.Equal(prefs.Profile, saved.Profile); Assert.Equal(prefs.WebProfile, saved.WebProfile);
+            Assert.True(saved.AutoLoginPaused); Assert.False(saved.SessionClearPending);
+            Assert.False(File.Exists(Path.Combine(root, "notices.json")));
+            // The profiles of the session that was ending are obsolete now, and the usual start-up cleanup takes them.
+            next.CleanOldProfiles(prefs.Profile);
+            Assert.True(next.WebProfileSaved(prefs.WebProfile)); next.CleanOldWebProfiles(prefs.WebProfile);
+            Assert.False(Directory.Exists(next.ProfilePath(stopped.Profile))); Assert.False(Directory.Exists(next.WebProfilePath(stopped.WebProfile)));
+            Assert.False(next.FinishSessionClear(prefs));
+        }
+        [Fact]
+        public void FinishedSessionAndOlderSettingsFiles_KeepTheirProfile()
+        {
+            var storage = new Storage(root); var profile = new string('a', 32);
+            File.WriteAllText(Path.Combine(root, "preferences.json"), "{\"Language\":\"kz\",\"AutoLoginPaused\":false,\"Profile\":\"" + profile + "\"}");
+            var prefs = storage.Load().Preferences;
+            Assert.False(prefs.SessionClearPending);
+            Assert.False(storage.FinishSessionClear(prefs));
+            Assert.Equal(profile, prefs.Profile); Assert.False(prefs.AutoLoginPaused);
+        }
+        [Fact]
+        public void ReviewRun_StartsCleanButLeavesTheInterruptedLogoutOnDisk()
+        {
+            var storage = new Storage(root);
+            var stopped = new Preferences { AutoLoginPaused = true, SessionClearPending = true };
+            storage.SavePreferences(stopped);
+            var prefs = storage.Load().Preferences;
+            Assert.True(storage.FinishSessionClear(prefs, false));
+            Assert.NotEqual(stopped.Profile, prefs.Profile);
+            var saved = storage.LoadPreferences();
+            Assert.True(saved.SessionClearPending); Assert.Equal(stopped.Profile, saved.Profile);
+        }
+        // Settings are copied before every queued save; a field the copy forgets would be dropped by the next one.
+        [Fact]
+        public void PreferencesCopy_KeepsThePendingSessionClear()
+        { Assert.True(new Preferences { SessionClearPending = true }.Clone().SessionClearPending); }
         public void Dispose()
         {
             if (Directory.Exists(root) && Path.GetFullPath(root).StartsWith(Path.GetFullPath(Path.Combine(Path.GetTempPath(), "Univer.Desktop.UnitTests")) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)) Directory.Delete(root, true);
