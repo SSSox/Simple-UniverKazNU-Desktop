@@ -6,17 +6,46 @@
 
 A desktop app for the [Univer KazNU](https://univer.kaznu.kz/) student portal with the same features as the Simple Univer Android app. The interface is built for mouse and keyboard and is available in Russian, Kazakh and English.
 
+[![Release](https://img.shields.io/github/v/release/SSSox/Simple-UniverKazNU-Desktop?label=release)](https://github.com/SSSox/Simple-UniverKazNU-Desktop/releases/latest) [![Downloads](https://img.shields.io/github/downloads/SSSox/Simple-UniverKazNU-Desktop/total?label=downloads)](https://github.com/SSSox/Simple-UniverKazNU-Desktop/releases) [![License](https://img.shields.io/badge/license-GPL--3.0--or--later-blue)](LICENSE)
+
+**[Download the latest version](https://github.com/SSSox/Simple-UniverKazNU-Desktop/releases/latest)** · [Which file to download](#which-file-to-download) · [Privacy](PRIVACY.en.md) · [Security](SECURITY.en.md)
+
+![The Univer window: the portal's home page with section tiles and news](https://raw.githubusercontent.com/SSSox/Simple-UniverKazNU-Desktop/main/.github/readme/home.png)
+
+## Features
+
+### The portal, easier to use
+
 - **Saved sign-in.** Your login and password are stored encrypted on this computer; when the session ends, the app signs in again by itself.
 - **Reading mode for the site:** readable tables and cards, one header instead of three bars, an "All sections" panel with search, pinned links on the home page. "View → Original layout" shows the site as it is.
-- **Schedule** with the current and next class, a day filter and a week grid.
-- **Grades** by subject, clear assessment pages, all distance-course tasks on one page.
-- **Syllabus tasks on the schedule.** Each class shows the topic of its week from the syllabus written for your educational programme, and the week's independent work is listed by course. When your group has seminars in other weeks than the syllabus says, the topics go to the classes in order, and independent work is named under the nearest seminar. Teacher consultations are left out. A topic folds on its own button, and one switch hides them all.
 - **Site notifications** about questionnaires and tests in the bell on the toolbar; questionnaires you have already answered are not counted.
-- **"Downloads" (Ctrl+J):** every downloaded file with search and filters, and a built-in viewer for PDF, Word, Excel, PowerPoint, web pages, text and images, without Office.
-- **"Download all"** in a section of the course materials (УМКД): the section's files go to Downloads, into the folder `Univer УМКД\<course>\<section>`.
-- **PIN** ("Sign-in protection" in Settings): the app asks for it at start and after a minute with the window minimized, hidden in the tray or Windows locked. After ten wrong attempts the app signs out and deletes the saved login.
 - **Ctrl+F search** on site pages and in open files, news with search and filters.
 - Light and dark theme, zoom, printing, running from the notification area (tray).
+
+![The "All sections" panel: search, groups of sections and pinning to the home page](https://raw.githubusercontent.com/SSSox/Simple-UniverKazNU-Desktop/main/.github/readme/all-sections.png)
+
+### Schedule and studies
+
+- **Schedule** with the current and next class, a day filter and a week grid.
+- **Syllabus tasks on the schedule.** Each class shows the topic of its week from the syllabus written for your educational programme, and the week's independent work is listed by course. When your group has seminars in other weeks than the syllabus says, the topics go to the classes in order, and independent work is named under the nearest seminar. Teacher consultations are left out. A topic folds on its own button, and one switch hides them all.
+- **Grades** by subject, clear assessment pages, all distance-course tasks on one page.
+
+![The schedule: time until the first class, the week's independent work and syllabus topics under the classes](https://raw.githubusercontent.com/SSSox/Simple-UniverKazNU-Desktop/main/.github/readme/schedule.png)
+
+### Files
+
+- **"Downloads" (Ctrl+J):** every downloaded file with search and filters, and a built-in viewer for PDF, Word, Excel, PowerPoint, web pages, text and images, without Office.
+- **"Download all"** in a section of the course materials (УМКД): the section's files go to Downloads, into the folder `Univer УМКД\<course>\<section>`.
+
+![Course materials (УМКД): the "Download all" button on a section with files](https://raw.githubusercontent.com/SSSox/Simple-UniverKazNU-Desktop/main/.github/readme/umkd.png)
+
+### Sign-in protection
+
+- **PIN** ("Sign-in protection" in Settings): the app asks for it at start and after a minute with the window minimized, hidden in the tray or Windows locked. After ten wrong attempts the app signs out and deletes the saved login.
+
+![The PIN screen when the app starts](https://raw.githubusercontent.com/SSSox/Simple-UniverKazNU-Desktop/main/.github/readme/pin.png)
+
+The home page and "All sections" were captured in a real account, with no personal data in the frame. The schedule, УМКД and PIN screen use demo data. The screenshots show the Russian interface.
 
 ## Which file to download
 
