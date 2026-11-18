@@ -329,7 +329,7 @@ namespace Univer.Desktop.UI
         private void OpenDownloads()
         { try { Process.Start(new ProcessStartInfo(DownloadService.DownloadsFolder()) { UseShellExecute = true }); } catch (Exception) { SetStatus("downloadFailed"); } }
         private void External(string url)
-        { OpenOutside(url); }
+        { if (outsideProbe != null) outsideProbe(url); else OpenOutside(url); }
         private bool OpenOutside(string url)
         {
             if (!SitePolicy.External(url)) return false;

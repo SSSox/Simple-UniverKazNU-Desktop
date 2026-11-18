@@ -49,6 +49,7 @@ namespace Univer.Desktop.UI
                     QaStep("notices", () => NoticesQaAsync(qa, results)),
                     QaStep("updates", () => UpdatesQaAsync(qa, results)),
                     QaStep("update-entry", () => UpdateEntryQaAsync(results)),
+                    QaStep("online-test", () => OnlineTestQaAsync(results)),
                     QaStep("live", () => liveSmoke ? LiveQaAsync(qa, results) : Task.FromResult(true)),
                     QaStep("first-load", () => liveSmoke ? FirstLoadQaAsync(qa, results) : Task.FromResult(true)),
                     QaStep("lock", () => LockQaAsync(qa, results)),

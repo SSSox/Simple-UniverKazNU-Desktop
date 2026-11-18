@@ -35,7 +35,7 @@ namespace Univer.Desktop.UI
         // Over the site's toolbar and page, under the toasts.
         private void PlaceWeb() { if (webPanel != null) webPanel.SetBounds(0, 0, workspace.ClientSize.Width, workspace.ClientSize.Height); }
         // A link the student follows: inside the app when allowed, otherwise in the system browser.
-        private bool OpensInside(string url) { return !prefs.ExternalLinks && outsideProbe == null && WebLinks.InApp(url) && !selfTest; }
+        private bool OpensInside(string url) { return (webInsideForQa || !prefs.ExternalLinks && outsideProbe == null && !selfTest) && WebLinks.InApp(url); }
         // prepare: runs before the page is asked for (the hand-off registers its in-memory page there).
         private void ShowWeb(string url, Action<ChromiumWebBrowser> prepare = null)
         {
@@ -73,6 +73,7 @@ namespace Univer.Desktop.UI
             browser.TitleChanged += (s, e) => current(() => webPanel.Titled(e.Title));
             browser.LoadError += (s, e) => { if (e.Frame.IsMain && e.ErrorCode != CefErrorCode.Aborted) { var code = e.ErrorCode; current(() => webPanel.Failed(CertificateError(code))); } };
             browser.IsBrowserInitializedChanged += (s, e) => current(SetWebZoom);
+            webBrowserForQa?.Invoke(browser);
             webPanel.Attach(browser);
             return browser;
         }

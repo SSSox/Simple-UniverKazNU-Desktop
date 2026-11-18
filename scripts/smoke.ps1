@@ -1,7 +1,7 @@
 # -Only runs CEF start-up and one self-test step (the names in its ValidateSet, the app's QaStep names) for a quick check
 # while working on it; a release run uses every step.
 param([ValidateSet('x64','x86')][string]$Platform = 'x64', [ValidateSet('Modern','Legacy')][string]$BrowserFlavor = 'Modern', [switch]$Live, [string]$OutputRoot,
-    [ValidateSet('settings','shell','document','presentation','form-download','layout-load','downloads','office','zoom','polish','top','skeletons','igpa','report','speed','product','theme','notices','updates','update-entry','live','first-load','lock','logout')][string]$Only)
+    [ValidateSet('settings','shell','document','presentation','form-download','layout-load','downloads','office','zoom','polish','top','skeletons','igpa','report','speed','product','theme','notices','updates','update-entry','online-test','live','first-load','lock','logout')][string]$Only)
 $ErrorActionPreference = 'Stop'
 $projectRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $framework = if ($BrowserFlavor -eq 'Legacy') { 'net452' } else { 'net462' }
@@ -23,9 +23,9 @@ try {
     # The office step opens the synthetic workbooks and presentations Excel and PowerPoint saved in both formats.
     $env:UNIVER_QA_FIXTURES = Join-Path $projectRoot 'tests\Univer.Desktop.Tests\Fixtures'
     $process = Start-Process -FilePath $app -ArgumentList $arguments -WindowStyle Hidden -PassThru
-    # The native run includes real Chromium download, keyboard, Office preview, file zoom and theme checks (about 4 minutes);
-    # 420 s leaves room on slow machines.
-    $deadline = [DateTime]::UtcNow.AddSeconds(420)
+    # The native run includes real Chromium download, keyboard, Office preview, file zoom and theme checks (5–6 minutes on
+    # Windows 11 x64 in Nov 2026; a loaded machine reached the old 420 s limit before the live steps); 600 s leaves room.
+    $deadline = [DateTime]::UtcNow.AddSeconds(600)
     while (!$process.WaitForExit(1000) -and [DateTime]::UtcNow -lt $deadline) { }
     if (!$process.HasExited) {
         # This exact process was created above with an isolated QA profile; never target a user's running app.
