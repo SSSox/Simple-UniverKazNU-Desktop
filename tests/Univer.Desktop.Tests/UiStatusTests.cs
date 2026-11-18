@@ -37,18 +37,28 @@ namespace Univer.Desktop.Tests
             status.Update("ready"); status.Update("loading"); Assert.Equal("downloadSigningIn", status.Current.Key);
             status.Update("downloading"); status.Update("downloadComplete"); Assert.Equal("downloadComplete", status.Current.Key);
         }
+        // The grade summary's answers are not part of the page's automation: a sign-in tick or a ready page leaves them.
+        [Theory]
+        [InlineData("reportCopied")]
+        [InlineData("reportFailed")]
+        [InlineData("reportCopyFailed")]
+        public void GradeSummaryAnswerSurvivesAutomationAndPolling(string key)
+        {
+            var status = new UiStatus(); status.Update(key); status.Update("signingIn"); status.Update("ready");
+            Assert.True(status.Shows(key)); Assert.True(UiStatus.Describe(key).CanDismiss); Assert.Equal(MessageAction.None, UiStatus.Describe(key).Action);
+        }
         [Fact]
         public void SuccessfulPageClearsWorkingAutomationOnly()
         { var status = new UiStatus(); status.Update("signingIn"); status.Update("ready"); Assert.Null(status.Current); Assert.Equal("ready", status.PageKey); }
         [Fact]
         public void DismissRevealsOtherIndependentMessage()
-        { var status = new UiStatus(); status.Update("paused"); status.Update("downloadComplete"); status.Dismiss(); Assert.Equal("paused", status.Current.Key); }
+        { var status = new UiStatus(); status.Update("manualSignIn"); status.Update("downloadComplete"); status.Dismiss(); Assert.Equal("manualSignIn", status.Current.Key); }
         [Fact]
         public void ErrorPriorityPreventsFalseSuccess()
         { var status = new UiStatus(); status.Update("storageError"); status.Update("downloadComplete"); Assert.Equal(MessageTone.Error, status.Current.Tone); status.Dismiss(); Assert.Equal("storageError", status.Current.Key); }
         [Fact]
         public void FailedSettingsOperationCanRemoveWorkingMessage()
-        { var status = new UiStatus(); status.Update("saving"); status.FinishSettings(); status.Update("paused"); Assert.Equal("paused", status.Current.Key); }
+        { var status = new UiStatus(); status.Update("saving"); status.FinishSettings(); status.Update("manualSignIn"); Assert.Equal("manualSignIn", status.Current.Key); }
         [Fact]
         public void SilentSignInUsesLoadingStateWithoutAnAuthenticationNotification()
         { var status = new UiStatus(); status.Update("signingIn"); Assert.Null(status.Current); Assert.Equal("loading", status.PageKey); status.Update("ready"); Assert.Equal("ready", status.PageKey); }
@@ -74,6 +84,14 @@ namespace Univer.Desktop.Tests
             Assert.True(status.Current.CanDismiss);
             status.BeginNavigation(); Assert.Null(status.Current);
             status.Update("presentationSlow"); status.Retry(); Assert.Null(status.Current);
+        }
+        // A summary that could not be copied is a warning on the grades page only; a saved download stays told.
+        [Fact]
+        public void GradeSummaryAnswerLeavesWithItsPage()
+        {
+            var status = new UiStatus(); status.Update("reportCopyFailed"); status.Update("downloadComplete");
+            Assert.Equal("reportCopyFailed", status.Current.Key);
+            status.BeginNavigation(); Assert.Equal("downloadComplete", status.Current.Key);
         }
     }
 }

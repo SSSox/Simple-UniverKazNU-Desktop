@@ -29,6 +29,18 @@ namespace Univer.Desktop.Tests
             Assert.Equal("", DownloadKeys.Of(null));
         }
         [Fact]
+        public void Key_OfAStaticDocumentIgnoresTheVersionTheSiteAddsOnEveryRender()
+        {
+            // «Документы» and the news link /Content/…pdf?v=<ticks>, and the ticks change on every reload.
+            const string doc = "https://univer.kaznu.kz/Content/instructions/policy.pdf";
+            Assert.Equal(DownloadKeys.Of(doc + "?v=638675"), DownloadKeys.Of(doc + "?v=638676"));
+            Assert.Equal(DownloadKeys.Of(doc), DownloadKeys.Of(doc + "?v=1#page=3"));
+            Assert.NotEqual(DownloadKeys.Of(doc), DownloadKeys.Of("https://univer.kaznu.kz/Content/instructions/other.pdf"));
+            // Other addresses keep their query: it names which file they serve.
+            Assert.NotEqual(DownloadKeys.Of(Address + "?part=1"), DownloadKeys.Of(Address + "?part=2"));
+            Assert.NotEqual(DownloadKeys.Of("https://univer.kaznu.kz/student/files/get?id=1"), DownloadKeys.Of("https://univer.kaznu.kz/student/files/get?id=2"));
+        }
+        [Fact]
         public void Downloaded_FindsTheSameAddressWhileTheFileIsOnDisk()
         {
             var history = new DownloadHistory(root);

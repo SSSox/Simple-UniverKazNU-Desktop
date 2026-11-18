@@ -389,7 +389,7 @@ namespace Univer.Desktop.Core
         // The most common text size becomes 1em, so body text keeps the viewer's readable size in every document.
         private static int BodySize(Document document, char[] text, int[] positions, List<Paragraph> paragraphs, FkpLookup characters)
         {
-            var counts = new Dictionary<int, int>(); int low = -1, high = -1; var size = 0;
+            var counts = new Dictionary<int, int>(); int low, high; var size = 0;
             foreach (var paragraph in paragraphs)
             {
                 low = high = -1;
@@ -662,8 +662,8 @@ namespace Univer.Desktop.Core
             }
             public bool Find(int position, out byte[] grpprl, out int from, out int to, out int istd)
             {
-                int low, high; istd = 0;
-                if (!Find(position, out grpprl, out from, out to, out low, out high)) return false;
+                istd = 0;
+                if (!Find(position, out grpprl, out from, out to, out _, out _)) return false;
                 if (!paragraphs) return true;
                 istd = U16(word, from); from += 2; return true;
             }

@@ -23,6 +23,14 @@ namespace Univer.Desktop.UI
             }
             finally { ReleaseDC(IntPtr.Zero, screen); }
         }
+        // The window's scale: its monitor's DPI on Windows 10 1607 and later, the system DPI before.
+        public static float WindowScale(IntPtr window)
+        {
+            try { var dpi = GetDpiForWindow(window); if (dpi > 0) return dpi / 96f; }
+            catch (EntryPointNotFoundException) { }
+            return Theme.DpiScale;
+        }
+        [DllImport("user32.dll")] private static extern uint GetDpiForWindow(IntPtr window);
         [DllImport("user32.dll")] public static extern IntPtr GetDC(IntPtr window);
         [DllImport("user32.dll")] public static extern int ReleaseDC(IntPtr window, IntPtr dc);
         [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr window, int command);

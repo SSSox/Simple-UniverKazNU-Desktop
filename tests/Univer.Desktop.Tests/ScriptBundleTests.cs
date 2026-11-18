@@ -12,7 +12,7 @@ namespace Univer.Desktop.Tests
         private static readonly string[] Bundle =
         {
             "paint-gate.js", "page-common.js", "univer-automation.js", "news.js", "study-links.js", "study-pages.js",
-            "course-tasks.js", "attendance.js", "overview.js", "shortcuts.js", "notices.js", "univer-layout.js", "page-polish.js", "theme.js", "back-to-top.js", "desktop.js"
+            "course-tasks.js", "attendance.js", "grade-report.js", "overview.js", "shortcuts.js", "notices.js", "univer-layout.js", "page-polish.js", "theme.js", "back-to-top.js", "desktop.js"
         };
         private static string Assets()
         {

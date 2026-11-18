@@ -13,7 +13,7 @@ namespace Univer.Desktop.Core
         private static readonly double Card = Luminance(0x1d, 0x22, 0x29);
         private static readonly double Scale = (Card + 0.05) * 1.05;
         private static readonly double CardHue, CardSaturation;
-        static PreviewTheme() { double l; ToHsl(0x1d, 0x22, 0x29, out CardHue, out CardSaturation, out l); }
+        static PreviewTheme() { ToHsl(0x1d, 0x22, 0x29, out CardHue, out CardSaturation, out _); }
         private static readonly Regex Attribute = new Regex("style=\"([^\"]*)\"", RegexOptions.CultureInvariant);
         private static readonly Regex Declaration = new Regex(@"(^|;)\s*(color|background|background-color)\s*:\s*#([0-9a-fA-F]{6})\b", RegexOptions.CultureInvariant);
         private static readonly Regex Hex = new Regex(@"#([0-9a-fA-F]{6})\b", RegexOptions.CultureInvariant);
@@ -51,7 +51,7 @@ namespace Univer.Desktop.Core
             if (hex == null || hex.Length != 6 || !int.TryParse(hex, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out value)) return hex;
             int r = value >> 16 & 255, g = value >> 8 & 255, b = value & 255;
             var target = Math.Max(0, Math.Min(1, Scale / (Luminance(r, g, b) + 0.05) - 0.05));
-            double h, s, l; ToHsl(r, g, b, out h, out s, out l);
+            double h, s; ToHsl(r, g, b, out h, out s, out _);
             // Greys take the card's own slight blue, so white paper turns into exactly the dark card.
             if (s < 0.05) { h = CardHue; s = CardSaturation; }
             // Luminance grows with HSL lightness at a fixed hue and saturation, so a bisection finds the matching lightness.

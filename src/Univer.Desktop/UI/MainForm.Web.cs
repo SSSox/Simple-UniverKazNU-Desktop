@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using CefSharp;
@@ -47,6 +46,7 @@ namespace Univer.Desktop.UI
             var browser = EnsureWebBrowser(url);
             prepare?.Invoke(browser);
             PlaceWeb(); webPanel.SetLanguage(prefs.Language); webPanel.Visible = true; webPanel.BringToFront(); toast.BringToFront();
+            webPanel.Cover(zoomPercent / 100f);
             if (!created) browser.Load(url);
             browser.Focus();
         }
@@ -68,6 +68,7 @@ namespace Univer.Desktop.UI
             browser.DownloadHandler = new WebDownloadHandler(current, WebDownloadTarget, name => SetStatus("webDownloadBlocked"), WebDownloadProgress, WebDownloadCancelled, ReleaseWebTarget);
             browser.KeyboardHandler = new WebKeys(key => current(() => WebKey(key)));
             browser.LoadingStateChanged += (s, e) => current(() => webPanel.Loading(e.IsLoading));
+            browser.FrameLoadStart += (s, e) => { if (e.Frame.IsMain) current(webPanel.Committed); };
             browser.AddressChanged += (s, e) => current(() => webPanel.Moved());
             browser.TitleChanged += (s, e) => current(() => webPanel.Titled(e.Title));
             browser.LoadError += (s, e) => { if (e.Frame.IsMain && e.ErrorCode != CefErrorCode.Aborted) { var code = e.ErrorCode; current(() => webPanel.Failed(CertificateError(code))); } };

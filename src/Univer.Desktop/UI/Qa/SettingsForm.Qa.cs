@@ -1,7 +1,6 @@
 using System.Drawing;
 using System.Linq;
 using System.Windows.Forms;
-using Univer.Desktop.Core;
 
 namespace Univer.Desktop.UI
 {
@@ -9,6 +8,7 @@ namespace Univer.Desktop.UI
     internal sealed partial class SettingsForm
     {
         internal ModernButton SaveButton { get { return save; } }
+        internal ModernButton LogoutForQa { get { return logout; } }
         internal ModernButton CancelForQa { get { return cancel; } }
         internal Control TabsForQa { get { return accountTab.Parent; } }
         internal Control ViewSheetForQa { get { return viewSheet; } }
@@ -58,7 +58,7 @@ namespace Univer.Desktop.UI
         internal string[] OverflowForQa()
         {
             var flags = TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine;
-            var labels = new[] { logoutTitle, logoutHint, forgetTitle, forgetHint, languageLabel, languageHint, themeLabel, privacy };
+            var labels = new[] { logoutTitle, logoutHint, languageLabel, languageHint, themeLabel, privacy };
             var words = labels.Where(l => TextRenderer.MeasureText(l.Text, l.Font, Size.Empty, flags).Width > l.Width).Select(l => l.Text);
             var buttons = languages.Concat(themes).Where(b => TextRenderer.MeasureText(b.Text, b.Font, Size.Empty, flags).Width > b.Width - Px(8)).Select(b => b.Text);
             var toggles = new[] { readable, tray, animations }.Where(t => !t.FitsForQa).Select(t => t.Text);

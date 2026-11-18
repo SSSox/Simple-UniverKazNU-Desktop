@@ -42,7 +42,7 @@ namespace Univer.Desktop.UI
             if (commandBusy || closing) return false;
             commandBusy = true; SetCommandEnabled(false); SetStatus("saving");
             var languageChanged = prefs.Language != language; var rotated = false;
-            var logout = action == SettingsAction.Logout || action == SettingsAction.Remove;
+            var logout = action == SettingsAction.Remove;
             try
             {
                 if (logout) { await EndSessionAsync(action == SettingsAction.Remove); return !closing; }
@@ -91,7 +91,8 @@ namespace Univer.Desktop.UI
         private void ReportSessionFault(Exception e, bool logout)
         {
             if (StorageFault(e)) { storageFailed = true; SetStatus("storageError"); }
-            else SetStatus(logout ? "paused" : "automationFailed");
+            // A logout's fresh session already shows the sign-in page; it needs no banner.
+            else if (!logout) SetStatus("automationFailed");
         }
         private async Task EndSessionAsync(bool remove)
         {
@@ -100,7 +101,8 @@ namespace Univer.Desktop.UI
             await storage.SavePreferencesAsync(stopped); prefs = stopped;
             if (remove) { await RemoveAccountAsync(); credentials = null; }
             await RotateSessionAsync();
-            if (!closing) { messages.FinishSettings(); SetStatus("paused"); Localize(); }
+            // The sign-in page in the chosen language says it all: no banner over it (the owner's request).
+            if (!closing) { messages.FinishSettings(); RenderFeedback(); Localize(); }
         }
         private async Task LogoutAsync()
         {
@@ -369,10 +371,12 @@ namespace Univer.Desktop.UI
         }
         private bool CurtainFits { get { return !selfTest && !accountReview && Visible && WindowState != FormWindowState.Minimized && Opacity >= .99 && ClientSize.Width > 0 && ClientSize.Height > 0; } }
         private ZoomCurtain curtain;
-        private int curtainZoom, zoomRound;
+        // zoomChanges counts zoom levels given to the browser: a summary picture taken across one is dropped (MainForm.Report.cs).
+        private int curtainZoom, zoomRound, zoomChanges;
         private readonly System.Windows.Forms.Timer zoomSettle = new System.Windows.Forms.Timer { Interval = 150 };
         private void ApplyZoom()
         {
+            if (appliedZoom != zoomPercent) zoomChanges++;
             appliedZoom = zoomPercent;
             if (Active?.IsBrowserInitialized == true) Active.SetZoomLevel(Math.Log(zoomPercent / 100.0, 1.2));
             SetWebZoom();

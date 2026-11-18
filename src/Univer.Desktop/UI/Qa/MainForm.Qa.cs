@@ -40,12 +40,17 @@ namespace Univer.Desktop.UI
                     QaStep("zoom", () => ZoomQaAsync(qa, results)),
                     QaStep("polish", () => PolishQaAsync(qa, results)),
                     QaStep("top", () => TopQaAsync(qa, results)),
+                    QaStep("skeletons", () => SkeletonQaAsync(qa, results)),
+                    QaStep("igpa", () => IgpaQaAsync(qa, results)),
+                    QaStep("report", () => ReportQaAsync(qa, results)),
+                    QaStep("speed", () => SpeedQaAsync(results)),
                     QaStep("product", () => ProductQaAsync(qa, results)),
                     QaStep("theme", () => ThemeQaAsync(qa, results)),
                     QaStep("notices", () => NoticesQaAsync(qa, results)),
                     QaStep("updates", () => UpdatesQaAsync(qa, results)),
                     QaStep("update-entry", () => UpdateEntryQaAsync(results)),
                     QaStep("live", () => liveSmoke ? LiveQaAsync(qa, results) : Task.FromResult(true)),
+                    QaStep("first-load", () => liveSmoke ? FirstLoadQaAsync(qa, results) : Task.FromResult(true)),
                     QaStep("lock", () => LockQaAsync(qa, results)),
                     QaStep("logout", () => LogoutQaAsync(results))
                 };
@@ -291,7 +296,8 @@ namespace Univer.Desktop.UI
             await Task.Delay(150); PerformLayout();
             var visible = await AutomationController.EvaluateAsync(main, "(function(){var f=document.querySelector('#login_frm');if(!f)return '';return Array.from(f.querySelectorAll('input[type=password]')).some(function(p){var r=p.getBoundingClientRect();return r.width>100&&r.height>10&&r.top>=0&&r.bottom<innerHeight;})?'visible-login':'';})()");
             Check(visible == "visible-login", "live password field readable within viewport", results);
-            var styled = await AutomationController.EvaluateAsync(main, "document.documentElement.classList.contains('univer-mobile') && document.getElementById('univer-app-mobile-style') && getComputedStyle(document.querySelector('#login_form')).borderRadius === '16px' ? 'modern' : ''");
+            var styled = await AutomationController.EvaluateAsync(main, "document.documentElement.classList.contains('univer-mobile') && document.getElementById('univer-app-mobile-style') && document.getElementById('univer-desktop-style') && getComputedStyle(document.querySelector('#login_form')).paddingTop === '28px' ? 'modern' : getComputedStyle(document.querySelector('#login_form')).paddingTop");
+            QaTrace("live-styled " + styled);
             Check(styled == "modern", "live desktop site adapter applied", results);
             await AutomationController.EvaluateAsync(main, "window.__univerQaForm=document.getElementById('login_frm');window.__univerQaField=window.__univerQaForm.querySelector('input[type=password]');window.__univerQaHandler=window.__univerQaForm.getAttribute('onsubmit');'remembered'");
             await SetReadableAsync(false);
@@ -334,6 +340,7 @@ namespace Univer.Desktop.UI
 #endif
             await context.GetCookieManager(null).SetCookieAsync(SitePolicy.Origin, new CefSharp.Cookie { Name = "qa_cookie", Value = Guid.NewGuid().ToString("N"), Path = "/", Secure = true });
             await EndSessionAsync(false);
+            Check(messages.Current?.Action != MessageAction.Settings, "a logout puts no banner over the sign-in page", results);
             Check(prefs.AutoLoginPaused && storage.LoadPreferences().AutoLoginPaused, "logout durably pauses automation", results);
             Check(!prefs.SessionClearPending && !storage.LoadPreferences().SessionClearPending, "a finished logout leaves no session for the next start to clear", results);
             Check(main != initialBrowser && prefs.Profile != initialProfile, "logout replaces session profile", results);
@@ -371,8 +378,8 @@ namespace Univer.Desktop.UI
             Check(!storage.LoadPreferences().AutoLoginPaused, "the resumed automatic sign-in is saved for the next launch", results);
             rotationFaultForQa = () => { throw new TimeoutException("QA rotation fault"); };
             try { await LogoutAsync(); } finally { rotationFaultForQa = null; }
-            Check(!storageFailed && messages.Shows("paused") && !messages.Shows("storageError") && prefs.AutoLoginPaused && !commandBusy,
-                "a Chromium deadline during logout leaves a paused session, not a storage failure", results);
+            Check(!storageFailed && !messages.Shows("storageError") && messages.Current?.Action != MessageAction.Settings && prefs.AutoLoginPaused && !commandBusy,
+                "a Chromium deadline during logout leaves a paused session without a banner, not a storage failure", results);
             // Chromium must not shut down while the recovered browser is still being prepared.
             for (var wait = DateTime.UtcNow.AddSeconds(15); !preparedBrowsers.Contains(main) && DateTime.UtcNow < wait;) await Task.Delay(50);
             Check(preparedBrowsers.Contains(main), "the browser recovered after the logout deadline is prepared before exit", results);

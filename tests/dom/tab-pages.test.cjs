@@ -213,7 +213,12 @@ test('Бакалавр reads today\'s classes and grades from the site pages, an
   const panels = Array.from(p.d.querySelectorAll('.univer-app-overview-grid>.univer-app-overview h2')).map(h => h.textContent);
   assert.deepEqual(panels, ['Сегодня', 'Успеваемость']);
   await new Promise(r => setTimeout(r, 20));
-  assert.ok(p.d.querySelector('.univer-app-overview-grades .univer-app-overview-score'));
+  const chip = p.d.querySelector('.univer-app-overview-grades .univer-app-overview-score');
+  // The home card stays one line a course: the band shows in colour and the bar, the words go to the label and tooltip.
+  assert.equal(chip.dataset.univerBand, 'good');
+  assert.equal(chip.querySelector('.univer-app-overview-score-next'), null, 'no second line on the home card');
+  assert.match(chip.getAttribute('aria-label'), /Хорошо, ещё 5 до 90/);
+  assert.match(chip.title, /Ещё 5 до 90/);
   assert.ok(p.d.querySelector('table.mt.univer-app-panel td.univer-app-panel-head .univer-app-link-icon'));
   apply(p, false);
   assert.equal(p.d.querySelector('.univer-app-overview,.univer-app-panel,.univer-app-panel-head,.univer-app-link-icon'), null);

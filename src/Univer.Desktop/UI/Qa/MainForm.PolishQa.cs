@@ -217,6 +217,15 @@ namespace Univer.Desktop.UI
                 using (var client = main.GetDevToolsClient()) File.WriteAllBytes(Path.Combine(qa, "polish-dark-journal.png"), (await client.Page.CaptureScreenshotAsync()).Data);
                 var sumParts = (darkSum ?? "").Split('|');
                 Check(sumParts.Length == 3 && sumParts[0] != "rgba(0, 0, 0, 0)" && double.Parse(sumParts[2], System.Globalization.CultureInfo.InvariantCulture) >= 4.5, "the journal's total stays filled and readable in the dark theme (4.5:1)", results);
+                // Letter grades: a soft dark tile near the card (luminance under 0.04, channels within 40 of each other) and light ink.
+                SetPresentation(main, true); main.LoadHtml(AttestationFixture(false), SitePolicy.Origin + "/student/attestation/"); await WaitQaPresentationAsync(); await ApplyPresentationAsync(); await Task.Delay(400);
+                var letters = await AutomationController.EvaluateAsync(main, "(function(){" + contrast + "return Array.from(document.querySelectorAll('#l4 .univer-app-grade')).map(function(b){var s=getComputedStyle(b),v=s.backgroundColor.match(/\\d+/g).slice(0,3).map(Number);" +
+                    "return b.dataset.band+':'+(l(s.backgroundColor)<0.04&&Math.max.apply(null,v)-Math.min.apply(null,v)<=40)+':'+k(l(s.color),l(s.backgroundColor)).toFixed(2);}).join('|');})()") ?? "";
+                QaTrace("qa-polish-dark-letters " + letters);
+                using (var client = main.GetDevToolsClient()) File.WriteAllBytes(Path.Combine(qa, "polish-dark-letters.png"), (await client.Page.CaptureScreenshotAsync()).Data);
+                var letterParts = letters.Split('|').Select(x => x.Split(':')).ToList();
+                Check(letterParts.Count == 5 && letterParts.All(x => x.Length == 3 && x[1] == "true" && double.Parse(x[2], System.Globalization.CultureInfo.InvariantCulture) >= 4.5),
+                    "letter grades in the dark theme are soft dark tiles with readable ink (" + letters + ")", results);
             }
             finally { prefs.Theme = themeBefore; ApplyTheme(false); }
             prefs.Pins = new List<PinnedLink>(); SetZoom(started); await Task.Delay(150);

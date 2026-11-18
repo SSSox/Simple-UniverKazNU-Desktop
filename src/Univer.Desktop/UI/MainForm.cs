@@ -71,7 +71,7 @@ namespace Univer.Desktop.UI
             this.storage = storage; this.selfTest = selfTest; this.liveSmoke = liveSmoke; this.accountReview = accountReview; this.reviewAll = reviewAll; stopping = lifetime.Token;
             ctrlWheel = new CtrlWheel((delta, time) => Dispatch(() => WheelZoom(delta, time)));
             var stored = storage.Load(); prefs = stored.Preferences; credentials = stored.Credentials; storageFailed = stored.Failed; credentialsUnreadable = stored.CredentialsUnreadable;
-            plainPassword = stored.PlainFile;
+            plainPassword = stored.PlainFile; Program.Mark("stored");
             // A review that may only use the existing session: without credentials in memory an expired session stops at
             // the login page instead of signing in. Nothing is saved in review mode, so the stored record is untouched.
             if (accountReview && Array.IndexOf(Environment.GetCommandLineArgs(), "--review-no-login") >= 0) credentials = null;
@@ -89,6 +89,7 @@ namespace Univer.Desktop.UI
             }
             // Housekeeping of old profiles must never discard successfully loaded settings or credentials.
             if (!storageFailed && !accountReview) { try { storage.CleanOldProfiles(prefs.Profile); if (storage.WebProfileSaved(prefs.WebProfile)) storage.CleanOldWebProfiles(prefs.WebProfile); } catch (Exception) { } }
+            Program.Mark("cleaned");
             // Automated checks read settled layouts, so they always run without motion.
             Motion.Enabled = prefs.Animations && !selfTest && !accountReview;
             Font = Theme.Font(10.5f); ForeColor = Theme.Ink; BackColor = Theme.Background;
@@ -100,7 +101,7 @@ namespace Univer.Desktop.UI
             if (!selfTest && !accountReview) zoomPercent = appliedZoom = prefs.Zoom;
             zoomSettle.Tick += ZoomSettled;
             Icon = LoadAppIcon() ?? Icon;
-            BuildShell(); BuildTray(); BuildShapes(); CreateSession(); Localize(); HookTheme(); BuildUpdates();
+            BuildShell(); Program.Mark("shell"); BuildTray(); BuildShapes(); Program.Mark("shapes"); CreateSession(); Program.Mark("session"); Localize(); HookTheme(); BuildUpdates(); Program.Mark("built");
             timer.Tick += async (s, e) =>
             {
                 if (rotating || closing || commandBusy) return;
@@ -151,6 +152,7 @@ namespace Univer.Desktop.UI
             Load += (s, e) => { if (!selfTest && !accountReview) restored = RestoreWindow(); };
             Shown += async (s, e) =>
             {
+                if (Program.WindowShown == 0) Program.WindowShown = Program.Clock.ElapsedMilliseconds;
                 if (!restored)
                 {
                     var area = Screen.FromControl(this).WorkingArea;
@@ -498,6 +500,9 @@ namespace Univer.Desktop.UI
         }
         private async Task UpdateSiteTitleAsync()
         {
+            // Under the loading cover the page may still be the one before a language switch or a sign-in: its
+            // heading would flash in the toolbar. The reveal reads the heading again once the cover is gone.
+            if (loading.Visible) return;
             var browser = Active; string raw;
             try
             {

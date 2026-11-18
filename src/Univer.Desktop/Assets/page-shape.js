@@ -73,6 +73,9 @@
             var r = node.getBoundingClientRect();
             // Toasts, dialogs and floating menus are not the page; a bar pinned across the top is.
             if (style.position === 'fixed' && !(r.top <= 1 && r.width >= width * .9)) return NodeFilter.FILTER_REJECT;
+            // A bar stuck to the window's bottom (the news pager, an open news item's toggle) belongs far below the first
+            // screen; drawn where it is stuck, its boxes piled up over the placeholder's last rows.
+            if (style.position === 'sticky' && style.bottom !== 'auto' && r.bottom >= height - (parseFloat(style.bottom) || 0) - 2) return NodeFilter.FILTER_REJECT;
             if (r.top + top > height && style.position !== 'absolute') return NodeFilter.FILTER_REJECT;
             return NodeFilter.FILTER_ACCEPT;
         }
@@ -108,5 +111,5 @@
     }
     if (line) add(1, {left:line.left, top:line.top + line.height * .22, width:line.right - line.left, height:Math.max(6, line.height * .56)}, 4);
     items = items.filter(function (item) { return !ruled.has(item) || item[3] >= 120; });
-    return JSON.stringify({v:1, w:width, o:outer, h:height, items:items});
+    return JSON.stringify({v:2, w:width, o:outer, h:height, items:items});
 })();

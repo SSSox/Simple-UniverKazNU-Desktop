@@ -3,13 +3,17 @@
     'use strict';
     if (location.origin !== 'https://univer.kaznu.kz' || window.__univerAttendanceV1) return;
     var common = window.__univerCommonV1, clean = common.clean, ownRows = common.ownRows;
-    var key='univer.desktop.attendance-kind.v1', selected='all', language='ru', state=null;
+    var selected='all', language='ru', state=null;
     var courseKey='univer.desktop.attendance-course.v1:'+location.pathname, selectedCourse='all';
     var hidden=new Map(), labels=new Map(), marked=new Map(), owned=[], identities=new WeakMap(), sequence=0;
-    // The user's own choice per course; without one, details open only when a single course is shown.
+    // The user's own choice per course; without one, details open only when a single course is shown. Nothing of it is
+    // stored (the owner's choice): every visit starts with all courses and all classes, each course as its summary. The
+    // one course a home-page row asks for (overview.js) is read once and removed; choices kept by earlier versions go too.
     var expanded=new Map(), focusToggle=null;
-    try { var saved=sessionStorage.getItem(key); if (/^(all|lecture|seminar|sro)$/.test(saved)) selected=saved; } catch (_) {}
-    try { var course=sessionStorage.getItem(courseKey); if (course && course.length<=1000) selectedCourse=course; } catch (_) {}
+    try {
+        var course=sessionStorage.getItem(courseKey); if (course && course.length<=1000) selectedCourse=course;
+        sessionStorage.removeItem(courseKey); sessionStorage.removeItem('univer.desktop.attendance-kind.v1');
+    } catch (_) {}
     function courseText() {
         return language==='en'?{label:'Courses',all:'All',empty:'No classes yet'}:
             language==='kz'?{label:'Пәндер',all:'Барлығы',empty:'Сабақтар әлі жоқ'}:{label:'Предметы',all:'Все',empty:'Занятия пока не добавлены'};
@@ -28,17 +32,7 @@
     // The same chip the home screen shows, so a grade looks alike wherever it is read.
     function gradeChips(list) {
         var box=document.createElement('span'); box.className='univer-app-overview-scores';
-        list.forEach(item=>{
-            var chip=document.createElement('span'); chip.className='univer-app-overview-score'; chip.setAttribute('role','group');
-            chip.setAttribute('aria-label',item.label+': '+(item.value||'–')+(item.max?' / '+item.max:''));
-            var label=document.createElement('span'); label.className='univer-app-overview-score-label'; label.textContent=item.label;
-            var value=document.createElement('span'); value.className='univer-app-overview-score-value'; value.textContent=item.value||'–';
-            chip.append(label,value);
-            var ratio=item.max&&item.value?Number(item.value.replace(',','.'))/Number(item.max.replace(',','.')):NaN;
-            if (isFinite(ratio)) { var bar=document.createElement('span'); bar.className='univer-app-overview-score-bar'; bar.style.setProperty('--univer-score',Math.round(Math.max(0,Math.min(1,ratio))*100)+'%'); chip.appendChild(bar); }
-            Array.from(chip.children).forEach(child=>child.setAttribute('aria-hidden','true'));
-            box.appendChild(chip);
-        });
+        list.forEach(item=>box.appendChild(common.scoreChip(item,language,true)));
         return box;
     }
     function cell(cls,text) { var node=document.createElement('span'); node.className=cls; node.setAttribute('role','cell'); if (text!=null) node.textContent=text; return node; }
@@ -70,10 +64,17 @@
             var name=document.createElement('span'); name.setAttribute('role','rowheader'); name.textContent=text().total; total.appendChild(name);
             columns.forEach(column=>{
                 var found=periods.find(p=>periodKey(p.label)===column.key), value=found?.value||'';
-                var score=cell('univer-app-score');score.setAttribute('aria-label',text().total+', '+column.label+': '+(value||'–')+(found?.max?' / '+found.max:''));
+                var said=text().total+', '+column.label+': '+(value||'–')+(found?.max?' / '+found.max:''), level=common.band(value,found?.max);
+                var score=cell('univer-app-score');
                 var number=document.createElement('b'); number.className='univer-app-score-value'; number.textContent=value||'–'; score.appendChild(number);
                 var ratio=found?.max&&value?Number(value.replace(',','.'))/Number(found.max.replace(',','.')):NaN;
                 if (isFinite(ratio)) { var bar=document.createElement('span'); bar.className='univer-app-score-bar'; bar.setAttribute('aria-hidden','true'); bar.style.setProperty('--univer-score',(Math.round(Math.max(0,Math.min(1,ratio))*1000)/10)+'%'); score.appendChild(bar); }
+                // The course total out of 100 shows its band and what is left to the next mark.
+                if (level) {
+                    var note=common.bandNote(level,language), next=document.createElement('span'); next.className='univer-app-score-next'; next.setAttribute('aria-hidden','true'); next.textContent=note; score.appendChild(next);
+                    score.dataset.univerBand=level.band; said+='. '+common.bandWords(language)[level.band]+(level.next?', '+note:'');
+                }
+                score.setAttribute('aria-label',said);
                 total.appendChild(score);
             });
             table.appendChild(total);
@@ -285,10 +286,18 @@
         });
         list.append(title,rows);
     }
-    function saveCourse() { try { if(selectedCourse==='all')sessionStorage.removeItem(courseKey);else sessionStorage.setItem(courseKey,selectedCourse); } catch (_) {} }
+    // Every course as the grade summary (grade-report.js) shows it: its name and the server's control periods, or the
+    // server's own words when it wrote no period.
+    function reportCourses(groups) {
+        return groups.filter(group=>group.heading).map(group=>{
+            var periods=group.overall?scores(clean(group.overall)):[];
+            return {name:group.name,periods:periods.map(p=>({label:p.label,max:p.max,value:p.value})),note:!periods.length&&group.overall?clean(group.overall):''};
+        });
+    }
+    function reportText() { return language==='en'?'Print and PDF':language==='kz'?'Басып шығару және PDF':'Печать и PDF'; }
     function chooseCourse(token,event) {
         var from=document.activeElement;
-        selectedCourse=token;saveCourse();render(model());
+        selectedCourse=token;render(model());
         // The pressed overview row is rebuilt; keyboard focus moves to the same course in the course list.
         if(from&&from!==document.body&&!from.isConnected){var target=token==='all'?state.allCourse:state.courseButtons.get(token);target?.focus?.({preventScroll:true});}
         if(event?.detail>0) owned.filter(node=>!node.closest('[hidden]')).forEach(node=>window.__univerMotionUI?.reveal(node,'forward'));
@@ -296,7 +305,7 @@
     }
     function courseControls(groups) {
         var courses=groups.filter(group=>group.heading);
-        if(selectedCourse!=='all'&&!courses.some(group=>group.token===selectedCourse)){selectedCourse='all';saveCourse();}
+        if(selectedCourse!=='all'&&!courses.some(group=>group.token===selectedCourse)){selectedCourse='all';}
         state.courses.hidden=!courses.length;state.courses.setAttribute('aria-label',courseText().label);state.courseCaption.textContent=courseText().label;
         state.allCourse.textContent=courseText().all;state.allCourse.setAttribute('aria-pressed',String(selectedCourse==='all'));
         var keep=new Set();
@@ -336,6 +345,12 @@
             var host=summary(group,open);if(excludeCourse)setHidden(host,true);
         });
         overview(groups);
+        // The summary is offered once a course has a grade; an open one follows new numbers and the language.
+        var report=reportCourses(groups);
+        // Only where the app takes the summary's buttons (SitePolicy.Grades: numeric parts after full/show).
+        state.report.hidden=!REPORT_PAGE.test(location.pathname)||!report.some(course=>course.periods.length);
+        state.reportLabel.textContent=reportText();
+        window.__univerReportV1?.update(report,language);
         state.bar.querySelectorAll('button').forEach(button=>{button.textContent=text()[button.dataset.kind];button.setAttribute('aria-pressed',String(selected===button.dataset.kind));});
         state.bar.setAttribute('aria-label',text().filter);
         // The note explains a type filter, so it appears only while one is active.
@@ -343,6 +358,7 @@
         var focused=root.querySelector('.univer-app-attendance-summary[data-univer-focus] .univer-app-attendance-details-toggle');
         if (focused) { focused.closest('.univer-app-attendance-summary').removeAttribute('data-univer-focus'); focused.focus?.({preventScroll:true}); }
     }
+    var REPORT_PAGE=/^\/student\/attendance\/(full|show)(\/\d+)*\/?$/;
     function apply(lang) {
         language=lang;
         if (document.readyState==='loading') return;
@@ -355,7 +371,7 @@
             var caption=document.createElement('p');caption.className='univer-app-attendance-filter-caption';
             ['all','lecture','seminar','sro'].forEach(type=>{
                 var button=document.createElement('button'); button.type='button'; button.dataset.kind=type;
-                button.addEventListener('click',event=>{selected=type;try{sessionStorage.setItem(key,type);}catch(_){}render(model());if(event.detail>0)owned.filter(node=>!node.closest('[hidden]')).forEach(node=>window.__univerMotionUI?.reveal(node,'content'));}); bar.appendChild(button);
+                button.addEventListener('click',event=>{selected=type;render(model());if(event.detail>0)owned.filter(node=>!node.closest('[hidden]')).forEach(node=>window.__univerMotionUI?.reveal(node,'content'));}); bar.appendChild(button);
             });
             var tools=document.createElement('div');tools.className='univer-app-attendance-tools';
             var courses=document.createElement('nav');courses.className='univer-app-attendance-courses';
@@ -370,14 +386,24 @@
                 buttons[index].focus();buttons[index].click();
             });
             var note=document.createElement('p');note.className='univer-app-attendance-filter-note';
-            var summaryList=document.createElement('section');summaryList.className='univer-app-attendance-overview';tools.append(courses,caption,bar,note,summaryList);
+            var summaryList=document.createElement('section');summaryList.className='univer-app-attendance-overview';
+            var actions=document.createElement('div');actions.className='univer-app-attendance-actions';
+            var report=document.createElement('button');report.type='button';report.className='univer-app-attendance-report';report.setAttribute('aria-haspopup','dialog');
+            report.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9V3h12v6"/><rect x="3" y="9" width="18" height="8" rx="2"/><path d="M7 14h10v7H7z"/></svg><span></span>';
+            var reportLabel=report.lastChild;
+            report.addEventListener('click',()=>window.__univerReportV1?.open(reportCourses(model()),language,report));
+            actions.appendChild(report);
+            // The class-type switch and the summary's button share one row: filters on the left, the action on the right.
+            var filterRow=document.createElement('div');filterRow.className='univer-app-attendance-filter-row';filterRow.append(bar,actions);
+            tools.append(courses,caption,filterRow,note,summaryList);
             insertAfterCell(groups[0].heading||groups[0].lessons[0].cell,tools,true);
             // The filter bar has its own lifetime; summary rebuilds must not remove it.
-            var host=owned.pop(); state={bar,host,caption,note,courses,courseCaption,courseList,allCourse,courseButtons:new Map(),overview:summaryList,signature:null};
+            var host=owned.pop(); state={bar,host,caption,note,courses,courseCaption,courseList,allCourse,courseButtons:new Map(),overview:summaryList,report:actions,reportLabel,signature:null};
         }
         if (state.signature!==signature) { state.signature=signature; render(groups); }
     }
     function release() {
+        window.__univerReportV1?.close();
         marked.forEach((absent,cell)=>{cell.classList.remove('univer-app-sum');if(absent&&!cell.className)cell.removeAttribute('class');}); marked.clear();
         resetVisibility(); owned.forEach(node=>{window.__univerMotionUI?.stop(node);node.remove();}); owned=[];
         labels.forEach((record,link)=>{record.caption.remove();record.attrs.forEach(a=>{if(a[1]===null)link.removeAttribute(a[0]);else link.setAttribute(a[0],a[1]);});}); labels.clear();

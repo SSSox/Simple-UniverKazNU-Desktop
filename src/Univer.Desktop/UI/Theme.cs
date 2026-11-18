@@ -79,10 +79,12 @@ namespace Univer.Desktop.UI
         // The kit's type scale at 96 DPI: 11, 12, 13, 14 and 15 px, one family, hierarchy from one weight step.
         // Caption is only for short labels; readable secondary text starts at Meta.
         public const float Caption = 8.25f, Meta = 9f, Body = 9.75f, Emphasis = 10.5f, Title = 11.25f;
-        private static readonly FontChoice fonts = LoadFonts();
-        public static Font Font(float size) { return new Font(fonts.Regular, size); }
+        // Enumerating the installed families takes ~25 ms; Program starts it on a worker while Chromium starts.
+        private static readonly Lazy<FontChoice> fonts = new Lazy<FontChoice>(LoadFonts);
+        public static void LoadFontsEarly() { var unused = fonts.Value; }
+        public static Font Font(float size) { return new Font(fonts.Value.Regular, size); }
         public static Font Font(float size, Font template) { return new Font(template.FontFamily, size, template.Style); }
-        public static Font Strong(float size) { return fonts.Strong != null ? new Font(fonts.Strong, size) : new Font(fonts.Regular, size, FontStyle.Bold); }
+        public static Font Strong(float size) { var choice = fonts.Value; return choice.Strong != null ? new Font(choice.Strong, size) : new Font(choice.Regular, size, FontStyle.Bold); }
         // Titles: the same family one weight up.
         public static Font Display(float size) { return Strong(size); }
         private static FontChoice LoadFonts()

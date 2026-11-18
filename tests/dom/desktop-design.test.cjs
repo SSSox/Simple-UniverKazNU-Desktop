@@ -479,3 +479,18 @@ test('arrows beside the week list step to the neighbouring week through the site
   assert.equal(p.d.querySelector('.univer-app-week-nav'), null); assert.equal(select.parentElement.tagName, 'TD'); assert.equal(select.selectedIndex, 1);
   p.close();
 });
+test('the first pass lays the page out once, with every stylesheet in place: all widths are read before any hint is written', () => {
+  const table = n => '<table id="t' + n + '"><tr><td>Дисциплина</td><td>Балл</td></tr></table>';
+  const p = page(shell.replace('CONTENT', table(1) + table(2)), 'https://univer.kaznu.kz/student/bachelor/');
+  const reads = [];
+  const read = what => reads.push({ what, styled: !!p.d.getElementById('univer-desktop-style'), hints: p.d.querySelectorAll('.univer-app-scroll-hint').length });
+  Object.defineProperty(p.w.HTMLElement.prototype, 'scrollWidth', { configurable: true, get() { if (this.matches('.univer-app-table-scroll')) read(this.firstElementChild.id); return 900; } });
+  Object.defineProperty(p.w.HTMLElement.prototype, 'clientWidth', { configurable: true, get() { return 300; } });
+  p.w.visualViewport = { offsetTop: 0, get height() { read('viewport'); return 700; }, addEventListener() {}, removeEventListener() {} };
+  apply(p);
+  assert.deepEqual(reads.map(r => r.what), ['t1', 't2', 'viewport']);
+  assert.ok(reads.every(r => r.styled && r.hints === 0), JSON.stringify(reads));
+  assert.equal(p.d.querySelectorAll('.univer-app-scroll-hint:not([hidden])').length, 2);
+  assert.equal(p.d.documentElement.style.getPropertyValue('--univer-dialog-height'), '676px');
+  p.close();
+});

@@ -1137,20 +1137,29 @@ html.univer-mobile.univer-app-document body { padding:24px!important; background
             selectedLanguage === 'kz' ? 'Кесте, көлденең айналдыру' : 'Таблица, прокрутка по горизонтали');
         table.parentNode.insertBefore(box, table); box.appendChild(table);
     }
-    function scrollHints() {
+    // Table widths and the dialog viewport are read here, before the hints are written: the page is laid out once for
+    // them, not once per table (a hint written between two reads lays the whole page out again; 1500 rows cost ~100 ms
+    // a layout). The sections menu, simplemodal dialogs and the news polish still read their own boxes earlier in the pass.
+    function measure() {
+        if (!enabled) return;
+        var boxes = Array.from(document.querySelectorAll('.univer-app-table-scroll'));
+        var wide = boxes.map(function (box) { return !!box.getClientRects().length && box.scrollWidth > box.clientWidth + 2; });
+        dialogViewport();
+        scrollHints(boxes, wide);
+    }
+    function scrollHints(boxes, wide) {
         // The arrow shows which way the table moves.
         var caption = selectedLanguage === 'en' ? '↔ Swipe the table sideways to see all columns' :
             selectedLanguage === 'kz' ? '↔ Барлық бағанды көру үшін кестені көлденең жылжытыңыз' :
             '↔ Сдвиньте таблицу вбок, чтобы увидеть все столбцы';
-        document.querySelectorAll('.univer-app-table-scroll').forEach(function (box) {
+        boxes.forEach(function (box, i) {
             var hint = box.__univerHint;
-            var wide = box.getClientRects().length && box.scrollWidth > box.clientWidth + 2;
-            if (!hint && wide) {
+            if (!hint && wide[i]) {
                 hint = document.createElement('p'); hint.className = 'univer-app-scroll-hint';
                 box.before(hint); box.__univerHint = hint;
             }
-            if (hint) { if (hint.textContent !== caption) hint.textContent = caption; hint.hidden = !wide; }
-            box.setAttribute('aria-label', caption);
+            if (hint) { if (hint.textContent !== caption) hint.textContent = caption; if (hint.hidden !== !wide[i]) hint.hidden = !wide[i]; }
+            if (box.getAttribute('aria-label') !== caption) box.setAttribute('aria-label', caption);
         });
         document.querySelectorAll('.univer-app-scroll-hint').forEach(function (hint) {
             if (!hint.nextElementSibling?.classList.contains('univer-app-table-scroll')) hint.remove();
@@ -1373,7 +1382,8 @@ html.univer-mobile.univer-app-document body { padding:24px!important; background
             if(rows.some(function(r){return r.cells.length>1 || r.cells[0]?.colSpan>1;}))wrapTable(table);
         });
     }
-    function adapt() {
+    // later: the caller adds its own stylesheets first and then calls measure(), so the page is laid out with them.
+    function adapt(later) {
         queued = false;
         if (!enabled || !document.body) return;
         // Observe website updates, not the adapter's own class/DOM changes.
@@ -1410,7 +1420,6 @@ html.univer-mobile.univer-app-document body { padding:24px!important; background
         window.__univerPagesV1?.apply(selectedLanguage);
         window.__univerTasksV1?.apply(selectedLanguage);
         window.__univerPolishV1?.apply(selectedLanguage);
-        dialogViewport();
         document.querySelectorAll('.univer-app-modal-toolbar').forEach(function (bar) {
             if (!bar.__univerContainer?.isConnected) { bar.remove(); return; }
             var hidden = !bar.__univerContainer.getClientRects().length;
@@ -1510,11 +1519,23 @@ html.univer-mobile.univer-app-document body { padding:24px!important; background
         adaptUsability();
         window.__univerNewsV1?.apply(selectedLanguage);
         adaptFrames();
-        scrollHints();
+        if (!later) measure();
         } finally {
             window.__univerPresentationV1?.release();
-            if (enabled) observer?.observe(document.documentElement, {childList:true, subtree:true, characterData:true,
-                attributes:true, attributeFilter:['style','class','hidden']});
+            if (enabled) watch();
+        }
+    }
+    function watch() {
+        observer?.observe(document.documentElement, {childList:true, subtree:true, characterData:true, attributes:true, attributeFilter:['style','class','hidden']});
+    }
+    // The deferred measure of setEnabled(…, true). What was recorded meanwhile (the site's changes, the caller's stylesheets)
+    // still adapts on the next pass, as before; measure's own writes do not.
+    function measureLater() {
+        if (!enabled) return;
+        var pending = observer ? observer.takeRecords() : [];
+        observer?.disconnect();
+        try { measure(); } finally {
+            if (enabled) { watch(); if (pending.length) observed(pending); }
         }
     }
     function filterMenu() {
@@ -1561,11 +1582,12 @@ html.univer-mobile.univer-app-document body { padding:24px!important; background
         if (typeof requestAnimationFrame === 'function') requestAnimationFrame(run);
         setTimeout(run, 100);
     }
-    function setEnabled(value, language) {
+    // later: the pass skips its layout reads and returns true when the caller must call measure() itself.
+    function setEnabled(value, language, later) {
         // AJAX is handled by the observer. Repeated native renders need no full DOM/layout traversal.
         if (enabled === !!value && selectedLanguage === language) {
             if (enabled) dialogViewport();
-            return;
+            return false;
         }
         selectedLanguage = language;
         menuTitle = language === 'en' ? 'Univer sections' : language === 'kz' ? 'Univer бөлімдері' : 'Разделы Univer';
@@ -1587,7 +1609,7 @@ html.univer-mobile.univer-app-document body { padding:24px!important; background
             var style = document.createElement('style'); style.id = 'univer-app-mobile-style'; style.textContent = css;
             (document.head || document.documentElement).appendChild(style);
             observer = new MutationObserver(observed);
-            observer.observe(document.documentElement, {childList:true, subtree:true, characterData:true, attributes:true, attributeFilter:['style','class','hidden']});
+            watch();
             window.addEventListener('resize', schedule);
             window.addEventListener('univer-frame-ready', schedule);
             window.addEventListener('scroll', returnToMenuVisibility, {passive:true});
@@ -1692,9 +1714,10 @@ html.univer-mobile.univer-app-document body { padding:24px!important; background
                 node.classList.remove('univer-app-shell','univer-app-news','univer-app-data','univer-app-data-field');
             });
         }
-        adapt();
+        adapt(later);
+        return !!later && enabled;
     }
-    window.__univerMobileV1 = {setEnabled:setEnabled, setSettingsCorner:function (corner) {
+    window.__univerMobileV1 = {setEnabled:setEnabled, measure:measureLater, setSettingsCorner:function (corner) {
         if (!/^(TOP|BOTTOM)_(LEFT|RIGHT)$/.test(corner)) return;
         if (settingsCorner === corner) return;
         settingsCorner = corner; if (enabled) document.documentElement.dataset.univerCorner = settingsCorner; schedule();

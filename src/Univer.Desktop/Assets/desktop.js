@@ -231,7 +231,8 @@
     window.__univerDesktop.apply = function (enabled, viewer, language) {
         window.__univerDesktop.enabled = enabled;
         window.__univerDesktop.viewer = viewer;
-        if (window.__univerMobileV1) window.__univerMobileV1.setEnabled(enabled, language || 'ru');
+        // The adapter's layout reads wait for this layer's stylesheets below: the page is laid out once, with all of them.
+        var measure = !!window.__univerMobileV1 && window.__univerMobileV1.setEnabled(enabled, language || 'ru', true);
         // The dark theme belongs to the reading layout only; Original removes it with the rest of the presentation.
         function apply(doc) {
             present(doc);
@@ -401,6 +402,25 @@
  :root.univer-mobile[data-univer-page=attestation] #l4 td.center { padding-left:calc((100% - 960px) / 2)!important; padding-right:calc((100% - 960px) / 2)!important; }
  :root:root:root:root:root:root.univer-mobile[data-univer-page=attestation] #l4 td.center :is(.univer-app-table-scroll,table.univer-app-grades) { width:100%!important; max-width:100%!important; box-sizing:border-box; }
  :root:root:root:root:root:root.univer-mobile[data-univer-page=attestation] #l4 table.univer-app-grades>tbody>tr>:is(td,th):first-child:not([colspan]) { width:52%!important; }
+}
+/* Room for «Наверх» (back-to-top.js): a page with a small control under the button's place gets side padding as wide
+   as the button and its gaps, so the button stands beside the page. Centred columns narrow on both sides; the schedule's
+   full-width week and a narrow window only on the right. On screen only: the button is not printed. */
+:root.univer-mobile[data-univer-top-room="144"] { --u-top-room:144px; }
+:root.univer-mobile[data-univer-top-room="160"] { --u-top-room:160px; }
+:root.univer-mobile[data-univer-top-room="176"] { --u-top-room:176px; }
+:root.univer-mobile[data-univer-top-room="192"] { --u-top-room:192px; }
+:root.univer-mobile[data-univer-top-room="208"] { --u-top-room:208px; }
+:root.univer-mobile[data-univer-top-room="224"] { --u-top-room:224px; }
+:root.univer-mobile[data-univer-top-room="240"] { --u-top-room:240px; }
+@media screen and (min-width:900px) {
+ :root:root.univer-mobile[data-univer-top-room]:not(.univer-app-schedule-page) #l4 td.center { padding-left:max(32px, calc((100% - var(--u-page)) / 2), var(--u-top-room))!important; padding-right:max(32px, calc((100% - var(--u-page)) / 2), var(--u-top-room))!important; }
+ :root:root.univer-mobile[data-univer-top-room][data-univer-page=attestation] #l4 td.center { padding-left:max(32px, calc((100% - 960px) / 2), var(--u-top-room))!important; padding-right:max(32px, calc((100% - 960px) / 2), var(--u-top-room))!important; }
+}
+@media screen { :root:root.univer-mobile.univer-app-schedule-page[data-univer-top-room] #l4 td.center { padding-right:max(32px, var(--u-top-room))!important; } }
+/* Right only at any width (a fractional 899–900 px viewport included); from 900 px the rules above outweigh it. */
+@media screen {
+ :root:root.univer-mobile[data-univer-top-room] #l4 td.center { padding-right:max(16px, var(--u-top-room))!important; }
 }
 :root.univer-mobile table.mt { background:transparent!important; border:0!important; }
 :root.univer-mobile #l4 table.mt>tbody>tr.top>:is(.ct,.tt) { padding:16px 0 8px!important; background:none!important; color:var(--u-ink)!important; font-size:var(--u-fs-title)!important; font-weight:500!important; line-height:1.35!important;  }
@@ -664,7 +684,14 @@
 :root.univer-mobile #l4 p.univer-app-attendance-overall { margin:0 0 8px!important; font-size:var(--u-fs-meta)!important; font-weight:500; color:var(--u-muted); }
 :root.univer-mobile #l4 p.univer-app-attendance-overall-value { color:var(--u-ink); font-size:var(--u-fs-section)!important; font-weight:500; }
 /* Control periods (РК1, РК2, exam) are score tiles: the number leads, the maximum and a bar give scale. */
-:root.univer-mobile #l4 :is(.univer-app-attendance-overview,.univer-app-attendance-filter-note,.univer-app-attendance-overall-value)[hidden] { display:none!important; }
+:root.univer-mobile #l4 :is(.univer-app-attendance-overview,.univer-app-attendance-filter-note,.univer-app-attendance-overall-value,.univer-app-attendance-actions)[hidden] { display:none!important; }
+/* «Печать и PDF» opens the grade summary (grade-report.js): one quiet button at the right of the class-type row. */
+:root.univer-mobile #l4 .univer-app-attendance-filter-row { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:10px 16px; }
+:root.univer-mobile #l4 .univer-app-attendance-actions { display:flex; margin:0 0 0 auto; }
+:root:root:root:root.univer-mobile #l4 button.univer-app-attendance-report { display:inline-flex!important; align-items:center; gap:8px; width:auto!important; height:36px!important; min-height:36px!important; margin:0!important; padding:0 14px!important; border:1px solid var(--u-line)!important; border-radius:10px!important; background:var(--u-surface)!important; box-shadow:none!important; color:var(--u-brand)!important; font-size:13px!important; font-weight:600!important; }
+:root:root:root:root.univer-mobile #l4 button.univer-app-attendance-report:hover { background:var(--u-brand-soft)!important; }
+:root:root:root:root.univer-mobile #l4 button.univer-app-attendance-report:focus-visible { outline:2px solid var(--u-brand)!important; outline-offset:2px; }
+:root.univer-mobile #l4 button.univer-app-attendance-report svg { flex:none; width:18px; height:18px; fill:none; stroke:currentColor; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
 :root.univer-mobile #l4 .univer-app-attendance-scores { display:flex; flex-wrap:wrap; gap:8px; }
 :root.univer-mobile #l4 .univer-app-score { position:relative; display:grid; grid-template-columns:auto 1fr; align-items:baseline; column-gap:4px; min-width:104px; box-sizing:border-box; padding:8px 12px 12px; overflow:hidden; border:1px solid var(--u-brand-line); border-radius:10px; background:var(--u-brand-soft); }
 :root.univer-mobile #l4 .univer-app-score-label { grid-column:1/-1; color:var(--u-ink); font-size:var(--u-fs-caption); font-weight:600;  }
@@ -897,6 +924,23 @@
 :root.univer-mobile #l4 .univer-app-attendance-filter-caption { position:relative; z-index:1; }
 :root.univer-mobile .univer-kit-thumb { position:absolute; left:0; top:0; border-radius:6px; background:#fff; box-shadow:0 1px 2px rgba(16,40,70,.1),0 0 0 .5px rgba(16,40,70,.08); transition:transform .3s var(--u-ease-out),width .3s var(--u-ease-out),height .3s var(--u-ease-out); pointer-events:none; }
 :root.univer-mobile #l4 .univer-kit-slid button[aria-pressed=true] { background:transparent!important; box-shadow:none!important; color:var(--u-brand)!important; }
+/* IGPA's period switch (За учебный год | Накопительный): the site joins two links into one bordered box and marks the
+   chosen one with a faint tint, so they read as one button. The same track and raised thumb as the segmented above, on
+   screen only, so the site's print rules still hide its screen-only parts. */
+@media screen {
+:root:root:root.univer-mobile #l4 .igpa-period:not([hidden]) { display:inline-flex!important; gap:2px!important; padding:2px!important; border:0!important; border-radius:8px!important; background:#e9eef4!important; overflow:visible!important; }
+:root:root:root.univer-mobile #l4 .igpa-period>a:not([hidden]) { display:inline-flex!important; align-items:center!important; min-height:32px!important; height:auto!important; margin:0!important; padding:0 14px!important; border:0!important; border-radius:6px!important; background:transparent!important; box-shadow:none!important; color:var(--u-muted)!important; font-weight:500!important; text-decoration:none!important; }
+:root:root:root.univer-mobile #l4 .igpa-period>a:is(.igpa-selected,[aria-current]) { background:#fff!important; color:var(--u-brand)!important; font-weight:600!important; box-shadow:0 1px 2px rgba(16,40,70,.1),0 0 0 .5px rgba(16,40,70,.08)!important; }
+}
+@media (hover:hover) { :root:root:root.univer-mobile #l4 .igpa-period>a:not(.igpa-selected,[aria-current]):hover { color:var(--u-ink)!important; } }
+/* IGPA's form buttons («Отправить на проверку», «Очистить») and its request filter (two lists and «Показать») stand apart,
+   the rows (period switch, buttons, filter) do not touch, and a filter label keeps off its list. */
+@media screen {
+:root:root:root.univer-mobile #l4 .igpa-ui :is(.igpa-form-actions,.igpa-filter):not([hidden]) { display:flex!important; flex-wrap:wrap!important; align-items:flex-end!important; gap:8px 12px!important; }
+:root:root:root.univer-mobile #l4 .igpa-ui :is(.igpa-form-actions,.igpa-filter)>* { margin:0!important; }
+:root:root:root.univer-mobile #l4 .igpa-ui :is(.igpa-period,.igpa-form-actions,.igpa-filter):not([hidden]) { margin-bottom:12px!important; }
+:root:root:root.univer-mobile #l4 .igpa-ui .igpa-filter-field>select { margin-inline-start:8px!important; }
+}
 /* Filter chips: a pill whose state fades in, its count a badge. */
 :root.univer-mobile #l4 .univer-app-days button { min-height:28px!important; padding:3px 11px!important; border-radius:999px!important; font-size:13px!important; font-weight:500; transition:background-color .15s ease,color .15s ease,border-color .15s ease; }
 /* Badges: pills, 20 px, the small label size. */
@@ -934,6 +978,22 @@
 :root:root:root.univer-mobile #l4 .univer-app-overview-courses>li>a.univer-app-overview-course-link { display:block!important; min-height:0!important; padding:0!important; line-height:1.4!important; }
 :root:root.univer-mobile .univer-app-overview-scores { flex-wrap:nowrap; gap:6px; }
 :root:root.univer-mobile .univer-app-overview-score, :root:root.univer-mobile .univer-app-overview-courses .univer-app-overview-score { box-sizing:border-box; min-width:68px; padding:3px 8px 6px; background:var(--u-surface); }
+/* Score bands out of 100 (page-common.js band): below 50 a shortfall, 50–69 satisfactory, 70–89 good, 90+ excellent. Soft
+   tints with a darker ink of the same hue, so each reads at a glance and keeps 4.5:1; the line under the tile is the whole
+   scale and its fill the score. The words beside the colour ("ещё 7 до 70") carry the same meaning without it. */
+:root.univer-mobile { --univer-band-low:#e58a80; --univer-band-low-ink:#a8473d; --univer-band-low-soft:#fdf0ef; --univer-band-low-line:#f3cdc8;
+  --univer-band-fair:#e5b862; --univer-band-fair-ink:#7d5a17; --univer-band-fair-soft:#fdf5e4; --univer-band-fair-line:#eed9a8;
+  --univer-band-good:#6cb38c; --univer-band-good-ink:#2f6b4b; --univer-band-good-soft:#ebf7f0; --univer-band-good-line:#c3e3d0;
+  --univer-band-top:#7b9fdc; --univer-band-top-ink:#365e9f; --univer-band-top-soft:#eaf2fd; --univer-band-top-line:#c6d8f3; }
+:root.univer-mobile [data-univer-band=low] { --univer-band:var(--univer-band-low); --univer-band-ink:var(--univer-band-low-ink); --univer-band-soft:var(--univer-band-low-soft); --univer-band-line:var(--univer-band-low-line); }
+:root.univer-mobile [data-univer-band=fair] { --univer-band:var(--univer-band-fair); --univer-band-ink:var(--univer-band-fair-ink); --univer-band-soft:var(--univer-band-fair-soft); --univer-band-line:var(--univer-band-fair-line); }
+:root.univer-mobile [data-univer-band=good] { --univer-band:var(--univer-band-good); --univer-band-ink:var(--univer-band-good-ink); --univer-band-soft:var(--univer-band-good-soft); --univer-band-line:var(--univer-band-good-line); }
+:root.univer-mobile [data-univer-band=top] { --univer-band:var(--univer-band-top); --univer-band-ink:var(--univer-band-top-ink); --univer-band-soft:var(--univer-band-top-soft); --univer-band-line:var(--univer-band-top-line); }
+:root:root:root.univer-mobile .univer-app-overview-score[data-univer-band] { flex-wrap:wrap; row-gap:0; border-color:var(--univer-band-line); background:var(--univer-band-soft); transition:background-color .2s ease,border-color .2s ease; }
+:root:root:root.univer-mobile .univer-app-overview-score[data-univer-band]::before { content:''; position:absolute; left:0; right:0; bottom:0; height:3px; background:var(--univer-band-line); }
+:root:root:root.univer-mobile .univer-app-overview-score[data-univer-band] .univer-app-overview-score-value { color:var(--univer-band-ink); }
+:root:root:root.univer-mobile .univer-app-overview-score[data-univer-band] .univer-app-overview-score-bar { background:var(--univer-band); }
+:root:root:root.univer-mobile .univer-app-overview-score-next { flex:0 0 100%; color:var(--univer-band-ink); font-size:12px; font-weight:500; line-height:1.35; white-space:nowrap; font-variant-numeric:tabular-nums; }
 :root:root.univer-mobile #l4 .univer-app-attendance-overview { padding:0; overflow:clip; }
 :root:root.univer-mobile #l4 p.univer-app-attendance-overview-title { display:flex; align-items:center; min-height:52px; box-sizing:border-box; margin:0!important; padding:14px 20px; border-bottom:1px solid var(--u-line); background:var(--u-surface-2); color:var(--u-ink); font-size:16px!important; font-weight:600; }
 :root:root.univer-mobile #l4 ul.univer-app-attendance-overview-list { padding:6px 20px 12px!important; }
@@ -1080,6 +1140,12 @@
 :root:root:root.univer-mobile #l4 .univer-app-score-total .univer-app-score-value { display:block; color:var(--u-ink); font-size:17px; font-weight:700; line-height:1.2; }
 :root:root:root.univer-mobile #l4 .univer-app-score-total .univer-app-score-bar { position:relative; display:block; left:auto; right:auto; bottom:auto; height:3px; margin:3px 0 0 auto; width:56px; border-radius:2px; overflow:hidden; background:var(--u-brand-line); }
 :root:root:root.univer-mobile #l4 .univer-app-score-total .univer-app-score-bar::after { border-radius:2px; }
+/* A course total out of 100: its band's ink and fill, gaps in the line at 50, 70 and 90, and what is left to the next mark. */
+:root:root:root.univer-mobile #l4 .univer-app-score-total [data-univer-band] .univer-app-score-value { color:var(--univer-band-ink); }
+:root:root:root.univer-mobile #l4 .univer-app-score-total [data-univer-band] .univer-app-score-bar { width:72px; height:4px; background:var(--univer-band-line); }
+:root:root:root.univer-mobile #l4 .univer-app-score-total [data-univer-band] .univer-app-score-bar::after { background:var(--univer-band); }
+:root:root:root.univer-mobile #l4 .univer-app-score-total [data-univer-band] .univer-app-score-bar::before { content:''; position:absolute; inset:0; z-index:1; background:linear-gradient(90deg,transparent calc(50% - 1px),var(--u-surface) calc(50% - 1px) 50%,transparent 50% calc(70% - 1px),var(--u-surface) calc(70% - 1px) 70%,transparent 70% calc(90% - 1px),var(--u-surface) calc(90% - 1px) 90%,transparent 90%); }
+:root:root:root.univer-mobile #l4 .univer-app-score-next { display:block; margin-top:3px; color:var(--univer-band-ink); font-size:12px; font-weight:500; line-height:1.3; white-space:nowrap; }
 :root:root:root.univer-mobile #l4 p.univer-app-attendance-nothing, :root:root:root.univer-mobile #l4 .univer-app-attendance-summary>.univer-app-type-row, :root:root:root.univer-mobile #l4 p.univer-app-attendance-overall-value { margin:0!important; padding:10px 16px!important; color:var(--u-muted); font-size:14px!important; }
 :root:root:root:root.univer-mobile #l4 button.univer-app-attendance-details-toggle { display:flex!important; align-items:center; width:100%; height:38px!important; min-height:38px!important; margin:0!important; padding:0 16px!important; border:0!important; border-top:1px solid var(--u-line)!important; border-radius:0!important; background:transparent!important; box-shadow:none!important; color:var(--u-brand)!important; font-size:13px!important; font-weight:600!important; outline:none; }
 :root:root:root:root.univer-mobile #l4 button.univer-app-attendance-details-toggle:hover { background:var(--u-brand-soft)!important; }
@@ -1200,6 +1266,7 @@
         }
         apply(document);
         if (window.__univerKitV1) window.__univerKitV1.configure(enabled && !viewer);
+        if (measure) window.__univerMobileV1.measure();
         if (window.__univerTopV1) window.__univerTopV1.configure(enabled, language || 'ru');
         // Same-origin frames only. Polling sees late frames without rewriting page contents.
         Array.from(document.querySelectorAll('iframe,frame')).forEach(function (frame) {

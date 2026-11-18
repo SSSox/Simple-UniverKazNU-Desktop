@@ -248,14 +248,7 @@
                     sessionStorage.setItem('univer.desktop.attendance-course.v1:/student/attendance/full', course.token);
                 } catch (_) { }
             });
-            course.scores.forEach(function (score) {
-                var chip = element('span', 'univer-app-overview-score'), ratio = score.max && score.value ? Number(score.value.replace(',', '.')) / Number(score.max.replace(',', '.')) : NaN;
-                chip.setAttribute('aria-label', score.label + ': ' + (score.value || '–') + (score.max ? ' / ' + score.max : ''));
-                chip.append(element('span', 'univer-app-overview-score-label', score.label), element('span', 'univer-app-overview-score-value', score.value || '–'));
-                if (isFinite(ratio)) { var bar = element('span', 'univer-app-overview-score-bar'); bar.style.setProperty('--univer-score', Math.round(Math.max(0, Math.min(1, ratio)) * 100) + '%'); chip.appendChild(bar); }
-                Array.from(chip.children).forEach(function (c) { c.setAttribute('aria-hidden', 'true'); });
-                chips.appendChild(chip);
-            });
+            course.scores.forEach(function (score) { chips.appendChild(common.scoreChip(score, language, true)); });
             li.append(name, chips); list.appendChild(li);
         });
         body.appendChild(list); var more = limit(list, 5); if (more) body.appendChild(more);

@@ -99,7 +99,7 @@ namespace Univer.Desktop.UI
             page(print + "9030/2", SyllabusFixture("2026", SyllabusGroup(SyllabusMine), "Образцов О. О.",
                 SyllabusWeek(4, SyllabusEntry("лекция", "лекция 4", "Тюркская цивилизация", "0"), SyllabusEntry("СРО/СРОП", "СРО 1", "Контрольная работа. Письменно.", "15", true), SyllabusEntry("СРО/СРОП", "СРОП 3", "Разъяснение замечаний по СРО", "0"))));
             // Every week of the site's week list, read to learn in which weeks the group has each class.
-            for (var week = 3; week <= 5; week++) { string label; page(SyllabusWeekRoute(week, out label), SyllabusScheduleFixture(week)); }
+            for (var week = 3; week <= 5; week++) page(SyllabusWeekRoute(week, out _), SyllabusScheduleFixture(week));
         }
         // Native checks: the background reads through the real request path, the topic under each class, the week's
         // independent work, the limits and the buttons as Chromium lays them out, narrow width and Original.

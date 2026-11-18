@@ -61,6 +61,7 @@ namespace Univer.Desktop.UI
             var reveal = ++revealGeneration;
             if (busy) { var shown = !loading.Visible; loading.Visible = true; if (!DownloadsVisible) loading.BringToFront(); if (shown && loading.IsHandleCreated) loading.Refresh(); return; }
             if (!wasBusy) return;
+            if (Program.FirstReveal == 0) Program.FirstReveal = Program.Clock.ElapsedMilliseconds;
             if (selfTest || accountReview) { loading.Visible = false; ScheduleShape(browser); QueueAsync(UpdateSiteTitleAsync); return; }
             // Uncover a few frames later, once Chromium has painted the revealed page; uncovering at once
             // could show the compositor's empty surface for a frame.
@@ -75,9 +76,19 @@ namespace Univer.Desktop.UI
             });
         }
         private int revealGeneration;
+        // What the first session found and the address each session opened with; the live self-test reads them, and
+        // freshForQa lets it take the new-profile road a self-test otherwise skips.
+        private bool sessionStarted, profileAbsentAtStart, freshForQa;
+        private string sessionAddress;
         private void CreateSession()
         {
             var epoch = ++sessionEpoch;
+            // A new profile (first start, or the one a logout makes) has no language cookie, so the site would answer
+            // in Kazakh until automation switched it. Its first page is the chosen flag's link, which redirects to the
+            // start page in that language; an app load carries no user gesture, so it changes no preference.
+            var absent = !System.IO.Directory.Exists(storage.ProfilePath(prefs.Profile));
+            if (!sessionStarted) { sessionStarted = true; profileAbsentAtStart = absent; }
+            var fresh = (!selfTest || freshForQa) && absent;
             context = new RequestContext(new RequestContextSettings { CachePath = storage.ProfilePath(prefs.Profile), PersistSessionCookies = true });
             guard = new SessionGuard();
             automation = new AutomationController(guard, key => { if (epoch == sessionEpoch) SetStatus(key); }, CloseDocument, SetPresentation);
@@ -89,7 +100,8 @@ namespace Univer.Desktop.UI
             // Download records belong to the app-wide history, so updates from an ended session are still kept.
             downloads = new DownloadService(context, key => Dispatch(() => { if (epoch == sessionEpoch) SetStatus(key); }),
                 record => Dispatch(() => OnDownloadChanged(record)), id => Dispatch(() => ForgetRecord(id)));
-            main = CreateBrowser(selfTest ? "about:blank" : SitePolicy.Home, false);
+            sessionAddress = fresh ? SitePolicy.LanguageSwitch(prefs.Language) : selfTest ? "about:blank" : SitePolicy.Home;
+            main = CreateBrowser(sessionAddress, false);
             canvas.Controls.Add(main); main.BringToFront(); error = false; timer.Start();
             presentationBegan = DateTime.UtcNow; ShowRoute(SitePolicy.Home); loading.Visible = true; loading.BringToFront();
         }
@@ -230,14 +242,17 @@ namespace Univer.Desktop.UI
         {
             if (accountReview) ReviewNavigated(url, method);
             if (SitePolicy.SingleSignOn(url) && method == "GET") BeginSignOn();
+            // «Онлайн тест» leaves for another site and the site window loads its page again: the placeholder is that page's.
+            var route = viewer ? "document" : url;
             if (!viewer && SitePolicy.OnlineTest(url) && method == "GET")
             {
                 var now = DateTime.UtcNow; var page = SitePolicy.OnlineTestReturnPage(lastGet, onlineTestReturn, onlineTestReturnAt, now);
                 if (page != onlineTestReturn || page == lastGet) onlineTestReturnAt = now;
-                onlineTestReturn = page;
+                onlineTestReturn = page; route = page ?? url;
             }
             lastMethod = method; if (method == "GET") lastGet = url;
-            awaitingCommit = browser; awaitingSince = DateTime.UtcNow; ShowRoute(viewer ? "document" : url);
+            // A language flag only redirects to a page: the placeholder already shown (that page's) stays.
+            awaitingCommit = browser; awaitingSince = DateTime.UtcNow; if (viewer || SitePolicy.Language(url) == null) ShowRoute(route);
             error = false; messages.BeginNavigation(); automation.Navigating(); presentationBegan = DateTime.UtcNow; SetPresentation(browser, true); RenderFeedback(); UpdatePollingRate();
         }
         private void ReceivePageMessage(ChromiumWebBrowser browser, bool viewer, string value, bool trusted, bool mainFrame)
@@ -246,6 +261,8 @@ namespace Univer.Desktop.UI
             if (value != null && value.StartsWith(Notices.MessagePrefix, StringComparison.Ordinal)) { ReceiveNoticeMessage(browser, viewer, value, trusted, mainFrame); return; }
             if (!trusted || value == null || Active != browser) return;
             if (value == "univer-busy") { SetPresentation(browser, true); QueueAsync(() => automation.TickAsync(browser, credentials, prefs, viewer)); return; }
+            // The main document has parsed: one tick now uncovers it (or signs in) without waiting for the 200 ms poll.
+            if (value == "univer-dom") { if (mainFrame) { automation.DocumentParsed(); QueueAsync(() => automation.TickAsync(browser, credentials, prefs, viewer)); } return; }
             if (value.StartsWith("univer-ajax|", StringComparison.Ordinal))
             {
                 // Correlated outcomes come only from the main document's automation, which also watches its same-origin frames.
@@ -259,6 +276,7 @@ namespace Univer.Desktop.UI
             // gesture, BrowserHandlers) changes it.
             if (mainFrame && !viewer && value.StartsWith(Shortcuts.MessagePrefix, StringComparison.Ordinal)) QueueAsync(() => PinAsync(browser, value.Substring(Shortcuts.MessagePrefix.Length)));
             if (mainFrame && !viewer && value.StartsWith(DownloadBatch.MessagePrefix, StringComparison.Ordinal)) QueueAsync(() => DownloadSectionAsync(browser, value.Substring(DownloadBatch.MessagePrefix.Length)));
+            if (mainFrame && !viewer && value.StartsWith(GradeReport.MessagePrefix, StringComparison.Ordinal)) { var report = value.Substring(GradeReport.MessagePrefix.Length); QueueAsync(() => ReportAsync(browser, GradeReport.Action(report), GradeReport.Page(report))); }
         }
         private void OpenDocument(string url)
         {

@@ -193,6 +193,42 @@ namespace Univer.Desktop.Tests
             }
         }
         [Fact]
+        public async Task EveryStartChecksOnceEvenRightAfterTheLastCheckThenWaitsSixHours()
+        {
+            var folder = Path.Combine(Folder(), "start");
+            var transport = Release(new byte[1], new string('a', 64));
+            Directory.CreateDirectory(folder); File.WriteAllText(Path.Combine(folder, "application.txt"), "Unsigned.");
+            var now = DateTime.UtcNow.Ticks;
+            // The previous run checked a minute ago and found nothing.
+            using (var service = new UpdateService(new UpdateClient(transport), Path.Combine(folder, "updates"), Path.Combine(folder, "application.txt"), "0.14.0", "Modern", "x64", true, null, null, now - TimeSpan.FromMinutes(1).Ticks))
+            {
+                await service.CheckIfDueAsync(now);
+                Assert.Single(transport.Asked);
+                Assert.Equal("9.9.9", service.Available);
+                Assert.True(service.ShouldPrompt);
+                await service.CheckIfDueAsync(now + TimeSpan.FromHours(1).Ticks);
+                Assert.Single(transport.Asked);
+            }
+        }
+        [Fact]
+        public async Task AStartWhoseCheckFailedAsksAgainAfterTheRetryWaitThoughTheLastCheckWasRecent()
+        {
+            var folder = Path.Combine(Folder(), "offline");
+            Directory.CreateDirectory(folder); File.WriteAllText(Path.Combine(folder, "application.txt"), "Unsigned.");
+            // Offline at start: the first request fails, the next one finds 9.9.9.
+            var calls = 0;
+            var transport = new Transport(request => ++calls == 1 ? new HttpResponseMessage(HttpStatusCode.ServiceUnavailable) : Redirect(Repository + "/releases/tag/v9.9.9"));
+            var now = DateTime.UtcNow.Ticks;
+            using (var service = new UpdateService(new UpdateClient(transport), Path.Combine(folder, "updates"), Path.Combine(folder, "application.txt"), "0.14.0", "Modern", "x64", true, null, null, now - TimeSpan.FromMinutes(1).Ticks))
+            {
+                await service.CheckIfDueAsync(now);
+                Assert.Equal(UpdateFailure.Check, service.Failure);
+                await service.CheckIfDueAsync(now + Updates.RetryInterval + TimeSpan.FromMinutes(1).Ticks);
+                Assert.Equal(2, transport.Asked.Count);
+                Assert.Equal("9.9.9", service.Available);
+            }
+        }
+        [Fact]
         public async Task AFailedCheckKeepsWhatWasKnownAndWaitsBeforeTryingAgain()
         {
             var folder = Folder();

@@ -22,6 +22,13 @@ namespace Univer.Desktop.Core
                 await operation.ConfigureAwait(false);
             }
         }
+        // The operation's answer, or the fallback as soon as stop completes first; a later fault is observed.
+        public static async Task<T> UntilAsync<T>(Task<T> operation, Task stop, T fallback)
+        {
+            if (await Task.WhenAny(operation, stop).ConfigureAwait(false) == operation) return await operation.ConfigureAwait(false);
+            ObserveLateFailure(operation);
+            return fallback;
+        }
         private static void ObserveLateFailure(Task operation)
         {
             operation.ContinueWith(finished => { var observed = finished.Exception; }, CancellationToken.None,

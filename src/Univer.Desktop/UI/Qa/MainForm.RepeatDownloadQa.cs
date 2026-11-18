@@ -44,6 +44,24 @@ namespace Univer.Desktop.UI
                 saved.Path = file.Path; started = null;
                 await DownloadAsync(address + "/other", "Другой файл"); await wait();
                 Check(removed && started == address + "/other" && messages.Current?.Key != "downloadDuplicate", "a missing file or another address downloads without asking", results);
+                // «Документы» writes its links as /Content/…pdf?v=<ticks>, new on every render. Opened again after a page reload,
+                // by the same road a press takes (the navigation is turned into a download), the file still asks first.
+                var document = SitePolicy.Origin + "/Content/instructions/qa-policy.pdf";
+                var paper = file.Clone(); paper.Id = Guid.NewGuid().ToString("N"); paper.Key = DownloadKeys.Of(document + "?v=638675"); paper.Finished = DateTime.Now.AddMinutes(-3);
+                history.Upsert(paper);
+                try
+                {
+                    messages.Dismiss(); duplicate = null; started = null; RenderFeedback();
+                    main.Load(document + "?v=638676");
+                    for (var until = DateTime.UtcNow.AddSeconds(5); messages.Current?.Key != "downloadDuplicate" && started == null && DateTime.UtcNow < until;) await Task.Delay(50);
+                    Check(messages.Current?.Key == "downloadDuplicate" && duplicate != null && duplicate.Earlier.Id == paper.Id && started == null,
+                        "a «Документы» file opened again after a page reload (a new ?v=) says it is already downloaded", results);
+                    messages.Dismiss(); duplicate = null;
+                    main.Load(SitePolicy.Origin + "/Content/instructions/qa-other.pdf?v=638676"); await wait();
+                    Check(started == SitePolicy.Origin + "/Content/instructions/qa-other.pdf?v=638676" && messages.Current?.Key != "downloadDuplicate",
+                        "another «Документы» file downloads without asking", results);
+                }
+                finally { history.Remove(paper.Id); }
             }
             finally { downloadProbe = null; duplicate = null; history.Remove(saved.Id); messages.Dismiss(); RenderFeedback(); }
         }

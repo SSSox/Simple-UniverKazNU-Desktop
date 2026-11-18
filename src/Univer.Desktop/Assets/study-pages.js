@@ -195,22 +195,11 @@
         if (record.empty.hidden !== !none) record.empty.hidden = !none;
     }
     // УМКД: every material section folds under its heading, whether it is a heading row of the files table or a heading
-    // over a block of links (Силлабус). The heading itself is the button; folded sections are remembered per course.
-    var foldKey = 'univer.desktop.umkd-folds.v1';
+    // over a block of links (Силлабус). The heading itself is the button. Every visit opens with all sections unfolded
+    // (the owner's choice): folds are never stored, and what earlier versions stored is removed.
+    try { localStorage.removeItem('univer.desktop.umkd-folds.v1'); } catch (_) { }
     function coursePage() { return /^\/student\/umkd\/\d+\/\d+\/\d+\/?$/.test(location.pathname); }
-    function foldMemory() { try { var all = JSON.parse(localStorage.getItem(foldKey) || '{}'); return all && typeof all === 'object' && !Array.isArray(all) ? all : {}; } catch (_) { return {}; } }
     function foldName(head) { return clean(head).slice(0, 200); }
-    function foldPath() { return location.pathname.replace(/\/$/, ''); }
-    function rememberFold(head, closed) {
-        try {
-            var all = foldMemory(), path = foldPath(), name = foldName(head);
-            var list = (Array.isArray(all[path]) ? all[path] : []).filter(function (n) { return n !== name; });
-            if (closed) list.push(name);
-            delete all[path]; if (list.length) all[path] = list.slice(-40);
-            var keys = Object.keys(all); keys.slice(0, Math.max(0, keys.length - 60)).forEach(function (k) { delete all[k]; });
-            localStorage.setItem(foldKey, JSON.stringify(all));
-        } catch (_) { }
-    }
     // A fold slides its rows shut and open rather than cutting them. One registered number, --univer-slide, runs between
     // 1 and 0, and a rule scales each row's height, vertical padding, margins and borders by it: the card rules set those
     // with !important, which keyframes cannot move. The folded attribute is the state from the first frame; a row sliding
@@ -327,15 +316,15 @@
             labelAll(record);
         });
     }
-    function section(head, items, saved, files) {
+    function section(head, items, files) {
         var record = sections.get(head);
         if (!record) {
-            record = {head:head, items:items, closed:saved.indexOf(foldName(head)) >= 0};
+            record = {head:head, items:items, closed:false};
             record.toggle = function (event) {
                 if (event.type === 'keydown' && event.key !== 'Enter' && event.key !== ' ') return;
                 if (event.target !== head && event.target.closest('a,button,input,select,textarea')) return;
                 event.preventDefault();
-                record.closed = !record.closed; paintFold(record, event.type === 'keydown' || event.detail > 0); rememberFold(head, record.closed);
+                record.closed = !record.closed; paintFold(record, event.type === 'keydown' || event.detail > 0);
             };
             head.addEventListener('click', record.toggle); head.addEventListener('keydown', record.toggle);
             head.setAttribute('role', 'button'); head.tabIndex = 0;
@@ -348,20 +337,19 @@
     }
     function folds() {
         if (!coursePage()) return;
-        var saved = foldMemory()[foldPath()] || [];
         document.querySelectorAll('#l4 table.univer-app-materials').forEach(function (table) {
             var current = null, groups = [];
             ownRows(table).forEach(function (row) {
                 if (row.cells.length === 1 && row.cells[0].tagName === 'TH') { current = {head:row.cells[0], items:[]}; groups.push(current); }
                 else if (current && row.matches('tr.file')) current.items.push(row);
             });
-            groups.forEach(function (group) { if (group.items.length && clean(group.head)) section(group.head, group.items, saved, true); });
+            groups.forEach(function (group) { if (group.items.length && clean(group.head)) section(group.head, group.items, true); });
         });
         document.querySelectorAll('#l4 td.tt h4').forEach(function (h4) {
             if (h4.closest('#tools')) return;
             var items = [], node = h4.nextElementSibling;
             while (node && node.tagName !== 'H4') { items.push(node); node = node.nextElementSibling; }
-            if (items.length && clean(h4)) section(h4, items, saved, false);
+            if (items.length && clean(h4)) section(h4, items, false);
         });
         // A file row says what its click does: it saves the file, or opens the teacher's link.
         document.querySelectorAll('#l4 table.univer-app-materials tr.file a.downLoad').forEach(function (a) {

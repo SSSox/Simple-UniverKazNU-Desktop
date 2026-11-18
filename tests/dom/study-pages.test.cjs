@@ -54,10 +54,11 @@ const exam = shell(panel(row('<td class="ct">Инструкция</td>', 'top') 
   '<a href="/Content/instructions/DistanceLearnExam/2.pdf"><img src="/img/pdf.png">Инструкция для студентов (онлайн письменный экзамен)</a><br><br>' +
   '<center><font color="red">Начните экзамен через кнопку экстеншна Farabi Proctoring, если вы еще не установили нажмите на </font><a id="install" href="https://example.org/extension">ссылка для установки</a></center></div><div></div></td>')));
 
-function page(content, url) {
+function page(content, url, before) {
   const html = '<table class="wrappertable"><tr id="l1"><td class="header">КазНУ</td></tr><tr id="l4"><td>' + content + '</td></tr></table>';
   const dom = new JSDOM(html, { url, runScripts: 'outside-only' });
   const w = dom.window;
+  if (before) before(w);
   Object.defineProperty(w.document, 'readyState', { value: 'complete', configurable: true });
   w.HTMLElement.prototype.getClientRects = function () { return this.closest('[hidden]') ? [] : [{ width: 100, height: 30 }]; };
   w.jQuery = () => ({ bind() {} });
@@ -284,12 +285,22 @@ test('UMKD: «Скачать все» stands beside a files section\'s heading, 
   p.w.__univerPagesV1.downloading('Конспекты лекций', 0, 0);
   assert.equal(button.dataset.label, 'Скачать все'); assert.ok(!button.hasAttribute('data-univer-busy'));
   head.click();
-  assert.deepEqual(JSON.parse(p.w.localStorage.getItem('univer.desktop.umkd-folds.v1'))['/student/umkd/321/2026/1'], ['Конспекты лекций'], 'the fold is remembered under the heading\'s own text');
+  assert.equal(head.getAttribute('aria-expanded'), 'false', 'the heading folds its section');
+  assert.equal(p.w.localStorage.length, 0, 'the fold is not stored anywhere');
   apply(p, true, 'en');
   assert.equal(button.dataset.label, 'Download all');
   apply(p, false);
   assert.equal(p.d.querySelectorAll('button.univer-app-fold-all').length, 0, 'Original removes the button');
   assert.equal(head.parentNode.children.length, 1);
+  p.close();
+});
+
+test('UMKD: every visit opens with all sections unfolded, and folds stored by earlier versions are dropped', () => {
+  const stored = JSON.stringify({ '/student/umkd/321/2026/1': ['Конспекты лекций', 'Задания для СРО'] });
+  const p = page(umkdSections, 'https://univer.kaznu.kz/student/umkd/321/2026/1', w => w.localStorage.setItem('univer.desktop.umkd-folds.v1', stored));
+  apply(p);
+  for (const id of ['lectures', 'tasks']) assert.equal(p.d.getElementById(id).getAttribute('aria-expanded'), 'true', id + ' starts open');
+  assert.equal(p.w.localStorage.getItem('univer.desktop.umkd-folds.v1'), null, 'the old record is removed');
   p.close();
 });
 

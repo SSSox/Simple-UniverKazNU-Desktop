@@ -76,7 +76,62 @@
             return found ? found.href : '/student/umkd/';
         }, function () { return '/student/umkd/'; });
     }
+    // A score's band, as the owner set them for a score out of 100: below 50 is a shortfall (недобор), 50–69 satisfactory,
+    // 70–89 good, 90 and above excellent. `next` is the mark above the score and `left` how far it is. A score on another
+    // scale, an empty cell or a word gets no band: nothing is guessed.
+    var MARKS = [50, 70, 90], BANDS = ['low', 'fair', 'good', 'top'];
+    function number(value) { var text = String(value == null ? '' : value).trim(); return /^-?\d+(?:[.,]\d+)?$/.test(text) ? Number(text.replace(',', '.')) : NaN; }
+    function band(value, max) {
+        var score = number(value);
+        if (!isFinite(score) || number(max) !== 100) return null;
+        score = Math.max(0, Math.min(100, score));
+        var index = MARKS.filter(function (mark) { return score >= mark; }).length, next = MARKS[index] || null;
+        // Rounded up to a tenth: 49.95 is 0.1 short of 50, never "0 left" under a band that is not yet reached.
+        var gap = next ? Math.round((next - score) * 1000) / 1000 : 0;
+        return { band: BANDS[index], score: score, next: next, left: next ? Math.ceil(gap * 10 - 1e-9) / 10 : 0 };
+    }
+    // Kazakh puts the dative ending on the mark itself.
+    var BAND_WORDS = {
+        ru: { low: 'Недобор', fair: 'Удовлетворительно', good: 'Хорошо', top: 'Отлично', left: function (n, mark) { return 'ещё ' + n + ' до ' + mark; } },
+        kz: { low: 'Жеткіліксіз', fair: 'Қанағаттанарлық', good: 'Жақсы', top: 'Өте жақсы', left: function (n, mark) { return mark + ({ 50: '-ге', 70: '-ке', 90: '-ға' }[mark] || '') + ' дейін ' + n + ' балл'; } },
+        en: { low: 'Insufficient', fair: 'Satisfactory', good: 'Good', top: 'Excellent', left: function (n, mark) { return n + (n === '1' ? ' point' : ' points') + ' to ' + mark; } }
+    };
+    var RANGES = { low: '0–49', fair: '50–69', good: '70–89', top: '90–100' };
+    function figure(value, lang) { var text = String(value); return lang === 'en' ? text : text.replace('.', ','); }
+    function bandWords(lang) { return BAND_WORDS[lang] || BAND_WORDS.ru; }
+    // What the band says in a few words: what is left to the next mark, or the band's name at the top.
+    function bandNote(found, lang) { var words = bandWords(lang); return found.next ? words.left(figure(found.left, lang), found.next) : words.top; }
+    // One score tile (label, value, a bar of its share of the maximum), the same on the home page and the grades page.
+    // A score out of 100 also takes its band's colour and says what is left to the next mark.
+    // Compact (the home card): one line a course, the band in colour and the bar, its words in the label and tooltip only.
+    function scoreChip(item, lang, compact) {
+        var chip = document.createElement('span'), found = band(item.value, item.max), words = bandWords(lang);
+        chip.className = 'univer-app-overview-score'; chip.setAttribute('role', 'group');
+        var said = item.label + ': ' + (item.value || '–') + (item.max ? ' / ' + item.max : '');
+        var label = document.createElement('span'), value = document.createElement('span');
+        label.className = 'univer-app-overview-score-label'; label.textContent = item.label;
+        value.className = 'univer-app-overview-score-value'; value.textContent = item.value || '–';
+        chip.append(label, value);
+        var ratio = item.max && item.value ? number(item.value) / number(item.max) : NaN;
+        if (isFinite(ratio)) { var bar = document.createElement('span'); bar.className = 'univer-app-overview-score-bar'; bar.style.setProperty('--univer-score', Math.round(Math.max(0, Math.min(1, ratio)) * 100) + '%'); chip.appendChild(bar); }
+        if (found) {
+            var note = bandNote(found, lang);
+            if (!compact) { var next = document.createElement('span'); next.className = 'univer-app-overview-score-next'; next.textContent = note; chip.appendChild(next); }
+            chip.dataset.univerBand = found.band;
+            chip.title = words[found.band] + ': ' + RANGES[found.band] + (found.next ? '. ' + note.charAt(0).toLocaleUpperCase() + note.slice(1) : '');
+            said += '. ' + words[found.band] + (found.next ? ', ' + note : '');
+        }
+        chip.setAttribute('aria-label', said);
+        Array.from(chip.children).forEach(function (child) { child.setAttribute('aria-hidden', 'true'); });
+        return chip;
+    }
     window.__univerCommonV1 = Object.freeze({
+        band: band,
+        bandWords: bandWords,
+        bandNote: bandNote,
+        bandRange: function (name) { return RANGES[name] || ''; },
+        figure: figure,
+        scoreChip: scoreChip,
         lesson: lesson,
         umkdHref: umkdHref,
         umkdCourses: umkdCourses,

@@ -60,6 +60,36 @@ test('dark reading layout maps the app, site and inline colours and keeps every 
   p.close();
 });
 
+test('score bands and letter grades in the dark reading layout are soft tints of the card with light ink, not deep saturated fills', () => {
+  const p = page(site);
+  apply(p);
+  const app = p.d.getElementById('univer-app-dark-app').textContent;
+  const rgb = value => [1, 3, 5].map(i => parseInt(value.slice(i, i + 2), 16));
+  const CARD = [29, 34, 41], card = luminance(...CARD), chroma = c => Math.max(...c) - Math.min(...c);
+  const soft = (name, tile) => assert.ok(chroma(tile) <= 26 && tile.every((v, i) => Math.abs(v - CARD[i]) <= 36), name + ' tile is a soft tint of the card ' + tile);
+  const readable = (name, ink, tile) => assert.ok(contrast(luminance(...ink), luminance(...tile)) >= 4.5 && contrast(luminance(...ink), card) >= 4.5, name + ' ink stays readable ' + ink);
+  // Own dark values, under a selector that outranks the mapped light rule (:root.univer-mobile) wherever it stands.
+  const block = (app.match(/:root\.univer-mobile\.univer-app-dark\{(--univer-band-[^}]*)\}/) || [])[1];
+  assert.ok(block, 'the dark band palette is written');
+  const band = name => { const m = block.match(new RegExp('--univer-band-' + name + ':(#[0-9a-f]{6})[;}]?')); assert.ok(m, name); return rgb(m[1]); };
+  // A chip's note is the muted text colour mapped for the dark layout; it sits on the band's tile too.
+  const muted = p.w.__univerThemeV1.dark(...rgb(desktop.match(/--u-muted:\s*(#[0-9a-f]{6})/)[1]));
+  for (const name of ['low', 'fair', 'good', 'top']) {
+    const tile = band(name + '-soft');
+    soft(name, tile);
+    assert.ok(chroma(band(name + '-line')) <= 44, name + ' border is quiet');
+    readable(name, band(name + '-ink'), tile);
+    assert.ok(contrast(luminance(...muted), luminance(...tile)) >= 4.5, name + ' note keeps 4.5:1 on its tile ' + tile);
+  }
+  for (const letter of ['a', 'b', 'c', 'd', 'f']) {
+    const m = app.match(new RegExp(':root\\.univer-mobile\\.univer-app-dark #l4 \\.univer-app-grade\\[data-band=' + letter + '\\]\\{background:(#[0-9a-f]{6});color:(#[0-9a-f]{6})!important\\}'));
+    assert.ok(m, letter + ' grade has its own dark tint');
+    soft(letter, rgb(m[1]));
+    readable(letter, rgb(m[2]), rgb(m[1]));
+  }
+  p.close();
+});
+
 test('light theme and Original leave the page alone; refresh switches a shown page', () => {
   const p = page(site, false);
   apply(p);

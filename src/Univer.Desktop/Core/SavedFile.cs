@@ -11,13 +11,13 @@ namespace Univer.Desktop.Core
     internal static class SavedFile
     {
         // Moves the finished file to its name in folder, adding " (1)", " (2)"… when that name is taken: File.Move never
-        // overwrites a user's existing file.
+        // overwrites a user's existing file. A file the app made itself (origin null, the grade summary) gets no mark.
         public static string Keep(string temp, string folder, string name, string origin)
         {
             for (var i = 0; ; i++)
             {
                 var destination = Path.Combine(folder, i == 0 ? name : Path.GetFileNameWithoutExtension(name) + " (" + i + ")" + Path.GetExtension(name));
-                try { File.Move(temp, destination); Mark(destination, origin); return destination; }
+                try { File.Move(temp, destination); if (origin != null) Mark(destination, origin); return destination; }
                 catch (IOException) { if (i >= 999 || !File.Exists(destination)) throw; }
             }
         }

@@ -12,6 +12,8 @@ namespace Univer.Desktop.Core
     // Rectangles in CSS pixels only: kind (0 box, 1 text or picture), x, y, width, height, radius, plate, edge.
     internal sealed class PageShape
     {
+        // 2: bars stuck to the window's bottom are left out (page-shape.js).
+        public const int Version = 2;
         public const int MaxItems = 700;
         // The page's own width (without the scroll bar), the window's inner width and its height, all in CSS pixels.
         public int Width { get; set; }
@@ -27,7 +29,7 @@ namespace Univer.Desktop.Core
             try
             {
                 var data = new JavaScriptSerializer().DeserializeObject(json) as Dictionary<string, object>;
-                if (data == null || Number(data, "v") != 1) return null;
+                if (data == null || Number(data, "v") != Version) return null;
                 var shape = new PageShape { Width = Number(data, "w"), Outer = Number(data, "o"), Height = Number(data, "h") };
                 if (shape.Width < 200 || shape.Width > 8000 || shape.Outer < shape.Width || shape.Outer > shape.Width + 40 || shape.Height < 100 || shape.Height > 8000) return null;
                 object raw; if (!data.TryGetValue("items", out raw)) return null;
@@ -83,7 +85,7 @@ namespace Univer.Desktop.Core
         public string Serialize()
         {
             var list = order.Select(key => new Dictionary<string, object> { { "k", key }, { "w", shapes[key].Width }, { "o", shapes[key].Outer }, { "h", shapes[key].Height }, { "items", shapes[key].Items } }).ToList();
-            return new JavaScriptSerializer { MaxJsonLength = 16 * 1024 * 1024 }.Serialize(new Dictionary<string, object> { { "v", 1 }, { "pages", list } });
+            return new JavaScriptSerializer { MaxJsonLength = 16 * 1024 * 1024 }.Serialize(new Dictionary<string, object> { { "v", PageShape.Version }, { "pages", list } });
         }
         public static PageShapes Load(string json)
         {
@@ -92,12 +94,15 @@ namespace Univer.Desktop.Core
             try
             {
                 var data = new JavaScriptSerializer { MaxJsonLength = 16 * 1024 * 1024 }.DeserializeObject(json) as Dictionary<string, object>;
-                object pages; if (data == null || !data.TryGetValue("pages", out pages) || !(pages is object[])) return result;
+                // Shapes of an earlier version may hold what that page script took by mistake (version 1: bars stuck to the
+                // window's bottom); they are dropped and taken again on the next visit.
+                object pages, version; if (data == null || !data.TryGetValue("v", out version) || !(version is int) || (int)version != PageShape.Version) return result;
+                if (!data.TryGetValue("pages", out pages) || !(pages is object[])) return result;
                 foreach (var page in (object[])pages)
                 {
                     var entry = page as Dictionary<string, object>; object key;
                     if (entry == null || !entry.TryGetValue("k", out key) || !(key is string) || ((string)key).Length > 300 || !((string)key).StartsWith("/", StringComparison.Ordinal)) continue;
-                    var copy = new Dictionary<string, object>(entry) { { "v", 1 } };
+                    var copy = new Dictionary<string, object>(entry) { { "v", PageShape.Version } };
                     var shape = PageShape.Parse(new JavaScriptSerializer { MaxJsonLength = 16 * 1024 * 1024 }.Serialize(copy));
                     if (shape == null) continue;
                     result.shapes[(string)key] = shape; result.order.Remove((string)key); result.order.Add((string)key);

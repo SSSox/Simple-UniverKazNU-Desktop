@@ -8,7 +8,7 @@ namespace Univer.Desktop.Tests
     // and only the site's own pages are remembered.
     public class PageShapesTests
     {
-        private const string Answer = "{\"v\":1,\"w\":1104,\"o\":1104,\"h\":777,\"items\":[[0,32,100,1024,140,10,1,1],[1,48,120,300,10,4,0,0]]}";
+        private const string Answer = "{\"v\":2,\"w\":1104,\"o\":1104,\"h\":777,\"items\":[[0,32,100,1024,140,10,1,1],[1,48,120,300,10,4,0,0]]}";
 
         [Fact]
         public void AWellFormedAnswerIsAShape()
@@ -24,24 +24,34 @@ namespace Univer.Desktop.Tests
         [InlineData(null)]
         [InlineData("")]
         [InlineData("not json")]
-        [InlineData("{\"v\":2,\"w\":1104,\"o\":1104,\"h\":777,\"items\":[[0,1,1,1,1,0,0,0]]}")]
-        [InlineData("{\"v\":1,\"w\":1104,\"o\":1104,\"h\":777,\"items\":[]}")]
-        [InlineData("{\"v\":1,\"w\":1104,\"o\":1104,\"h\":777,\"items\":[[0,1,1,1,1,0,0]]}")]
-        [InlineData("{\"v\":1,\"w\":1104,\"o\":1104,\"h\":777,\"items\":[[2,1,1,1,1,0,0,0]]}")]
-        [InlineData("{\"v\":1,\"w\":1104,\"o\":1104,\"h\":777,\"items\":[[0,1,1,1,1,0,4,0]]}")]
-        [InlineData("{\"v\":1,\"w\":1104,\"o\":1104,\"h\":777,\"items\":[[0,\"1\",1,1,1,0,0,0]]}")]
-        [InlineData("{\"v\":1,\"w\":1104,\"o\":900,\"h\":777,\"items\":[[0,1,1,1,1,0,0,0]]}")]
-        [InlineData("{\"v\":1,\"w\":50,\"o\":50,\"h\":777,\"items\":[[0,1,1,1,1,0,0,0]]}")]
+        [InlineData("{\"v\":1,\"w\":1104,\"o\":1104,\"h\":777,\"items\":[[0,1,1,1,1,0,0,0]]}")]
+        [InlineData("{\"v\":3,\"w\":1104,\"o\":1104,\"h\":777,\"items\":[[0,1,1,1,1,0,0,0]]}")]
+        [InlineData("{\"v\":2,\"w\":1104,\"o\":1104,\"h\":777,\"items\":[]}")]
+        [InlineData("{\"v\":2,\"w\":1104,\"o\":1104,\"h\":777,\"items\":[[0,1,1,1,1,0,0]]}")]
+        [InlineData("{\"v\":2,\"w\":1104,\"o\":1104,\"h\":777,\"items\":[[2,1,1,1,1,0,0,0]]}")]
+        [InlineData("{\"v\":2,\"w\":1104,\"o\":1104,\"h\":777,\"items\":[[0,1,1,1,1,0,4,0]]}")]
+        [InlineData("{\"v\":2,\"w\":1104,\"o\":1104,\"h\":777,\"items\":[[0,\"1\",1,1,1,0,0,0]]}")]
+        [InlineData("{\"v\":2,\"w\":1104,\"o\":900,\"h\":777,\"items\":[[0,1,1,1,1,0,0,0]]}")]
+        [InlineData("{\"v\":2,\"w\":50,\"o\":50,\"h\":777,\"items\":[[0,1,1,1,1,0,0,0]]}")]
         public void AMalformedAnswerIsNoShapeAtAll(string json)
         {
             Assert.Null(PageShape.Parse(json));
         }
 
         [Fact]
+        public void ShapesSavedByAnEarlierVersionAreDroppedOnLoad()
+        {
+            // Version 1 took bars stuck to the window's bottom (the news pager) as part of the first screen.
+            const string old = "{\"v\":1,\"pages\":[{\"k\":\"/news/student/#\",\"w\":1104,\"o\":1104,\"h\":777,\"items\":[[0,32,100,1024,140,10,1,1]]}]}";
+            Assert.Equal(0, PageShapes.Load(old).Count);
+            Assert.Equal(1, PageShapes.Load(old.Replace("\"v\":1", "\"v\":2")).Count);
+        }
+
+        [Fact]
         public void TooManyItemsAreRefused()
         {
             var items = string.Join(",", System.Linq.Enumerable.Repeat("[1,1,1,1,1,0,0,0]", PageShape.MaxItems + 1));
-            Assert.Null(PageShape.Parse("{\"v\":1,\"w\":1104,\"o\":1104,\"h\":777,\"items\":[" + items + "]}"));
+            Assert.Null(PageShape.Parse("{\"v\":2,\"w\":1104,\"o\":1104,\"h\":777,\"items\":[" + items + "]}"));
         }
 
         [Fact]
@@ -83,7 +93,7 @@ namespace Univer.Desktop.Tests
         [Fact]
         public void ADamagedFileStartsEmpty()
         {
-            Assert.Equal(0, PageShapes.Load("{\"v\":1,\"pages\":[{\"k\":\"https://example.com\",\"w\":1104,\"o\":1104,\"h\":777,\"items\":[[0,1,1,1,1,0,0,0]]},{\"k\":\"/a\",\"w\":1}]}").Count);
+            Assert.Equal(0, PageShapes.Load("{\"v\":2,\"pages\":[{\"k\":\"https://example.com\",\"w\":1104,\"o\":1104,\"h\":777,\"items\":[[0,1,1,1,1,0,0,0]]},{\"k\":\"/a\",\"w\":1}]}").Count);
             Assert.Equal(0, PageShapes.Load("garbage").Count);
             Assert.Equal(0, PageShapes.Read(Path.Combine(Path.GetTempPath(), "missing-" + System.Guid.NewGuid().ToString("N") + ".json")).Count);
         }

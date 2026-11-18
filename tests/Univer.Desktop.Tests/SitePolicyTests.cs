@@ -58,6 +58,19 @@ namespace Univer.Desktop.Tests
         [InlineData("/student/transcript/lang/ru", null)]
         public void Language_OnlyFlagPaths_UpdatePreference(string path, string expected) { Assert.Equal(expected, SitePolicy.Language(SitePolicy.Origin + path)); }
         [Theory]
+        [InlineData("ru", "ru")]
+        [InlineData("kz", "kz")]
+        [InlineData("en", "en")]
+        [InlineData("", "ru")]
+        [InlineData(null, "ru")]
+        [InlineData("../x", "ru")]
+        public void LanguageSwitch_IsTheSiteFlagLinkForThatLanguage(string language, string expected)
+        {
+            var url = SitePolicy.LanguageSwitch(language);
+            Assert.Equal(expected, SitePolicy.Language(url));
+            Assert.False(SitePolicy.DocumentDownload(url) || SitePolicy.Logout(url));
+        }
+        [Theory]
         [InlineData("/student/iup/1/2", true)]
         [InlineData("/student/transcript", true)]
         [InlineData("/student/recbook/1", true)]
@@ -67,6 +80,17 @@ namespace Univer.Desktop.Tests
         [InlineData("/student/umkd/get/1/2/2026/1", false)]
         [InlineData("/student/transcript/download/malware.exe", false)]
         public void PrintDocument_ObservedRoutes_OnlyMatchesHtmlDocuments(string path, bool expected) { Assert.Equal(expected, SitePolicy.PrintDocument(SitePolicy.Origin + path)); }
+        // The grade summary is made only from the grades journal itself.
+        [Theory]
+        [InlineData("https://univer.kaznu.kz/student/attendance/full/", true)]
+        [InlineData("https://univer.kaznu.kz/student/attendance/full/2026/1", true)]
+        [InlineData("https://univer.kaznu.kz/student/attendance/show/123/2026/1", true)]
+        [InlineData("https://univer.kaznu.kz/student/attendance/", false)]
+        [InlineData("https://univer.kaznu.kz/student/attendance/fullx/", false)]
+        [InlineData("https://univer.kaznu.kz/student/attestation/", false)]
+        [InlineData("http://univer.kaznu.kz/student/attendance/full/", false)]
+        [InlineData("https://univer.kaznu.kz.example.com/student/attendance/full/", false)]
+        public void Grades_OnlyTheJournal(string url, bool expected) { Assert.Equal(expected, SitePolicy.Grades(url)); }
         [Theory]
         [InlineData("https://example.com/", true)]
         [InlineData("mailto:test@example.com", true)]

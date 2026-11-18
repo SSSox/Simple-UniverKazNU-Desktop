@@ -3,7 +3,6 @@ using System.Drawing;
 using System.Windows.Forms;
 using CefSharp;
 using CefSharp.WinForms;
-using Univer.Desktop.Core;
 
 namespace Univer.Desktop.UI
 {
@@ -16,6 +15,11 @@ namespace Univer.Desktop.UI
         private readonly Label host = new RollLabel(), title = new RollLabel();
         private readonly ToolTip tips;
         private readonly Func<int, int> sz;
+        // While a page the app opened is on its way, a column of placeholder lines stands in for the page it replaces (or
+        // a blank one). It goes a moment after the new page has started to paint, when it has loaded, or when it failed.
+        private readonly LoadingView cover = new LoadingView { Dock = DockStyle.None, Visible = false };
+        private readonly Timer uncover = new Timer { Interval = 700 };
+        private bool covered;
         private string language = "ru", pageTitle = "", state = "";
         public ChromiumWebBrowser Browser { get; private set; }
         public event Action CloseRequested;
@@ -34,7 +38,8 @@ namespace Univer.Desktop.UI
             host.Font = Theme.Display(Theme.Body); host.AutoEllipsis = true; host.UseMnemonic = false;
             title.Font = Theme.Font(Theme.Meta); title.ForeColor = Theme.Muted; title.AutoEllipsis = true; title.UseMnemonic = false;
             bar.Controls.Add(host); bar.Controls.Add(title);
-            Controls.Add(bar);
+            Controls.Add(bar); Controls.Add(cover);
+            uncover.Tick += (s, e) => Uncover(); Resize += (s, e) => PlaceCover();
             back.Click += (s, e) => GoBack(); forward.Click += (s, e) => { if (Browser?.CanGoForward == true) Browser.Forward(); };
             reload.Click += (s, e) => Reload(); close.Click += (s, e) => CloseRequested?.Invoke();
             outside.Click += (s, e) => OutsideRequested?.Invoke(Address);
@@ -44,12 +49,23 @@ namespace Univer.Desktop.UI
             Browser = browser; Controls.Add(browser); browser.BringToFront();
             pageTitle = ""; state = "webLoading"; Render();
         }
-        public void Detach() { Browser = null; pageTitle = ""; state = ""; Render(); }
+        public void Detach() { Browser = null; pageTitle = ""; state = ""; Uncover(); Render(); }
+        public void Cover(float zoom)
+        {
+            uncover.Stop(); covered = true;
+            cover.SetLanguage(language); cover.Zoom = zoom; cover.SetRoute("web");
+            PlaceCover(); cover.Visible = true; cover.BringToFront();
+        }
+        // The main frame has committed: the new page paints from now on.
+        public void Committed() { if (covered) { uncover.Stop(); uncover.Start(); } }
+        private void Uncover() { uncover.Stop(); covered = false; cover.Visible = false; }
+        private void PlaceCover() { cover.SetBounds(0, bar.Height, ClientSize.Width, Math.Max(0, ClientSize.Height - bar.Height)); }
+        protected override void Dispose(bool disposing) { if (disposing) uncover.Dispose(); base.Dispose(disposing); }
         // Back from the first page leaves the window, as on a phone.
         public void GoBack() { if (Browser?.CanGoBack == true) Browser.Back(); else CloseRequested?.Invoke(); }
         public void Reload() { if (Browser != null && Browser.IsBrowserInitialized && !string.IsNullOrEmpty(Browser.Address) && Browser.Address != "about:blank") Browser.Reload(); }
-        public void Loading(bool busy) { if (busy) state = "webLoading"; else if (state == "webLoading") state = ""; Render(); }
-        public void Failed(bool certificate) { state = certificate ? "webInsecure" : "webFailed"; Render(); }
+        public void Loading(bool busy) { if (busy) state = "webLoading"; else { if (state == "webLoading") state = ""; Uncover(); } Render(); }
+        public void Failed(bool certificate) { state = certificate ? "webInsecure" : "webFailed"; Uncover(); Render(); }
         public void Titled(string value) { pageTitle = value ?? ""; Render(); }
         public void Moved() { Render(); }
         public void SetLanguage(string value) { language = value; Render(); }
@@ -82,6 +98,7 @@ namespace Univer.Desktop.UI
             var words = (outside.Visible ? outside.Left : close.Left) - sz(16) - (x + sz(24));
             host.SetBounds(x + sz(24), sz(4), Math.Max(sz(40), words), sz(20));
             title.SetBounds(x + sz(24), sz(23), host.Width, sz(17));
+            PlaceCover();
         }
         private void PaintBar(Graphics g)
         {

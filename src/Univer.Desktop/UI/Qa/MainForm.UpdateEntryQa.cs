@@ -30,7 +30,7 @@ namespace Univer.Desktop.UI
                 Check(await UpdateWindowQaAsync(), "at start a due check finds the new release and the update window opens", results);
 
                 AttachUpdatesQa(service("9.9.9", DateTime.UtcNow.Ticks)); EnterUpdates();
-                Check(await UpdateWindowQaAsync(), "at start a release found by an earlier check is offered without a new check", results);
+                Check(await UpdateWindowQaAsync(), "at start a release found by an earlier check is offered, and the start checks again even right after the last check", results);
 
                 AttachUpdatesQa(service("9.9.9", DateTime.UtcNow.Ticks));
                 Hide(); EnterUpdates(); await Task.Delay(600);

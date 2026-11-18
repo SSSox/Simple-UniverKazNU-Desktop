@@ -8,7 +8,6 @@ using System.Threading.Tasks;
 using System.Windows.Forms;
 using CefSharp;
 using Univer.Desktop.Core;
-using Univer.Desktop.Web;
 
 namespace Univer.Desktop.UI
 {
@@ -73,7 +72,7 @@ namespace Univer.Desktop.UI
                     Details = new List<NoticeDetail> { new NoticeDetail { Title = "Новая синтетическая анкета", Until = "20.11.2026" } } });
                 await ApplyNoticeScanAsync(scan, NoticeGeneration);
                 Check(messages.Current?.Key == "noticesNew" && toast.Shown && NoticeAnnouncement() == "Анкетирование студентов (1)" && noticesButton.Badge == "1",
-                    "a new questionnaire is announced in a toast and counted on the bell by its open rows", results);
+                    "a new questionnaire is announced in a toast and counted on the bell by its open rows (" + messages.Current?.Key + ", toast " + toast.Shown + ", " + NoticeAnnouncement() + ", badge " + noticesButton.Badge + ")", results);
                 QaSnapshot(Path.Combine(qa, "notices-toolbar.png"), toolbar.Width, toolbar.Height, bitmap => toolbar.DrawToBitmap(bitmap, new Rectangle(Point.Empty, toolbar.Size)));
                 QaSnapshot(Path.Combine(qa, "notices-toast.png"), toast.Width, toast.Height, bitmap => toast.DrawToBitmap(bitmap, new Rectangle(Point.Empty, toast.Size)));
                 toast.Primary.PerformClick(); await Task.Delay(100);

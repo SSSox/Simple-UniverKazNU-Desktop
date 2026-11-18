@@ -2,35 +2,41 @@ using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using CefSharp;
 using Univer.Desktop.Core;
 
 namespace Univer.Desktop.UI
 {
-    // «Наверх» in real Chromium on a long synthetic news page: hidden at the top, shown well down without covering any
-    // control at several depths and in a narrow window (also on long УМКД and attendance pages), a real mouse click that
-    // returns to the top and moves the focus there, the dark theme, and Original without it.
+    // «Наверх» in real Chromium on a long synthetic news page: hidden at the top, shown well down in one fixed place
+    // without covering a small control at several depths and in a narrow window (also on long УМКД, attendance and
+    // service pages, where the page makes room), a real mouse click that returns to the top and moves the focus there,
+    // the dark theme, and Original without it.
     internal sealed partial class MainForm
     {
-        // What the button covers: every visible control under one of its sample points, the button itself left out, and the
-        // scroll bar of every box that scrolls sideways whose bar meets the button (found from the boxes, not the points).
+        // What the button covers: every visible control under one of its sample points, the button itself left out. As in
+        // back-to-top.js, a control wider than 480 px (a row that is one big link) or reaching past the window (a cell of a
+        // box that scrolls sideways) stays clickable beside the button and does not count.
         private const string TopQaState = "(function(){var h=document.getElementById('univer-app-top'),b=h&&h.shadowRoot.querySelector('button');" +
-            "if(!b)return JSON.stringify({host:!!h});var r=b.getBoundingClientRect(),hit=[];" +
+            "if(!b)return JSON.stringify({host:!!h});var r=b.getBoundingClientRect(),hit=[],v=window.visualViewport,W=v?v.width:innerWidth,H=v?v.height:innerHeight;" +
             "for(var y=r.top+2;y<r.bottom;y+=6)for(var x=r.left+2;x<r.right;x+=8){var u=document.elementsFromPoint(x,y).filter(function(e){return e!==h;})[0];" +
-            "var c=u&&u.closest('a[href],button,input,select,textarea,summary,label,[role=button],[onclick]');if(c){var q=c.getBoundingClientRect();if(q.width*q.height<innerWidth*innerHeight/4&&hit.indexOf(c)<0)hit.push(c);}}" +
-            "Array.prototype.forEach.call(document.querySelectorAll('body *'),function(e){if(e===h||!e.clientHeight||e.scrollWidth<=e.clientWidth)return;" +
-            "if(!/auto|scroll/.test(getComputedStyle(e).overflowX))return;var q=e.getBoundingClientRect(),t=q.top+e.clientTop+e.clientHeight;" +
-            "if(q.bottom-t>1&&t<r.bottom&&q.bottom>r.top&&q.left<r.right&&q.right>r.left)hit.push(e);});" +
+            "var c=u&&u.closest('a[href],button,input,select,textarea,summary,label,[role=button],[onclick]');if(c){var q=c.getBoundingClientRect();if(q.width<=480&&q.right<=W+1&&hit.indexOf(c)<0)hit.push(c);}}" +
             "var t=document.elementsFromPoint((r.left+r.right)/2,(r.top+r.bottom)/2)[0];" +
-            "return JSON.stringify({host:true,on:b.classList.contains('on'),y:Math.round(scrollY),w:innerWidth,vh:innerHeight,left:Math.round(r.left),right:Math.round(innerWidth-r.right),bottom:Math.round(innerHeight-r.bottom),width:Math.round(r.width),height:Math.round(r.height),text:b.textContent,covers:hit.length,front:t===h});})()";
+            "return JSON.stringify({host:true,on:b.classList.contains('on'),y:Math.round(scrollY),w:innerWidth,vw:Math.round(W),vh:innerHeight,room:document.documentElement.getAttribute('data-univer-top-room')||'',left:Math.round(r.left),right:Math.round(W-r.right),bottom:Math.round(H-r.bottom),width:Math.round(r.width),height:Math.round(r.height),text:b.textContent,covers:hit.length,front:t===h});})()";
         private async Task<string> TopQaAtAsync(double screens)
         {
             await FixesEvalAsync("window.scrollTo({top:Math.round(innerHeight*" + screens.ToString(System.Globalization.CultureInfo.InvariantCulture) + "),behavior:'instant'});'ok'");
             await Task.Delay(450);
             return await FixesEvalAsync(TopQaState);
         }
-        private static bool TopQaShown(string state) { return state.Contains("\"on\":true") && state.Contains("\"covers\":0") && state.Contains("\"front\":true"); }
+        // Shown, in front, over no small control, and in its one place: 24 px from the right, 56 px above the bottom.
+        private static bool TopQaShown(string state) { return state.Contains("\"on\":true") && state.Contains("\"covers\":0") && state.Contains("\"front\":true") && state.Contains("\"right\":24,\"bottom\":56,"); }
+        // Whether the page beside the button can spare its room: 360 px must remain, as in back-to-top.js (160 px is the room
+        // of the Russian label). Measured on the visual viewport, as the script does.
+        private static bool TopQaSpare(string state) { var width = Regex.Match(state, "\"vw\":(\\d+)"); return width.Success && int.Parse(width.Groups[1].Value) - 160 >= 360; }
+        // A page with a control under the button's place: room made and the button shown, or, with no room to spare, no button.
+        private static bool TopQaPlaced(string end, int shown) { return TopQaSpare(end) ? !end.Contains("\"room\":\"\"") && TopQaShown(end) && shown >= 2 : end.Contains("\"room\":\"\"") && shown == 0; }
         // A long course in УМКД: four headed sections of file rows, some with a teacher's link, each with its rating stars.
         private static string TopQaCourse()
         {
@@ -63,31 +69,67 @@ namespace Univer.Desktop.UI
                 json.Serialize(courses) + ":" + json.Serialize(syllabi) + ";}}};sessionStorage.removeItem('univer.desktop.attendance-kind.v1');</script>" +
                 "<table class='wrappertable'><tr id='l4'><td class='center'><table class='mt'><tr><td class='ct'>Журнал посещений и успеваемости</td></tr>" + body + "</table></td></tr></table>";
         }
-        // Real page shapes at the current width: a long УМКД course (file rows, teachers' links, rating stars) and the
-        // attendance journal (merged matrices with their own horizontal scroll). Where every row is a control (УМКД file
-        // rows are links stretched over the whole row) the button may stay hidden mid-list rather than cover one, but it
-        // never covers a control and it is there at the end of the page.
+        // A long list of services, each row closed by «Подать заявку» at its right end, where the button stands.
+        private static string TopQaServices()
+        {
+            var rows = new StringBuilder();
+            for (var i = 0; i < 40; i++) rows.Append("<div style='display:flex;justify-content:space-between;align-items:center;gap:16px;padding:10px 0;border-bottom:1px solid #dde3ea'><span>Услуга " + (i + 1) +
+                "</span><a href='/ssc/apply/" + i + "' style='flex:none;padding:6px 12px;border:1px solid #bfd3ea;border-radius:8px'>Подать заявку</a></div>");
+            return PolishShell("<div class='qa-services'>" + rows + "</div>", false);
+        }
+        // Real page shapes at the current width: a long УМКД course (file rows, teachers' links, rating stars), the
+        // attendance journal (merged matrices with their own horizontal scroll) and a long service list. At every depth the
+        // button is in its place and over no small control: where one would pass under it, the page made room.
         private async Task TopQaLongPagesAsync(string qa, List<string> results, string width)
         {
             foreach (var fixture in new[] { Tuple.Create("umkd", TopQaCourse(), SitePolicy.Origin + "/student/umkd/321/2026/1"),
-                Tuple.Create("attendance", TopQaAttendance(), SitePolicy.Origin + "/student/attendance/full/2026/1") })
+                Tuple.Create("attendance", TopQaAttendance(), SitePolicy.Origin + "/student/attendance/full/2026/1"),
+                Tuple.Create("services", TopQaServices(), SitePolicy.Origin + "/ssc/UserServiceList") })
             {
                 main.LoadHtml(fixture.Item2, fixture.Item3); await WaitQaPresentationAsync(); await ApplyPresentationAsync(); await Task.Delay(700);
                 await FixesEvalAsync("window.__univerMotion=false;'still'");
-                var shown = 0; var middle = 0; var bad = new List<string>(); var end = "";
+                var shown = 0; var bad = new List<string>(); var end = "";
                 foreach (var depth in new[] { 1.5, 2.5, 3.5, 99 })
                 {
                     var state = await TopQaAtAsync(depth); QaTrace("top " + width + " " + fixture.Item1 + " " + depth + " " + state);
-                    if (state.Contains("\"on\":true")) { shown++; if (depth < 99) middle++; if (!TopQaShown(state)) bad.Add(depth + ": " + state); }
+                    if (state.Contains("\"on\":true")) { shown++; if (!TopQaShown(state)) bad.Add(depth + ": " + state); }
                     end = state;
                 }
-                // УМКД rows are links stretched over the row, so there the button may wait for the page end; the journal's
-                // rows are not, so the button must show mid-page too.
-                var enough = fixture.Item1 != "attendance" || middle >= 2;
-                Check(bad.Count == 0 && TopQaShown(end) && enough, "on a long " + fixture.Item1 + " page in a " + width + " window the button never covers a control or a scroll bar and is there at the end" +
-                    (fixture.Item1 == "attendance" ? ", and mid-page" : "") + " (" + shown + " of 4 depths)", results);
                 await FixesShotAsync(qa, "top-" + fixture.Item1 + "-" + width + ".png");
+                // The service rows put «Подать заявку» under the button's place in any window: the page makes room, or, too narrow
+                // to spare it (a large display scale), shows no button.
+                var services = fixture.Item1 == "services";
+                Check(bad.Count == 0 && (services ? TopQaPlaced(end, shown) : TopQaShown(end) && shown >= 2), "on a long " + fixture.Item1 + " page in a " + width +
+                    " window the button keeps its place, covers no small control" + (services ? (TopQaSpare(end) ? " (the page made room)" : " (no room to spare, so no button)") : "") +
+                    " and is there mid-page and at the end (" + shown + " of 4 depths)", results);
             }
+        }
+        // The service list zoomed in: at 150% the QA window makes room; at 200% (about 480 CSS px) it cannot spare it and shows
+        // no button. Either way the button covers nothing.
+        private async Task TopQaZoomedAsync(string qa, List<string> results)
+        {
+            var before = zoomPercent;
+            try
+            {
+                foreach (var zoom in new[] { 150, 200 })
+                {
+                    zoomPercent = zoom; ApplyZoom();
+                    main.LoadHtml(TopQaServices(), SitePolicy.Origin + "/ssc/UserServiceList"); await WaitQaPresentationAsync(); await ApplyPresentationAsync(); await Task.Delay(700);
+                    await FixesEvalAsync("window.__univerMotion=false;'still'");
+                    var shown = 0; var bad = new List<string>(); var end = "";
+                    foreach (var depth in new[] { 1.5, 2.5, 3.5, 99 })
+                    {
+                        var state = await TopQaAtAsync(depth); QaTrace("top zoom " + zoom + " " + depth + " " + state);
+                        if (state.Contains("\"on\":true")) { shown++; if (!TopQaShown(state)) bad.Add(depth + ": " + state); }
+                        end = state;
+                    }
+                    await FixesShotAsync(qa, "top-services-" + zoom + ".png");
+                    // A page narrower than the room plus 360 px (the QA window at 200%) keeps its column, and then the button stays off.
+                    Check(bad.Count == 0 && TopQaPlaced(end, shown), "zoomed to " + zoom + "% the button never stands over a small control: " +
+                        (TopQaSpare(end) ? "the page makes room" : "no room to spare, so no button") + " (" + shown + " of 4 depths, " + Regex.Match(end, "\"vw\":(\\d+)").Groups[1].Value + " px wide)", results);
+                }
+            }
+            finally { zoomPercent = before; ApplyZoom(); }
         }
         private async Task TopQaAsync(string qa, List<string> results)
         {
@@ -113,18 +155,11 @@ namespace Univer.Desktop.UI
             var deep = await TopQaAtAsync(2.5);
             Check(deep.Contains("\"text\":\"Наверх\"") && deep.Contains("\"height\":40"), "the button reads «Наверх» and is 40 px tall like the page's controls", results);
             await FixesShotAsync(qa, "top-ru.png");
-            // A link in the bottom right corner: the button climbs above it instead of covering it.
-            await FixesEvalAsync("(function(){var a=document.createElement('a');a.id='qa-corner';a.href='/news/view/1/';a.textContent='Ссылка в углу';" +
-                "a.style.cssText='position:fixed;right:12px;bottom:12px;width:260px;height:64px;display:block;background:#fde7e7;z-index:5';document.body.appendChild(a);window.__univerTopV1.refresh();return 'ok';})()");
-            await Task.Delay(300);
-            var dodge = await FixesEvalAsync(TopQaState); QaTrace("top corner " + dodge);
-            int lifted; var mark = dodge.IndexOf("\"bottom\":", StringComparison.Ordinal);
-            Check(TopQaShown(dodge) && mark > 0 && int.TryParse(dodge.Substring(mark + 9).Split(',')[0], out lifted) && lifted >= 76 + 6, "a link in the corner moves the button above it", results);
-            await FixesShotAsync(qa, "top-corner.png");
-            await FixesEvalAsync("document.getElementById('qa-corner').remove();window.__univerTopV1.refresh();'ok'");
+            // News links sit on the left: the news page needs no room and keeps its full column.
+            Check(deep.Contains("\"room\":\"\""), "a page whose controls stay clear of the button keeps its full width", results);
 
             // A real mouse click on the button: back at the top, the button gone and the focus at the top of the page.
-            // The button slides back down once the corner link is gone: it is measured only after it has stopped.
+            // The button rises 8 px as it fades in: it is measured once it has settled.
             const string centre = "(function(){var b=document.getElementById('univer-app-top').shadowRoot.querySelector('button').getBoundingClientRect();return Math.round((b.left+b.right)/2)+','+Math.round((b.top+b.bottom)/2);})()";
             string placed = null;
             for (var look = 0; look < 20; look++) { await Task.Delay(100); var now = await FixesEvalAsync(centre); if (now.Length == 0) continue; if (now == placed) break; placed = now; }
@@ -154,7 +189,7 @@ namespace Univer.Desktop.UI
             QaTrace("top click " + after);
             Check(after == "0|false|header", "a click returns to the top, hides the button and puts the focus at the top of the page", results);
 
-            // Narrow window: the page reflows to cards and the button still finds a free spot.
+            // Narrow window: the page reflows to cards and the button keeps its place over no small control.
             var size = Size; var state0 = WindowState;
             try
             {
@@ -171,6 +206,7 @@ namespace Univer.Desktop.UI
             }
             finally { Size = size; WindowState = state0; await Task.Delay(600); }
             await TopQaLongPagesAsync(qa, results, "wide");
+            await TopQaZoomedAsync(qa, results);
             main.LoadHtml(page, SitePolicy.Origin + "/news/student"); await WaitQaPresentationAsync(); await ApplyPresentationAsync(); await Task.Delay(500);
             await FixesEvalAsync("window.__univerMotion=false;'still'");
 
@@ -183,8 +219,11 @@ namespace Univer.Desktop.UI
             await FixesShotAsync(qa, "top-dark.png");
             prefs.Theme = ThemeChoice.Light; ApplyTheme(); await RefreshDocumentScriptsAsync(); await ApplyPresentationAsync(); await Task.Delay(300);
 
+            // A loaded x86 run may finish Original later than 400 ms: wait up to 3 s; a button that stays still fails.
             prefs.Readable = false; await ApplyPresentationAsync(); await Task.Delay(400);
-            Check(await FixesEvalAsync("document.getElementById('univer-app-top')?'there':'gone'") == "gone", "Original has no Back to top button", results);
+            var original = "";
+            for (var i = 0; i < 14 && original != "gone"; i++) { original = await FixesEvalAsync("document.getElementById('univer-app-top')?'there':'gone'"); if (original != "gone") await Task.Delay(200); }
+            Check(original == "gone", "Original has no Back to top button", results);
             prefs.Readable = true; await ApplyPresentationAsync();
         }
     }

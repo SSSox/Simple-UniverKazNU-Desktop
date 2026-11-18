@@ -60,7 +60,7 @@ namespace Univer.Desktop.Core
                         }
                         break;
                     case 0x041E:
-                        if (length >= 5) { int end; formats[U16(stream, body)] = Unicode(stream, body + 2, next, false, out end); }
+                        if (length >= 5) formats[U16(stream, body)] = Unicode(stream, body + 2, next, false, out _);
                         break;
                     case 0x00E0: if (length >= 20) { var xf = new byte[20]; Array.Copy(stream, body, xf, 0, 20); xfs.Add(xf); } break;
                     case 0x0092:
@@ -71,7 +71,7 @@ namespace Univer.Desktop.Core
                     case 0x0085:
                         // Visible worksheets only: hidden sheets, chart sheets and macro sheets stay with the user's own program.
                         if (length >= 8 && (stream[body + 4] & 3) == 0 && stream[body + 5] == 0)
-                        { int end; sheets.Add(new BoundSheet { Offset = (int)U32(stream, body), Name = Unicode(stream, body + 6, next, true, out end) }); }
+                            sheets.Add(new BoundSheet { Offset = (int)U32(stream, body), Name = Unicode(stream, body + 6, next, true, out _) });
                         break;
                     case 0x00FC:
                         var parts = new List<byte[]> { Slice(stream, body, length) };

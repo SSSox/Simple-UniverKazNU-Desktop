@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Net;
+using System.Runtime;
 using System.Runtime.InteropServices;
 using System.Runtime.CompilerServices;
 using System.Threading;
@@ -14,6 +15,12 @@ namespace Univer.Desktop
 {
     internal static class Program
     {
+        // Milliseconds from Main: Chromium ready, window shown, first page uncovered (QA step "speed" reports them).
+        internal static readonly System.Diagnostics.Stopwatch Clock = System.Diagnostics.Stopwatch.StartNew();
+        internal static long CefReady, WindowShown, FirstReveal;
+        // Start-up stages on Clock, for the QA step "speed": where the time before the first page goes.
+        internal static readonly System.Collections.Generic.List<string> Marks = new System.Collections.Generic.List<string>();
+        internal static void Mark(string name) { Marks.Add(name + "=" + Clock.ElapsedMilliseconds); }
         [STAThread]
         private static int Main(string[] args)
         {
@@ -59,6 +66,7 @@ namespace Univer.Desktop
                 // The elevated original still holds the mutex for a moment while it exits after relaunching this copy.
                 try { owns = mutex.WaitOne(deElevatedRelaunch ? 5000 : 0); } catch (AbandonedMutexException) { owns = true; }
                 if (!owns) { if (!ActivateRunningInstance()) MessageBox.Show(Strings.Get("alreadyRunning", SavedLanguage(data)), "Univer"); return 0; }
+                StartJitProfile(isolated ? Path.Combine(Path.GetTempPath(), "Univer.Desktop.QA") : data);
                 var errorLanguage = "ru";
                 try
                 {
@@ -72,6 +80,13 @@ namespace Univer.Desktop
 #else
                     var storage = new Storage(data, BrowserProfileFlavor.Modern);
 #endif
+                    // Work that needs no window runs on a worker while Chromium starts below: the installed font families and
+                    // the page scripts. Both are lazy, so the window waits for them only if they are still being read.
+                    ThreadPool.QueueUserWorkItem(_ =>
+                    {
+                        try { UI.Theme.LoadFontsEarly(); Web.AutomationController.LoadScriptsEarly(); }
+                        catch (Exception) { /* The window reads them itself and reports what fails. */ }
+                    });
                     var settings = new CefSettings { RootCachePath = storage.BrowserRoot, LogSeverity = LogSeverity.Disable, PersistSessionCookies = true };
                     // Date fields and the PDF viewer follow Chromium's per-process locale; Kazakh has none, so Russian (same dd.mm.yyyy)
                     // stands in. The header sent to the site does not change.
@@ -108,6 +123,7 @@ namespace Univer.Desktop
 #endif
                         throw new InvalidOperationException("Browser initialization failed");
                     }
+                    CefReady = Clock.ElapsedMilliseconds;
                     try
                     {
                         using (var form = new MainForm(storage, selfTest, Array.IndexOf(args, "--live-smoke") >= 0, accountReview, reviewAll))
@@ -134,6 +150,23 @@ namespace Univer.Desktop
                 }
                 finally { mutex.ReleaseMutex(); }
             }
+        }
+        // Multi-core JIT: the methods the last start compiled are compiled again on spare cores while this one runs. The
+        // profile holds method names only (no page or account data); one per engine and bitness, since each build's
+        // methods differ. A folder that cannot be written just leaves it off.
+        private static void StartJitProfile(string folder)
+        {
+            try
+            {
+                Directory.CreateDirectory(folder);
+                ProfileOptimization.SetProfileRoot(folder);
+#if LEGACY_ENGINE
+                ProfileOptimization.StartProfile(Environment.Is64BitProcess ? "startup-legacy-x64.jit" : "startup-legacy-x86.jit");
+#else
+                ProfileOptimization.StartProfile(Environment.Is64BitProcess ? "startup-modern-x64.jit" : "startup-modern-x86.jit");
+#endif
+            }
+            catch (Exception) { /* Start-up only takes longer. */ }
         }
         // The language the user chose, for a message shown before the window exists.
         private static string SavedLanguage(string data)

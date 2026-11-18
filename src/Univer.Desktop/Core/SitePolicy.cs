@@ -12,6 +12,7 @@ namespace Univer.Desktop.Core
         private static readonly Regex PrintPath = Path(@"^/student/(?:iup(?:/\d+)*/?|transcript(?:/\d+)?/?|recbook(?:/\d+)?/?|interactive/syllabus/print/\d+/\d+/?|myschedule/print/\d+/\d+/?)$");
         private static readonly Regex ProtectedPath = Path(@"^/student/umkd/get/\d+/\d+/\d+/\d+/?$");
         private static readonly Regex MaterialsPath = Path(@"^/student/umkd/\d+/\d+/\d+/?$");
+        private static readonly Regex GradesPath = Path(@"^/student/attendance/(?:full|show)(?:/\d+)*/?$");
         private static readonly Regex DocumentPath =Path(@"\.(?:pdf|docx?|xlsx?|pptx?|odt|ods|rtf|zip|rar)$");
         private static readonly Regex SingleSignOnPath = Path(@"^/user/loginMoodle/?$");
         private static readonly Regex OnlineTestPath = Path(@"^/student/AuthorizationOnOnlineTestForm/?$");
@@ -44,6 +45,11 @@ namespace Univer.Desktop.Core
             if (!Trusted(url)) return null;
             var match = LanguagePath.Match(new Uri(url).AbsolutePath);
             return match.Success ? match.Groups[1].Value : null;
+        }
+        // The site's own flag link for a language; anything unknown falls back to Russian, the app's default.
+        public static string LanguageSwitch(string language)
+        {
+            return Origin + "/lang/change/" + (language == "kz" || language == "en" ? language : "ru") + "/";
         }
         // "/" and the site's news pager (/my/news/{n}) always pass through /student/attention, which re-posts the
         // read notice and lands on page 1. /news/student/{n} is the observed direct news list.
@@ -114,6 +120,8 @@ namespace Univer.Desktop.Core
         }
         // A course's materials in UMKD (/student/umkd/{course}/{year}/{term}), where a teacher may leave links to other sites.
         public static bool StudyMaterials(string url) { return TrustedPath(url, MaterialsPath); }
+        // The attendance and grades journal («Успеваемость»), the only page the grade summary is made from.
+        public static bool Grades(string url) { return TrustedPath(url, GradesPath); }
         // A teacher's link from UMKD: a plain web page on a named host. Mail and phone links, addresses with a user name,
         // bare IP addresses and local names are not study sources.
         public static bool StudyLink(string url)

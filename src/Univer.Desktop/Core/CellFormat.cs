@@ -151,7 +151,7 @@ namespace Univer.Desktop.Core
             if (section.IndexOf("General", StringComparison.OrdinalIgnoreCase) >= 0)
             {
                 var at = section.IndexOf("General", StringComparison.OrdinalIgnoreCase);
-                return Literal(section.Substring(0, at), culture) + General(value, culture) + Literal(section.Substring(at + 7), culture);
+                return Literal(section.Substring(0, at)) + General(value, culture) + Literal(section.Substring(at + 7));
             }
             var format = new StringBuilder();
             for (var i = 0; i < section.Length; i++)
@@ -171,7 +171,7 @@ namespace Univer.Desktop.Core
             }
             return value.ToString(format.ToString(), culture);
         }
-        private static string Literal(string section, CultureInfo culture)
+        private static string Literal(string section)
         {
             var text = new StringBuilder();
             for (var i = 0; i < section.Length; i++)

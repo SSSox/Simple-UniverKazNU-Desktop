@@ -6,7 +6,7 @@ using Univer.Desktop.Core;
 
 namespace Univer.Desktop.UI
 {
-    internal enum SettingsAction { None, Save, Logout, Remove, Manual }
+    internal enum SettingsAction { None, Save, Remove, Manual }
     // Settings in the look of the app's pages: sheets on the page colour, one row per setting, a short line under its name.
     // Positions are design sizes at 96 DPI; the form scales them with the DPI and the app's zoom.
     internal sealed partial class SettingsForm : Form
@@ -36,7 +36,7 @@ namespace Univer.Desktop.UI
         private bool pinBusy;
         private readonly Label heading = new Label(), description = new Label(), error = new Label();
         private readonly Label loginLabel = new Label(), passwordLabel = new Label(), privacy = new Label();
-        private readonly Label logoutTitle = new Label(), logoutHint = new Label(), forgetTitle = new Label(), forgetHint = new Label();
+        private readonly Label logoutTitle = new Label(), logoutHint = new Label();
         private readonly Label languageLabel = new Label(), languageHint = new Label(), themeLabel = new Label(), about = new Label();
         // Three languages and three themes are short choices: all of them stay in view.
         private readonly ModernButton[] languages = { new ModernButton(), new ModernButton(), new ModernButton() };
@@ -49,7 +49,7 @@ namespace Univer.Desktop.UI
         private readonly Label updateTitle = new Label(), updateStatus = new Label();
         private readonly ModernButton updateCheck = new ModernButton(), updateInstall = new ModernButton();
         private readonly Panel updateGap = new Panel { Dock = DockStyle.Right, Width = 8, TabStop = false };
-        private readonly ModernButton save = new ModernButton(), logout = new ModernButton(), remove = new ModernButton(), cancel = new ModernButton();
+        private readonly ModernButton save = new ModernButton(), logout = new ModernButton(), cancel = new ModernButton();
         private readonly Panel accountPanel = new Panel(), viewPanel = new Panel(), appPanel = new Panel(), content = new Panel(), updateSlot = new Panel();
         private readonly SettingsSheet localSheet = new SettingsSheet(), viewSheet = new SettingsSheet(), appSheet = new SettingsSheet();
         // What the window opened with: Save wakes up only when something differs.
@@ -163,8 +163,9 @@ namespace Univer.Desktop.UI
             login.Input.TextChanged += (s, e) => { UpdateFooter(); ClearError(); }; password.Input.TextChanged += (s, e) => { UpdateFooter(); ClearError(); };
             password.Reveal.Click += (s, e) => UpdateRevealLabel();
             save.Click += async (s, e) => await CommitAsync(SettingsAction.Save);
-            logout.Click += async (s, e) => await CommitAsync(SettingsAction.Logout);
-            remove.Click += async (s, e) => await CommitAsync(SettingsAction.Remove);
+            // Signing out also removes the saved login and password: a sign-out that kept them protected nothing, since
+            // anyone at the computer could sign in again with them, and the PIN is what guards a computer left open.
+            logout.Click += async (s, e) => await CommitAsync(SettingsAction.Remove);
             cancel.Click += async (s, e) => { if (firstLaunch) await CommitAsync(SettingsAction.Manual); else DialogResult = DialogResult.Cancel; };
             FormClosing += (s, e) => FadeOut(e);
             Shown += (s, e) => Settle();
@@ -191,12 +192,12 @@ namespace Univer.Desktop.UI
             Left = Math.Max(area.Left + 12, Math.Min(Left, area.Right - Width - 12));
             Top = Math.Max(area.Top + 12, Math.Min(Top, area.Bottom - Height - 12));
             laidOut = true; FitTabs(); languagePlate.Snap();
-            foreach (var button in new[] { save, cancel, logout, remove, updateCheck, updateInstall, webDataClear }) button.SnapWidth();
+            foreach (var button in new[] { save, cancel, logout, updateCheck, updateInstall, webDataClear }) button.SnapWidth();
             ArrangeApp();
             login.Input.Focus();
             if (fadeIn) appearance = Motion.Run(Motion.Normal, t => { if (!IsDisposed) Opacity = Motion.Lerp(.25f, 1, Motion.EaseOut(t)); });
         }
-        private int AccountHeight { get { return original != null && !firstLaunch ? 284 : 150; } }
+        private int AccountHeight { get { return original != null && !firstLaunch ? 164 + RowHeight : 150; } }
         private void BuildAccount(Credentials credentials)
         {
             login.Input.Text = credentials?.Login ?? ""; password.Input.Text = credentials?.Password ?? "";
@@ -207,12 +208,12 @@ namespace Univer.Desktop.UI
             loginLabel.Font = passwordLabel.Font = Theme.Strong(Theme.Meta); loginLabel.ForeColor = passwordLabel.ForeColor = Theme.Ink;
             error.SetBounds(edge, 130, Inner, 36); error.ForeColor = Theme.Danger; error.Font = Theme.Font(Theme.Meta); error.Visible = false;
             privacy.SetBounds(edge, 130, Inner, 18); privacy.ForeColor = Theme.Muted; privacy.Font = Theme.Font(Theme.Meta);
-            localSheet.SetBounds(edge, 164, Inner, RowHeight * 2); localSheet.DesignHeight = RowHeight * 2; localSheet.Lines = new[] { RowHeight };
+            localSheet.SetBounds(edge, 164, Inner, RowHeight); localSheet.DesignHeight = RowHeight; localSheet.Lines = new int[0];
             localSheet.Visible = credentials != null && !firstLaunch;
             var words = Inner - Pad * 2 - 120;
-            AddRow(localSheet, logoutTitle, logoutHint, 0, words); AddRow(localSheet, forgetTitle, forgetHint, RowHeight, words);
-            logout.Look = ButtonLook.Outline; remove.Look = ButtonLook.Danger;
-            AddSlot(localSheet, 14, 112, logout); AddSlot(localSheet, RowHeight + 14, 112, remove);
+            AddRow(localSheet, logoutTitle, logoutHint, 0, words);
+            logout.Look = ButtonLook.Danger;
+            AddSlot(localSheet, 14, 112, logout);
             foreach (var control in new Control[] { loginLabel, login, passwordLabel, password, privacy, error, localSheet }) accountPanel.Controls.Add(control);
             accountPanel.Height = AccountHeight;
         }
@@ -494,7 +495,6 @@ namespace Univer.Desktop.UI
             login.Input.AccessibleName = loginLabel.Text; password.Input.AccessibleName = passwordLabel.Text; UpdateRevealLabel();
             privacy.Text = Strings.Get("privacy", lang);
             logoutTitle.Text = Strings.Get("logout", lang); logoutHint.Text = Strings.Get("logoutHint", lang); logout.Text = Strings.Get("logoutAction", lang);
-            forgetTitle.Text = Strings.Get("forgetTitle", lang); forgetHint.Text = Strings.Get("forgetHint", lang); remove.Text = Strings.Get("forgetAction", lang);
             languageLabel.Text = Strings.Get("language", lang); languageHint.Text = Strings.Get("languageHint", lang);
             themeLabel.Text = Strings.Get("theme", lang);
             for (var i = 0; i < themes.Length; i++) themes[i].Text = themes[i].AccessibleName = Strings.Get(ThemeNames[i], lang);
@@ -511,7 +511,7 @@ namespace Univer.Desktop.UI
             about.Text = string.Format(Strings.Get("about", lang), AppInfo.Version, AppInfo.Flavor, AppInfo.Chromium);
             if (firstLaunch) Caption(cancel, "manualButton");
             foreach (var button in new[] { accountTab, viewTab, appTab }) button.AccessibleName = button.Text;
-            logout.AccessibleName = logoutTitle.Text; remove.AccessibleName = Strings.Get("forget", lang);
+            logout.AccessibleName = logoutTitle.Text + ": " + logoutHint.Text;
             UpdateFooter(); FitTabs(); RenderUpdates(); ArrangeApp();
         }
         private void FitTabs()

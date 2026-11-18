@@ -126,7 +126,7 @@ namespace Univer.Desktop.Core
             if (node.Name == W + "r") Run(node, html, context, paragraphRuns, heading);
             else if (node.Name == W + "hyperlink")
             {
-                string target = null; var id = node.Attribute(R + "id")?.Value;
+                string target; var id = node.Attribute(R + "id")?.Value;
                 if (id != null && context.Relations.TryGetValue(id, out target) && Web(target)) html.Append("<a href=\"").Append(WebUtility.HtmlEncode(target)).Append("\">");
                 else target = null;
                 foreach (var run in node.Elements()) Inline(run, html, context, paragraphRuns, heading);

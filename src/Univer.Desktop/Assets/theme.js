@@ -163,7 +163,16 @@
         app.push(inline(doc));
         app.push(':root.univer-app-dark{color-scheme:dark;background:' + PAGE + '}:root.univer-mobile.univer-app-dark{--u-bg:' + PAGE + ';--u-shadow-pop:0 12px 36px rgba(0,0,0,.45),0 2px 6px rgba(0,0,0,.3)}' +
             // The site's logo is a JPEG with dark text on white: inverted and screened, the white drops out and the text turns light.
-            ':root.univer-app-dark #logo{filter:invert(1) brightness(.9);mix-blend-mode:screen}');
+            ':root.univer-app-dark #logo{filter:invert(1) brightness(.9);mix-blend-mode:screen}' +
+            // Score bands and letter grades keep their own soft dark tints: mapped from the light ones they came out deep and
+            // saturated. A tile stays dark enough for the chip's muted note to keep 4.5:1 (QA step report).
+            ':root.univer-mobile.univer-app-dark{--univer-band-low:#d98278;--univer-band-low-ink:#f0a39a;--univer-band-low-soft:#342b2f;--univer-band-low-line:#553d40;' +
+            '--univer-band-fair:#d9ad5c;--univer-band-fair-ink:#e8c577;--univer-band-fair-soft:#312e27;--univer-band-fair-line:#554b37;' +
+            '--univer-band-good:#6cb38c;--univer-band-good-ink:#8fd0aa;--univer-band-good-soft:#222f30;--univer-band-good-line:#334a44;' +
+            '--univer-band-top:#7b9fdc;--univer-band-top-ink:#9fbdf0;--univer-band-top-soft:#252e3a;--univer-band-top-line:#37455b}' +
+            [['a', '#212f2e', '#86d3c6'], ['b', '#252e3a', '#9fbdf0'], ['c', '#312e27', '#e8c577'], ['d', '#332c28', '#f0ad86'], ['f', '#342b2f', '#f0a39a']].map(function (g) {
+                return ':root.univer-mobile.univer-app-dark #l4 .univer-app-grade[data-band=' + g[0] + ']{background:' + g[1] + ';color:' + g[2] + '!important}';
+            }).join(''));
         var head = doc.head || doc.documentElement, observer = state.observer;
         if (observer) observer.disconnect();
         var siteStyle = element(doc, 'univer-app-dark-site'), appStyle = element(doc, 'univer-app-dark-app');

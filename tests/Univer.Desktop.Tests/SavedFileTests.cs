@@ -25,6 +25,16 @@ namespace Univer.Desktop.Tests
             Assert.Equal(new[] { "[ZoneTransfer]", "ZoneId=3", "HostUrl=" + Site }, zone.Split(new[] { "\r\n" }, StringSplitOptions.RemoveEmptyEntries));
         }
 
+        // The grade summary is made by the app itself, not received from the internet.
+        [Fact]
+        public void Keep_WithoutAnOriginLeavesTheFileUnmarked()
+        {
+            File.WriteAllText(Path.Combine(root, "Успеваемость 2026-11-18.png"), "older");
+            var saved = SavedFile.Keep(Part("picture"), root, "Успеваемость 2026-11-18.png", null);
+            Assert.Equal(Path.Combine(root, "Успеваемость 2026-11-18 (1).png"), saved);
+            Assert.Null(SavedFile.Zone(saved));
+        }
+
         [Fact]
         public void Keep_NeverOverwritesOrMarksTheUsersOwnFile()
         {

@@ -14,6 +14,8 @@ namespace Univer.Desktop.Core
         private readonly string folder, application, flavor, architecture;
         private CancellationTokenSource work;
         private long attemptedAt;
+        // Whether this run has asked GitHub yet: the first automatic check of every start is never skipped.
+        private bool checkedThisRun;
         private bool disposed;
         public string Current { get; private set; }
         public bool Installed { get; private set; }
@@ -44,10 +46,12 @@ namespace Univer.Desktop.Core
             catch (IOException) { }
             catch (UnauthorizedAccessException) { }
         }
-        // The automatic check. It does not depend on the student's choices: they only decide what is shown.
+        // The automatic check. It does not depend on the student's choices: they only decide what is shown. Every start asks
+        // once (a release may have come out since the last run, however recent); later returns to the window ask at most every
+        // CheckInterval, and a failed check waits RetryInterval.
         public Task CheckIfDueAsync(long now)
         {
-            return Updates.Due(now, CheckedAt) && Math.Abs(now - attemptedAt) >= Updates.RetryInterval ? CheckAsync() : Task.FromResult(true);
+            return (!checkedThisRun || Updates.Due(now, CheckedAt)) && Math.Abs(now - attemptedAt) >= Updates.RetryInterval ? CheckAsync() : Task.FromResult(true);
         }
         public async Task CheckAsync()
         {
@@ -58,7 +62,8 @@ namespace Univer.Desktop.Core
             {
                 var latest = await client.LatestVersionAsync(token);
                 Available = Updates.Newer(latest, Current) ? latest : null;
-                CheckedAt = DateTime.UtcNow.Ticks;
+                // Only an answer counts as this start's check: one that failed offline is asked again after RetryInterval.
+                CheckedAt = DateTime.UtcNow.Ticks; checkedThisRun = true;
                 Finish(UpdateFailure.None);
             }
             catch (Exception) when (token.IsCancellationRequested) { Finish(UpdateFailure.None); }

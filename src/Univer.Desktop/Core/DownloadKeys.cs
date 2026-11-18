@@ -9,11 +9,13 @@ namespace Univer.Desktop.Core
     // Recognising a file that was downloaded before, without keeping the address it came from.
     internal static class DownloadKeys
     {
-        // The first 128 bits of SHA-256 over the address without its fragment.
+        // The first 128 bits of SHA-256 over the address without its fragment. A static document (…/file.pdf) also loses
+        // its query: the site appends ?v=<ticks> that changes on every render, so a reload would look like a new file.
         public static string Of(string url)
         {
             if (string.IsNullOrEmpty(url)) return "";
             var hash = url.IndexOf('#'); if (hash >= 0) url = url.Substring(0, hash);
+            var query = url.IndexOf('?'); if (query >= 0 && SitePolicy.DocumentDownload(url)) url = url.Substring(0, query);
             using (var sha = System.Security.Cryptography.SHA256.Create())
                 return BitConverter.ToString(sha.ComputeHash(Encoding.UTF8.GetBytes(url)), 0, 16).Replace("-", "").ToLowerInvariant();
         }

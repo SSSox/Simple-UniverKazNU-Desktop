@@ -2,7 +2,8 @@
 (function () {
     'use strict';
     if (location.origin !== 'https://univer.kaznu.kz' || window.__univerPaintV1) return;
-    var active = false, pending = false, failed = false, saved = null, sheet = null;
+    // shownAt: when this document was first uncovered, on the page's clock (QA compares it with DOMContentLoaded).
+    var active = false, pending = false, failed = false, saved = null, sheet = null, shownAt = 0;
     function begin() {
         if (failed) return;
         if (!sheet && 'adoptedStyleSheets' in document && typeof CSSStyleSheet !== 'undefined' && CSSStyleSheet.prototype.replaceSync) {
@@ -52,6 +53,7 @@
             if (saved.pointer) root.style.setProperty('pointer-events', saved.pointer, saved.pointerPriority); else root.style.removeProperty('pointer-events');
         }
         // Reveal immediately: navigation and F5 must not add a second, decorative loading phase.
+        if (pending && !shownAt) shownAt = performance.now();
         saved = null; pending = false;
     }
     function documents() {
@@ -76,7 +78,8 @@
             return 'paint-ready';
         },
         finish:finish,
-        get pending() { return pending; }
+        get pending() { return pending; },
+        get shown() { return shownAt; }
     };
     begin();
     new MutationObserver(function () {

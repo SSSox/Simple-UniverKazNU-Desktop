@@ -1,27 +1,36 @@
 /* «Наверх»: one floating button once a page has been scrolled well down, in the reading layout only (Original has none).
-   It lives in its own shadow root, so the site's styles stay out of it and showing or moving it never wakes the layout
-   adapter's DOM observer. By default it never covers a control: from the bottom right it climbs the right edge, then
-   tries the left one, and stays hidden while no spot is free. The phone's anchored button keeps its corner instead.
-   Either way it hides while a dialog, menu or drag is under way. */
+   It lives in its own shadow root, so the site's styles stay out of it and showing it never wakes the layout adapter's DOM
+   observer. It always stands in the same place, a little above the bottom right corner, and never moves: a button that
+   dodged controls jumped about under the reader (the owner's request). Instead the page makes room: when a small control
+   would pass under the button (a service's «Подать заявку»), the page column narrows once, as soon as such a control is
+   there (as a rule when the page is set up), so the button stands beside the page. A window too short for the button or
+   too narrow to spare the room keeps its full column, and there the button stays off a page where it would cover a
+   control. It hides while a dialog, menu or drag is under way. */
 (function () {
     'use strict';
     if (location.origin !== 'https://univer.kaznu.kz' || window.__univerTopV1 || window !== window.top) return;
     var WORDS = { ru: 'Наверх', kz: 'Жоғарыға', en: 'Back to top' };
-    // What a click would reach. A covered one moves the button; a clickable panel larger than a quarter of the window
-    // does not, or the button could never show over a page that is one big link.
+    // What a click would reach. A wide one (a row that is one big link) stays clickable beside the button and makes no room.
     var CONTROLS = 'a[href],button,input,select,textarea,summary,label,[role=button],[role=link],[role=tab],[role=menuitem],[role=checkbox],[role=radio],[role=switch],[onclick],[contenteditable=""],[contenteditable=true]';
     var FOCUSABLE = 'a[href],button,input:not([type=hidden]),select,textarea,summary,[tabindex]:not([tabindex="-1"])';
     // Open dialogs, menus and lists, and the tile bin while a tile is dragged: the button waits until they close.
-    var OPEN = '#simplemodal-container,.univer-app-add-layer,.univer-app-select,.univer-app-menu[open],.univer-app-trash-on,.modal.in,.modal.show,.ui-dialog';
-    // Edge gap and height: 24 and 40 px on Windows; the phone passes larger ones for the thumb.
-    var EDGE = 24, HEIGHT = 40, STEP = 12, PAD = 6, SHOW = 1.2, HIDE = 0.9;
+    var OPEN = '#univer-app-report,#simplemodal-container,.univer-app-add-layer,.univer-app-select,.univer-app-menu[open],.univer-app-trash-on,.modal.in,.modal.show,.ui-dialog';
+    // Right gap, gap below, height; shown past SHOW screens, hidden again above HIDE.
+    var EDGE = 24, LIFT = 56, HEIGHT = 40, PAD = 6, SHOW = 1.2, HIDE = 0.9;
+    // The room: html[data-univer-top-room] in steps of 16 px, matched by desktop.js. Controls wider than NARROW and those
+    // reaching past the window (inside a box that scrolls sideways) make none.
+    var ROOM = 'data-univer-top-room', NARROW = 480, OVERLAP = 24, MIN_ROOM = 144, MAX_ROOM = 240;
+    // The button needs a window at least MIN_VIEW tall; the room is given only while MIN_COLUMN px of page (a phone's width)
+    // remain beside it. The app's sidebar grows with the zoom: the QA window's page is 656 px at 150% (room made) and
+    // 480 px at 200% (no room).
+    var MIN_VIEW = 300, MIN_COLUMN = 360;
     var ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12 7-7 7 7"/><path d="M12 19V5"/></svg>';
     var CSS = ':host{all:initial}' +
-        '.top{position:fixed;z-index:800;right:24px;bottom:24px;display:inline-flex;align-items:center;gap:8px;box-sizing:border-box;height:40px;margin:0;padding:0 18px 0 14px;' +
+        '.top{position:fixed;z-index:800;right:24px;bottom:56px;display:inline-flex;align-items:center;gap:8px;box-sizing:border-box;height:40px;margin:0;padding:0 18px 0 14px;' +
         'border:0;border-radius:20px;background:var(--u-brand,#1b5fa6);color:#fff;font:600 14px/1 var(--u-font,"Segoe UI",Tahoma,sans-serif);white-space:nowrap;cursor:pointer;' +
         'box-shadow:0 6px 18px rgba(16,40,70,.22),0 1px 3px rgba(16,40,70,.12);opacity:0;visibility:hidden;transform:translateY(8px);' +
-        'transition:opacity .16s ease,transform .2s cubic-bezier(.22,1,.36,1),bottom .2s cubic-bezier(.22,1,.36,1),background-color .14s ease,visibility 0s linear .2s}' +
-        '.top.on{opacity:1;visibility:visible;transform:none;transition:opacity .16s ease,transform .2s cubic-bezier(.22,1,.36,1),bottom .2s cubic-bezier(.22,1,.36,1),background-color .14s ease,visibility 0s}' +
+        'transition:opacity .16s ease,transform .2s cubic-bezier(.22,1,.36,1),background-color .14s ease,visibility 0s linear .2s}' +
+        '.top.on{opacity:1;visibility:visible;transform:none;transition:opacity .16s ease,transform .2s cubic-bezier(.22,1,.36,1),background-color .14s ease,visibility 0s}' +
         '.top:hover{background:var(--u-brand-strong,#154d88)}' +
         '.top.on:active{transform:scale(.97)}' +
         '.top:focus-visible{outline:2px solid var(--u-brand,#1b5fa6);outline-offset:3px}' +
@@ -32,7 +41,7 @@
         '.top.still,.top.still.on{transition:none;transform:none}' +
         '@media (prefers-reduced-motion:reduce){.top,.top.on{transform:none;transition:opacity .16s ease,visibility 0s linear .16s}.top.on{transition:opacity .16s ease}}' +
         '@media print{.top{display:none!important}}';
-    var enabled = false, language = 'ru', host = null, button = null, label = null, visible = false, idle = 0, frame = 0, edge = EDGE, tall = HEIGHT, anchored = false;
+    var enabled = false, language = 'ru', host = null, button = null, label = null, visible = false, idle = 0, frame = 0, checked = 0, cramped = false;
     var still = function () { return window.__univerMotion === false; };
     var reduced = function () { return still() || !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches; };
     // The visible page area without scrollbars; the fixed button is placed against the same box.
@@ -54,8 +63,6 @@
         if (!host.isConnected) (document.body || document.documentElement).appendChild(host);
         if (label.textContent !== WORDS[language]) label.textContent = WORDS[language];
         button.classList.toggle('still', still());
-        var height = tall + 'px';
-        if (button.style.height !== height) { button.style.height = height; button.style.borderRadius = tall / 2 + 'px'; }
     }
     function show() { if (!visible) { visible = true; button.classList.add('on'); } }
     function hide() { if (visible) { visible = false; button.classList.remove('on'); } }
@@ -66,81 +73,51 @@
             return style.display !== 'none' && style.visibility !== 'hidden' && parseFloat(style.opacity) !== 0;
         });
     }
-    // The scroll bar of a box that scrolls on its own (an attendance matrix), when the point is on it: a click there drags
-    // the bar. Geometry first, the style only for the rare point inside a scroll bar's band.
-    function scrollbar(node, x, y) {
-        if (node === document.documentElement || node === document.body || !node.clientHeight) return null;
-        var box = node.getBoundingClientRect(), below = box.top + node.clientTop + node.clientHeight, beside = box.left + node.clientLeft + node.clientWidth;
-        var across = node.scrollWidth > node.clientWidth && y >= below && y < box.bottom, down = node.scrollHeight > node.clientHeight && x >= beside && x < box.right;
-        if (!across && !down) return null;
-        var style = getComputedStyle(node);
-        if (across && /auto|scroll/.test(style.overflowX)) return { top: below };
-        if (down && /auto|scroll/.test(style.overflowY)) return { top: box.top };
-        return null;
+    // Whether a small control lies under the button's band anywhere the button can show: it appears past SHOW screens and
+    // stays on the way back up until HIDE, so it covers just what is below HIDE screens of page. Read from the layout,
+    // never written while reading.
+    function crowded(size, width) {
+        var main = document.getElementById('l4'), page = document.documentElement.scrollHeight;
+        if (!main || page <= size.height * (SHOW + 1)) return false;
+        var y = window.scrollY || window.pageYOffset || 0;
+        var from = size.height * (HIDE + 1) - LIFT - HEIGHT - PAD, to = page - LIFT + PAD;
+        var left = size.width - EDGE - width - PAD, right = size.width - EDGE + PAD;
+        return Array.prototype.some.call(main.querySelectorAll(CONTROLS), function (node) {
+            var box = node.getBoundingClientRect();
+            if (!box.width || !box.height || box.width > NARROW || box.right > size.width + 1) return false;
+            return box.bottom + y > from && box.top + y < to && Math.min(box.right, right) - Math.max(box.left, left) >= OVERLAP;
+        });
     }
-    // The control a click at this point would reach, if it is small enough to matter.
-    function controlAt(x, y, area) {
-        var hits = document.elementsFromPoint(x, y);
-        for (var i = 0; i < hits.length; i++) {
-            if (hits[i] === host) continue;
-            var bar = scrollbar(hits[i], x, y);
-            if (bar) return bar;
-            var control = hits[i].closest(CONTROLS);
-            if (!control) return null;
-            var box = control.getBoundingClientRect();
-            return box.width * box.height < area / 4 ? box : null;
-        }
-        return null;
+    // Room for the button once a page needs it. Kept for the rest of the document: the narrower column no longer meets
+    // the button, and widening it again would bring the control back under it.
+    // A window too narrow to spare the room sets `cramped` instead when a control lies under the button's place: the button
+    // then stays hidden on that page rather than cover it.
+    // The width is the layout one (offsetWidth), so a press, which scales the button, does not change the room.
+    function room(size, force) {
+        var root = document.documentElement, width = button.offsetWidth || 120;
+        var need = Math.min(MAX_ROOM, Math.max(MIN_ROOM, Math.ceil((EDGE + width + 16) / 16) * 16)) + '';
+        var held = root.getAttribute(ROOM), fits = size.width - need >= MIN_COLUMN;
+        // A room given up leaves the control under the button again: that is checked at once.
+        if (size.height < MIN_VIEW || !fits) { if (held) { root.removeAttribute(ROOM); force = true; } }
+        else { cramped = false; if (held) { if (held !== need) root.setAttribute(ROOM, need); return; } }
+        if (size.height < MIN_VIEW) return;
+        var now = Date.now();
+        // A clock set back does not stop the checks.
+        if (!force && now >= checked && now - checked < 1000) return;
+        checked = now;
+        if (!fits) cramped = crowded(size, width);
+        else if (crowded(size, width)) root.setAttribute(ROOM, need);
     }
-    // The top edge of the first control under the button's box with a small margin, or -1 when the box is free.
-    function blocker(left, top, width, size) {
-        var right = left + width + PAD, bottom = top + tall + PAD, area = size.width * size.height;
-        var columns = Math.ceil((width + PAD * 2) / 16), rows = Math.ceil((tall + PAD * 2) / 13);
-        for (var r = 0; r <= rows; r++)
-            for (var c = 0; c <= columns; c++) {
-                var x = Math.min(Math.max(left - PAD + (right - left + PAD) * c / columns, 0), size.width - 1);
-                var y = Math.min(Math.max(top - PAD + (bottom - top + PAD) * r / rows, 0), size.height - 1);
-                var box = controlAt(x, y, area);
-                if (box) return box.top;
-            }
-        return -1;
-    }
-    // The lowest free spot on the right edge, then on the left, within the window's lower half. An anchored button (the
-    // phone, where cards fill the width) keeps its corner like a floating action button: there every stop moved it or,
-    // when it waited for a free spot instead, made it blink in and out. The page end reserves room under it.
-    function findSpot() {
-        var size = view(), width = Math.ceil(button.getBoundingClientRect().width) || 120;
-        if (anchored) return { side: 'right', lift: edge };
-        var sides = [{ side: 'right', left: size.width - edge - width }, { side: 'left', left: edge }];
-        for (var s = 0; s < sides.length; s++) {
-            if (sides[s].left < 0) continue;
-            for (var lift = edge; size.height - lift - tall >= size.height / 2;) {
-                var top = size.height - lift - tall, block = blocker(sides[s].left, top, width, size);
-                if (block < 0) return { side: sides[s].side, lift: lift };
-                // Jump past the control that is in the way instead of creeping over it.
-                lift = Math.max(lift + STEP, Math.ceil(size.height - block + PAD));
-            }
-        }
-        return null;
-    }
-    function place(spot) {
-        var style = button.style, bottom = spot.lift + 'px';
-        if (spot.side === 'left') { if (style.left !== edge + 'px') { style.left = edge + 'px'; style.right = 'auto'; } }
-        else if (style.right !== edge + 'px') { style.right = edge + 'px'; style.left = 'auto'; }
-        if (style.bottom !== bottom) style.bottom = bottom;
-    }
-    function refresh() {
+    function refresh(force) {
         clearTimeout(idle); idle = 0;
         if (!enabled) return;
         ensure();
         var size = view(), y = window.scrollY || window.pageYOffset || 0;
+        room(size, force === true);
         var wanted = visible ? y >= size.height * HIDE : y > size.height * SHOW;
-        if (!wanted || size.height < 300 || dialogOpen()) { hide(); return; }
-        var spot = findSpot();
-        if (!spot) { hide(); return; }
-        place(spot); show();
+        if (!wanted || size.height < MIN_VIEW || cramped || dialogOpen()) hide(); else show();
     }
-    // While the page moves only the distance matters; where to stand is settled once it is still.
+    // While the page moves only the distance matters; the rest is checked once it is still.
     function scrolled() {
         if (!enabled) return;
         if (!frame) frame = requestAnimationFrame(function () {
@@ -160,18 +137,17 @@
         if (first) first.focus({ preventScroll: true }); else button.blur();
     }
     window.addEventListener('scroll', scrolled, { passive: true });
-    window.addEventListener('resize', later);
+    window.addEventListener('resize', function () { checked = 0; later(); });
     document.addEventListener('click', later, true);
     document.addEventListener('keyup', later, true);
     window.__univerTopV1 = {
-        configure: function (on, lang, options) {
+        configure: function (on, lang) {
             enabled = !!on; language = WORDS[lang] ? lang : 'ru';
-            edge = options && options.edge > 0 ? options.edge : EDGE; tall = options && options.height > 0 ? options.height : HEIGHT;
-            anchored = !!(options && options.anchored);
             if (enabled) { refresh(); return; }
-            clearTimeout(idle); idle = 0; visible = false;
+            clearTimeout(idle); idle = 0; visible = false; checked = 0; cramped = false;
+            document.documentElement.removeAttribute(ROOM);
             if (host) { host.remove(); host = null; button = label = null; }
         },
-        refresh: refresh
+        refresh: function () { refresh(true); }
     };
 })();

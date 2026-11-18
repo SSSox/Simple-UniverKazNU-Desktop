@@ -20,8 +20,10 @@ namespace Univer.Desktop.Web
         private const string ProbeScript = "window.__univerAutomationV1 ? JSON.stringify(window.__univerAutomationV1.probe()) : 'bootstrap'";
         private readonly JavaScriptSerializer json = new JavaScriptSerializer();
         // Page scripts in load order, read once per process and reused by every session and registration.
-        private static readonly Lazy<string> Bundle = new Lazy<string>(() => Scripts("paint-gate.js", "page-common.js", "univer-automation.js", "news.js", "study-links.js", "study-pages.js", "course-tasks.js", "syllabus-tasks.js", "attendance.js", "overview.js", "shortcuts.js", "notices.js", "page-polish.js", "univer-layout.js", "theme.js", "kit.js", "back-to-top.js", "desktop.js"));
+        private static readonly Lazy<string> Bundle = new Lazy<string>(() => Scripts("paint-gate.js", "page-common.js", "univer-automation.js", "news.js", "study-links.js", "study-pages.js", "course-tasks.js", "syllabus-tasks.js", "attendance.js", "grade-report.js", "overview.js", "shortcuts.js", "notices.js", "page-polish.js", "univer-layout.js", "theme.js", "kit.js", "back-to-top.js", "desktop.js"));
         private readonly string bundle = Bundle.Value;
+        // Program reads the scripts on a worker while Chromium starts; the first session then finds them ready.
+        public static void LoadScriptsEarly() { var unused = Bundle.Value; }
         // The scripts name the origin themselves; ScriptBundle rewrites it from SitePolicy, the single native source.
         private static string Scripts(params string[] names)
         { return string.Join("\n", Array.ConvertAll(names, name => ScriptBundle.WithOrigin(File.ReadAllText(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Assets", name))))); }
@@ -37,7 +39,7 @@ namespace Univer.Desktop.Web
         public Action RecoveryNeeded;
         private readonly Queue<long> switches = new Queue<long>();
         private int generation;
-        private bool busy, failedAgreement, resumePending;
+        private bool failedAgreement, resumePending;
         private string pendingAgreement, failedNotice, stopStatus, resumeUrl;
         private long agreementAt, switchUntil, began;
         private readonly AppearanceTimer noticeTimer = new AppearanceTimer(), agreementTimer = new AppearanceTimer();
@@ -49,9 +51,14 @@ namespace Univer.Desktop.Web
         {
             // Strict throughout, and the key only in the call's arguments: no frame the page reaches through .caller or a
             // stack trace holds the sender, and no function's text holds the key.
-            return "(function(__univerNative){'use strict';\n" + bundle + "\n" + ConfigurePaint(active) + Early(prefs) + "document.addEventListener('DOMContentLoaded',function(){" + ApplyView(prefs, viewer) + "},{once:true});\n})(" +
+            // Parsed: the view is applied and the app is told at once, so the page is uncovered now and not at the next poll.
+            // The page's own clock times the bundle and the view (QA step "speed" reads __univerTimingV1); it is bound before any
+            // page script runs, so a replaced performance.now is never called.
+            return "(function(__univerNative){'use strict';var __now=performance.now.bind(performance),__start=__now(),__bundle=0,__view=0;\n" + bundle + "\n__bundle=__now()-__start;" + TimingScript + ConfigurePaint(active) + Early(prefs) +
+                "document.addEventListener('DOMContentLoaded',function(){var at=__now();try{" + ApplyView(prefs, viewer) + "}finally{__view=__now()-at;if(__univerNative)__univerNative('univer-dom');}},{once:true});\n})(" +
                 NativeChannel.Script(MessageKey) + ");";
         }
+        private const string TimingScript = "try{Object.defineProperty(window,'__univerTimingV1',{value:Object.freeze({get bundle(){return __bundle},get view(){return __view}})});}catch(_){}";
         // Only the app's scripts inside the closure above hold this run's key (NativeChannel).
         public readonly string MessageKey = NativeChannel.NewKey();
         public string Unwrap(string message) { return NativeChannel.Unwrap(MessageKey, message); }
@@ -68,7 +75,15 @@ namespace Univer.Desktop.Web
         }
         // The app's dark theme, for the reading layout; Original layout ignores it.
         public bool Dark { get; set; }
-        public void Navigating() { generation++; began = clock.ElapsedMilliseconds; guard.Navigated(); }
+        public void Navigating() { generation++; began = clock.ElapsedMilliseconds; guard.Navigated(); ticks.Drop(); navigation.Raise(); }
+        // A tick's read sent while the page is being replaced (before or after the navigation began) can stay unanswered
+        // until CEF's three-second deadline, and the next page waited under the cover behind it (18 Nov 2026: about every
+        // second run of QA step "speed"). Reads stop waiting when a navigation begins and when the new document has parsed:
+        // they only probe and present, so the tick that follows reads again. Actions keep waiting for their answers.
+        public void DocumentParsed() { navigation.Raise(); }
+        private readonly NavigationSignal navigation = new NavigationSignal();
+        private Task<string> ReadAsync(ChromiumWebBrowser browser, string script)
+        { return TaskDeadline.UntilAsync(EvaluateAsync(browser, script), navigation.Next, null); }
         public void Retry()
         {
             generation++; guard.Retry(); pendingAgreement = null; failedAgreement = false; stopStatus = null;
@@ -90,33 +105,45 @@ namespace Univer.Desktop.Web
             else if (kind == "agreement" && pendingAgreement != null && pendingAgreement == challenge)
             { pendingAgreement = null; failedAgreement = !success; }
         }
-        public async Task TickAsync(ChromiumWebBrowser browser, Credentials credentials, Preferences prefs, bool viewer)
+        // One tick at a time; a request that comes during one (the page has just parsed, a viewer opened, settings changed)
+        // runs once more right after it, with its own browser, credentials and preferences, instead of waiting for the poll.
+        private readonly Coalescer<Tick> ticks = new Coalescer<Tick>();
+        private sealed class Tick
         {
-            if (busy || browser == null || browser.IsDisposed || !browser.IsBrowserInitialized || !SitePolicy.Trusted(browser.Address)) return;
-            busy = true; var epoch = generation;
-            try { await StepAsync(browser, credentials, prefs, viewer, epoch); }
-            catch (Exception) { if (epoch == generation && !browser.IsDisposed) status("scriptWaiting"); }
+            public ChromiumWebBrowser Browser; public Credentials Credentials; public Preferences Prefs; public bool Viewer;
+        }
+        private static bool Usable(ChromiumWebBrowser browser)
+        { return browser != null && !browser.IsDisposed && browser.IsBrowserInitialized && SitePolicy.Trusted(browser.Address); }
+        public Task TickAsync(ChromiumWebBrowser browser, Credentials credentials, Preferences prefs, bool viewer)
+        {
+            if (!Usable(browser)) return Task.FromResult(false);
+            return ticks.RunAsync(new Tick { Browser = browser, Credentials = credentials, Prefs = prefs, Viewer = viewer }, OneTickAsync, tick => Usable(tick.Browser));
+        }
+        private async Task OneTickAsync(Tick tick)
+        {
+            var epoch = generation;
+            try { await StepAsync(tick.Browser, tick.Credentials, tick.Prefs, tick.Viewer, epoch); }
+            catch (Exception) { if (epoch == generation && !tick.Browser.IsDisposed) status("scriptWaiting"); }
             finally
             {
-                try { await RevealAsync(browser, credentials, prefs, viewer, epoch); }
+                try { await RevealAsync(tick.Browser, tick.Credentials, tick.Prefs, tick.Viewer, epoch); }
                 catch (Exception) { /* Native deadline exposes a recoverable error instead of an endless cover. */ }
-                busy = false;
             }
         }
         // Probes the page, applies the view, then takes at most one sign-in, language, notice or agreement action.
         private async Task StepAsync(ChromiumWebBrowser browser, Credentials credentials, Preferences prefs, bool viewer, int epoch)
         {
-            var raw = await EvaluateAsync(browser, ProbeScript);
+            var raw = await ReadAsync(browser, ProbeScript);
             // A page the document script missed gets the bundle without a sender: by now page scripts ran and may have
             // planted a binding of their own, so the key never goes there. Sign-in still works through this probe.
-            if (raw == "bootstrap") raw = await EvaluateAsync(browser, "(function(__univerNative){'use strict';\n" + bundle + "\n})(null);\nJSON.stringify(window.__univerAutomationV1.probe())");
+            if (raw == "bootstrap") raw = await ReadAsync(browser, "(function(__univerNative){'use strict';\n" + bundle + "\n})(null);\nJSON.stringify(window.__univerAutomationV1.probe())");
             if (epoch != generation || raw == null || !SitePolicy.Trusted(browser.Address)) return;
             var p = new Probe(json.Deserialize<Dictionary<string, object>>(raw));
             if (!p.Bool("trusted")) return;
             // A password still sealed under the PIN is a wait: no sign-in is tried (and counted) until the PIN opens it.
             var active = Credentials.SignInActive(credentials, prefs);
             // One round trip; each step stays isolated so a failing layout cannot hide the viewer's legacy Back.
-            var applied = await EvaluateAsync(browser, "try{" + ConfigurePaint(active && !guard.Blocked && !guard.CoverSuspended) + "}catch(_){}try{" + ApplyView(prefs, viewer) + "}catch(_){}" +
+            var applied = await ReadAsync(browser, "try{" + ConfigurePaint(active && !guard.Blocked && !guard.CoverSuspended) + "}catch(_){}try{" + ApplyView(prefs, viewer) + "}catch(_){}" +
                 "window.__univerDesktop.close ? 'close' : 'ok'");
             // Poll legacy history.back/go without exposing a privileged native bridge.
             if (viewer && applied == "close") { closeViewer(); return; }
@@ -262,7 +289,7 @@ namespace Univer.Desktop.Web
         private async Task RevealAsync(ChromiumWebBrowser browser, Credentials credentials, Preferences prefs, bool viewer, int epoch)
         {
             if (epoch != generation || browser.IsDisposed || !SitePolicy.Trusted(browser.Address)) return;
-            var latest = await EvaluateAsync(browser, "window.__univerAutomationV1 ? JSON.stringify(window.__univerAutomationV1.probe()) : null");
+            var latest = await ReadAsync(browser, "window.__univerAutomationV1 ? JSON.stringify(window.__univerAutomationV1.probe()) : null");
             if (latest == null || epoch != generation) return;
             var value = new Probe(json.Deserialize<Dictionary<string, object>>(latest));
             var active = Credentials.SignInActive(credentials, prefs);
@@ -272,7 +299,7 @@ namespace Univer.Desktop.Web
             // sign-in the page in between stays covered until the page that was asked for reopens.
             var hold = !value.Bool("domReady") || (!failed && (languagePending || (active && (value.Bool("hasPendingForm") || guard.ReauthChallenge != null || pendingAgreement != null || (resumePending && !viewer)))));
             if (hold) { presentation(browser, true); return; }
-            var result = await EvaluateAsync(browser, "window.__univerPaintV1.complete(" + Js(failed) + "," + Js(prefs.Readable) + "," + Js(viewer) + "," + Quote(prefs.Language) + ")");
+            var result = await ReadAsync(browser, "window.__univerPaintV1.complete(" + Js(failed) + "," + Js(prefs.Readable) + "," + Js(viewer) + "," + Quote(prefs.Language) + ")");
             if (epoch == generation && result == "paint-ready") presentation(browser, false);
         }
         public async Task<string> CallAsync(ChromiumWebBrowser browser, string method, params string[] args)

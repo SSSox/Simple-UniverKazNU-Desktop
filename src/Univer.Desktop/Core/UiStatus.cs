@@ -41,7 +41,8 @@ namespace Univer.Desktop.Core
             var spec = Describe(key);
             slots[Channel(key)] = spec;
         }
-        public void BeginNavigation() { slots.Remove("page"); slots.Remove("presentation"); PageKey = "loading"; }
+        // The grade summary's answers belong to the page that showed the sheet.
+        public void BeginNavigation() { slots.Remove("page"); slots.Remove("presentation"); slots.Remove("report"); PageKey = "loading"; }
         public void Retry() { slots.Remove("automation"); slots.Remove("page"); slots.Remove("presentation"); }
         public void ClearStorageError() { slots.Remove("storage"); }
         public void FinishSettings() { slots.Remove("settings"); }
@@ -94,6 +95,11 @@ namespace Univer.Desktop.Core
             if (key == "downloadAllBusy") return new UiMessage(key, MessageTone.Info, MessageAction.None, 74, true);
             // A file that left its place was taken off the list when the student tried to open it.
             if (key == "downloadGone") return new UiMessage(key, MessageTone.Info, MessageAction.None, 62, true);
+            // The grade summary's files: a copied picture is a quiet success, a file that could not be made a warning (a saved
+            // one is told as downloadComplete, with Open and the downloads list).
+            if (key == "reportCopied") return new UiMessage(key, MessageTone.Success, MessageAction.None, 52, true);
+            if (key == "reportFailed") return new UiMessage(key, MessageTone.Warning, MessageAction.None, 70, true);
+            if (key == "reportCopyFailed") return new UiMessage(key, MessageTone.Warning, MessageAction.None, 70, true);
             if (key == "signOnOpening") return new UiMessage(key, MessageTone.Working, MessageAction.None, 58);
             if (key == "signOnOpened") return new UiMessage(key, MessageTone.Success, MessageAction.None, 52, true);
             if (key == "signOnLogin" || key == "signOnFailed") return new UiMessage(key, MessageTone.Warning, MessageAction.None, 68, true);
@@ -101,7 +107,6 @@ namespace Univer.Desktop.Core
             if (key == "pinFailed") return new UiMessage(key, MessageTone.Warning, MessageAction.None, 48, true);
             // New notifications from the site: below every problem and running download, above quiet hints.
             if (key == "noticesNew") return new UiMessage(key, MessageTone.Info, MessageAction.Notices, 47, true);
-            if (key == "paused") return new UiMessage(key, MessageTone.Info, MessageAction.Settings, 40);
             if (key == "manualSignIn") return new UiMessage(key, MessageTone.Info, MessageAction.Settings, 30, true);
             if (key == "saving") return new UiMessage(key, MessageTone.Working, MessageAction.None, 95);
             if (key == "settingsSaved") return new UiMessage(key, MessageTone.Success, MessageAction.None, 50, true);
@@ -125,10 +130,12 @@ namespace Univer.Desktop.Core
             if (key.StartsWith("download", StringComparison.Ordinal) || key == "offOrigin") return "download";
             if (key.StartsWith("external", StringComparison.Ordinal)) return "external";
             if (key.StartsWith("signOn", StringComparison.Ordinal)) return "signon";
+            // The grade summary's answers stay apart from page automation, which would replace them on its next tick.
+            if (key.StartsWith("report", StringComparison.Ordinal)) return "report";
             if (key == "trayHint") return "tray";
             if (key == "pinFailed") return "pins";
             if (key == "noticesNew") return "notices";
-            if (key == "paused" || key == "manualSignIn" || key == "credentialsUnreadable" || key == "sessionReset") return "account";
+            if (key == "manualSignIn" || key == "credentialsUnreadable" || key == "sessionReset") return "account";
             if (key == "saving" || key == "settingsSaved" || key == "lockOn" || key == "lockChanged" || key == "lockOff" || key == "lockFailed") return "settings";
             if (key == "lockWiped" || key == "lockUnavailable") return "account";
             return "automation";
