@@ -55,6 +55,8 @@ Legacy builds with CefSharp 109, and NuGet shows warning `NU1903` about the know
 | `*.sha256` | SHA-256 of every ZIP and installer |
 | `Univer-Desktop-<version>-manifest.json`, `-installers.json` | List of release files with sizes and SHA-256 |
 
+Installed apps and the download site find release files by these names: if they change, installed apps cannot update.
+
 Packaging checks that the `Assets` in the build match the sources, that no self-test files, logs, `.pdb`, sign-in data or browser profile got into the package, and that it contains only the Chromium languages `ru`, `en-GB`, `en-US` and no WebGPU compiler. If a check fails, rebuild into a new `-OutputRoot` folder.
 
 The installer is built with Inno Setup 7.1.0: `scripts/prepare-installer-tools.ps1` downloads it into `tools\` from the official release, checks its SHA-256 and publisher signature and unpacks it without installing it into the system. Microsoft components are not bundled into the installer: their addresses, versions and SHA-256 are pinned in `installer/prerequisites.json`.
