@@ -9,7 +9,7 @@ Everything needed to build the app from these sources: portable archives, instal
 - Windows 10 or 11.
 - [.NET SDK](https://dotnet.microsoft.com/download) (tested with 10.0.400). The app targets .NET Framework 4.5.2 (Legacy) and 4.6.2 (Modern), the tests 4.8; the required reference assemblies come from NuGet.
 - PowerShell 7 (`pwsh`); tested with 7.6.
-- Node.js and npm only for the page tests (`tests/dom`).
+- Node.js and npm only for the page tests (`tests/dom`) and the extension checks (`tests/extension`).
 - Git only for `test-release-packaging.ps1`.
 - Internet on the first build: NuGet packages and the installer compiler.
 
@@ -98,14 +98,28 @@ The installer checks install and remove the app in a separate folder and never t
 | `test-installer-guards.ps1`, `test-installer-upgrade.ps1`, `test-installer-download.ps1` | Installer guards, upgrade from a previous version, SHA-256 check of downloads |
 | `test-localization.ps1` | Every interface and installer string exists in Russian, Kazakh and English |
 | `test-release-packaging.ps1`, `test-build-release.ps1` | Packaging, manifests, no-overwrite rules and `.gitignore` rules on small synthetic files |
+| `build-extension.ps1` | The extension for Chrome, Edge and Firefox from `src/Univer.Extension` and the page scripts in `Assets/` |
 | `update-pdfjs.ps1` | Updates `Assets/pdfjs` from npm with a check of the pinned SHA-512 |
 | `apply-signed-files.ps1` | Checks the signature of files from SignPath, replaces the unsigned ones and updates the installer SHA-256 and manifest |
 
+## Browser extension
+
+```powershell
+.\scripts\build-extension.ps1          # artifacts\extension\{chromium,firefox}, two ZIPs and their .sha256
+.\scripts\build-extension.ps1 -Qa      # also for the local synthetic pages, no ZIPs
+node tests\extension\chrome.mjs --ext artifacts\extension-qa\chromium --out <folder>
+node tests\extension\firefox.mjs --ext artifacts\extension-qa\firefox --out <folder>
+```
+
+The build takes the list of page scripts from `Web/AutomationController.cs` and the files themselves from `Assets/` unchanged, each in its own strict wrapper; the extension's own scripts are in `src/Univer.Extension/`. The normal build works only on `https://univer.kaznu.kz`; the QA build also on `127.0.0.1` for the synthetic pages of `tests/extension/pages.mjs`. `chrome.mjs` loads the extension into a throwaway Chrome profile over the DevTools pipe with no open port, `firefox.mjs` installs it as a temporary add-on in a separate Firefox profile through WebDriver BiDi; `--live` adds the public sign-in page without typing any credentials. `npm.cmd test` checks the extension scripts on jsdom and the normal build (`tests/dom/extension-build.test.cjs`: the single `storage` permission, one site, page script bytes equal to `Assets/`).
+
+Publishing: the `chromium` ZIP goes to the Chrome Web Store and Edge Add-ons, the `firefox` ZIP to Firefox Add-ons (AMO), which signs it. Add the signed file to the release as `Univer-Extension-<version>-firefox.xpi`, and put the store page addresses in `stores.json` of the site repository [SSSox/SimpleUniver](https://github.com/SSSox/SimpleUniver). Privacy policy for the stores: https://sssox.github.io/SimpleUniver/privacy/.
+
 ## New version
 
-1. Raise the version in `src/Univer.Desktop/Univer.Desktop.csproj` (`<Version>`), `src/Univer.Desktop/app.manifest` (`assemblyIdentity`, four parts) and `package.json`, then run `npm.cmd install --package-lock-only --ignore-scripts`. The `VersionTests` test checks that the versions match.
+1. Raise the version in `src/Univer.Desktop/Univer.Desktop.csproj` (`<Version>`), `src/Univer.Desktop/app.manifest` (`assemblyIdentity`, four parts), `package.json` and `src/Univer.Extension/manifest.json` (`version`; a fourth part only for a fix to the extension alone), then run `npm.cmd install --package-lock-only --ignore-scripts`. The `VersionTests` test checks that the versions match.
 2. Build all four variants and run the checks above for each.
-3. Push the tag `vX.Y.Z` (see below): GitHub builds and attaches the ZIPs, installers, their `.sha256` and both manifests. In the release description list the changes and which systems were tested. Ready-made files are not added to the repository history.
+3. Push the tag `vX.Y.Z` (see below): GitHub builds and attaches the ZIPs, installers, the extension ZIPs, their `.sha256` and both manifests. In the release description list the changes and which systems were tested. Ready-made files are not added to the repository history.
 
 ## Release on GitHub
 

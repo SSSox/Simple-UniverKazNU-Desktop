@@ -9,7 +9,7 @@
 - Windows 10 или 11.
 - [.NET SDK](https://dotnet.microsoft.com/download) (проверен 10.0.400). Приложение собирается под .NET Framework 4.5.2 (Legacy) и 4.6.2 (Modern), тесты под 4.8; нужные reference assemblies приходят из NuGet.
 - PowerShell 7 (`pwsh`); проверено с 7.6.
-- Node.js и npm только для тестов страниц (`tests/dom`).
+- Node.js и npm только для тестов страниц (`tests/dom`) и проверки расширения (`tests/extension`).
 - Git только для `test-release-packaging.ps1`.
 - Интернет при первой сборке: пакеты NuGet и компилятор установщика.
 
@@ -98,14 +98,28 @@ npm.cmd test
 | `test-installer-guards.ps1`, `test-installer-upgrade.ps1`, `test-installer-download.ps1` | Защиты установщика, обновление с прошлой версии, проверка SHA-256 загрузок |
 | `test-localization.ps1` | Все строки интерфейса и установщика есть на русском, казахском и английском |
 | `test-release-packaging.ps1`, `test-build-release.ps1` | Упаковка, манифесты, запрет перезаписи и правила `.gitignore` на небольших синтетических файлах |
+| `build-extension.ps1` | Расширение для Chrome, Edge и Firefox из `src/Univer.Extension` и скриптов страниц `Assets/` |
 | `update-pdfjs.ps1` | Обновляет `Assets/pdfjs` из npm с проверкой закреплённого SHA-512 |
 | `apply-signed-files.ps1` | Проверяет подпись файлов из SignPath, заменяет ими неподписанные и обновляет SHA-256 и манифест установщиков |
 
+## Расширение для браузера
+
+```powershell
+.\scripts\build-extension.ps1          # artifacts\extension\{chromium,firefox}, два ZIP и их .sha256
+.\scripts\build-extension.ps1 -Qa      # ещё и для локальных синтетических страниц, без ZIP
+node tests\extension\chrome.mjs --ext artifacts\extension-qa\chromium --out <папка>
+node tests\extension\firefox.mjs --ext artifacts\extension-qa\firefox --out <папка>
+```
+
+Сборка берёт список скриптов страниц из `Web/AutomationController.cs`, а сами файлы из `Assets/` без изменений, каждый в своей строгой обёртке; свои скрипты расширения лежат в `src/Univer.Extension/`. Обычная сборка работает только на `https://univer.kaznu.kz`, QA-сборка ещё и на `127.0.0.1` для синтетических страниц `tests/extension/pages.mjs`. `chrome.mjs` загружает расширение во временный профиль Chrome через DevTools pipe без открытого порта, `firefox.mjs` ставит его временным дополнением в отдельный профиль Firefox через WebDriver BiDi; `--live` добавляет публичную страницу входа без ввода данных. `npm.cmd test` проверяет скрипты расширения на jsdom и обычную сборку (`tests/dom/extension-build.test.cjs`: одно разрешение `storage`, один сайт, байты скриптов страниц совпадают с `Assets/`).
+
+Публикация: ZIP `chromium` загружается в Chrome Web Store и Edge Add-ons, ZIP `firefox` в Firefox Add-ons (AMO), где его подписывают. Подписанный файл добавьте в выпуск как `Univer-Extension-<версия>-firefox.xpi`, а адреса страниц в магазинах впишите в `stores.json` репозитория сайта [SSSox/SimpleUniver](https://github.com/SSSox/SimpleUniver). Политика конфиденциальности для магазинов: https://sssox.github.io/SimpleUniver/privacy/.
+
 ## Новая версия
 
-1. Поднимите версию в `src/Univer.Desktop/Univer.Desktop.csproj` (`<Version>`), `src/Univer.Desktop/app.manifest` (`assemblyIdentity`, четыре части) и `package.json`, затем `npm.cmd install --package-lock-only --ignore-scripts`. Тест `VersionTests` проверяет, что версии совпадают.
+1. Поднимите версию в `src/Univer.Desktop/Univer.Desktop.csproj` (`<Version>`), `src/Univer.Desktop/app.manifest` (`assemblyIdentity`, четыре части), `package.json` и `src/Univer.Extension/manifest.json` (`version`; четвёртая часть только для исправлений одного расширения), затем `npm.cmd install --package-lock-only --ignore-scripts`. Тест `VersionTests` проверяет, что версии совпадают.
 2. Соберите все четыре варианта, прогоните проверки выше для каждого.
-3. Поставьте тег `vX.Y.Z` (см. ниже): GitHub сам соберёт и прикрепит ZIP, установщики, их `.sha256` и оба манифеста. В описании выпуска перечислите изменения и какие системы проверены. Готовые файлы в историю репозитория не добавляются.
+3. Поставьте тег `vX.Y.Z` (см. ниже): GitHub сам соберёт и прикрепит ZIP, установщики, ZIP расширения, их `.sha256` и оба манифеста. В описании выпуска перечислите изменения и какие системы проверены. Готовые файлы в историю репозитория не добавляются.
 
 ## Выпуск на GitHub
 

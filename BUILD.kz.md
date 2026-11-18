@@ -9,7 +9,7 @@
 - Windows 10 немесе 11.
 - [.NET SDK](https://dotnet.microsoft.com/download) (10.0.400 нұсқасында тексерілген). Қолданба .NET Framework 4.5.2 (Legacy) және 4.6.2 (Modern) үшін, тесттер 4.8 үшін құрастырылады; қажетті reference assemblies NuGet-тен келеді.
 - PowerShell 7 (`pwsh`); 7.6 нұсқасында тексерілген.
-- Node.js және npm тек бет тесттері үшін (`tests/dom`).
+- Node.js және npm тек бет тесттері (`tests/dom`) мен кеңейтуді тексеру (`tests/extension`) үшін.
 - Git тек `test-release-packaging.ps1` үшін.
 - Алғашқы құрастыруда интернет: NuGet пакеттері және орнатушы компиляторы.
 
@@ -98,14 +98,28 @@ npm.cmd test
 | `test-installer-guards.ps1`, `test-installer-upgrade.ps1`, `test-installer-download.ps1` | Орнатушы қорғаныстары, алдыңғы нұсқадан жаңарту, жүктеулердің SHA-256 тексеруі |
 | `test-localization.ps1` | Интерфейс пен орнатушының барлық жолдары орыс, қазақ және ағылшын тілдерінде бар |
 | `test-release-packaging.ps1`, `test-build-release.ps1` | Буып-түю, манифесттер, қайта жазуға тыйым және `.gitignore` ережелері шағын синтетикалық файлдарда |
+| `build-extension.ps1` | `src/Univer.Extension` пен `Assets/` бет скрипттерінен Chrome, Edge және Firefox кеңейтуін жасайды |
 | `update-pdfjs.ps1` | `Assets/pdfjs` бумасын бекітілген SHA-512 тексеруімен npm-нен жаңартады |
 | `apply-signed-files.ps1` | SignPath файлдарының қолын тексереді, қол қойылмаған файлдарды ауыстырады және орнатушылардың SHA-256 мен манифестін жаңартады |
 
+## Браузер кеңейтуі
+
+```powershell
+.\scripts\build-extension.ps1          # artifacts\extension\{chromium,firefox}, екі ZIP және олардың .sha256 файлдары
+.\scripts\build-extension.ps1 -Qa      # жергілікті синтетикалық беттер үшін де, ZIP-сіз
+node tests\extension\chrome.mjs --ext artifacts\extension-qa\chromium --out <бума>
+node tests\extension\firefox.mjs --ext artifacts\extension-qa\firefox --out <бума>
+```
+
+Құрастыру бет скрипттерінің тізімін `Web/AutomationController.cs` файлынан, ал файлдардың өзін `Assets/` бумасынан өзгертпей алады, әрқайсысы өз қатаң қабығында; кеңейтудің өз скрипттері `src/Univer.Extension/` бумасында. Қалыпты құрастыру тек `https://univer.kaznu.kz` сайтында жұмыс істейді, QA құрастыруы `tests/extension/pages.mjs` синтетикалық беттері үшін `127.0.0.1` мекенжайында да. `chrome.mjs` кеңейтуді портты ашпай DevTools pipe арқылы Chrome-ның уақытша профиліне жүктейді, `firefox.mjs` оны WebDriver BiDi арқылы Firefox-тың бөлек профиліне уақытша қосымша ретінде орнатады; `--live` деректер енгізбей жария кіру бетін қосады. `npm.cmd test` кеңейту скрипттерін jsdom-да және қалыпты құрастыруды тексереді (`tests/dom/extension-build.test.cjs`: жалғыз `storage` рұқсаты, бір сайт, бет скрипттерінің байттары `Assets/` бумасымен бірдей).
+
+Жариялау: `chromium` ZIP-і Chrome Web Store мен Edge Add-ons дүкендеріне, `firefox` ZIP-і Firefox Add-ons (AMO) дүкеніне жүктеледі, онда оған қол қояды. Қол қойылған файлды шығарылымға `Univer-Extension-<нұсқа>-firefox.xpi` атымен қосыңыз, ал дүкендердегі бет мекенжайларын [SSSox/SimpleUniver](https://github.com/SSSox/SimpleUniver) сайт репозиторийінің `stores.json` файлына жазыңыз. Дүкендерге арналған құпиялылық саясаты: https://sssox.github.io/SimpleUniver/privacy/.
+
 ## Жаңа нұсқа
 
-1. Нұсқаны `src/Univer.Desktop/Univer.Desktop.csproj` (`<Version>`), `src/Univer.Desktop/app.manifest` (`assemblyIdentity`, төрт бөлік) және `package.json` ішінде көтеріңіз, содан кейін `npm.cmd install --package-lock-only --ignore-scripts` іске қосыңыз. `VersionTests` тесті нұсқалардың сәйкестігін тексереді.
+1. Нұсқаны `src/Univer.Desktop/Univer.Desktop.csproj` (`<Version>`), `src/Univer.Desktop/app.manifest` (`assemblyIdentity`, төрт бөлік), `package.json` және `src/Univer.Extension/manifest.json` (`version`; төртінші бөлік тек кеңейтудің өз түзетулері үшін) ішінде көтеріңіз, содан кейін `npm.cmd install --package-lock-only --ignore-scripts` іске қосыңыз. `VersionTests` тесті нұсқалардың сәйкестігін тексереді.
 2. Барлық төрт нұсқаны құрастырып, жоғарыдағы тексерулерді әрқайсысы үшін өткізіңіз.
-3. `vX.Y.Z` тегін қойыңыз (төменде қараңыз): GitHub ZIP, орнатушыларды, олардың `.sha256` файлдарын және екі манифестті өзі құрастырып тіркейді. Шығарылым сипаттамасында өзгерістерді және қай жүйелер тексерілгенін көрсетіңіз. Дайын файлдар репозиторий тарихына қосылмайды.
+3. `vX.Y.Z` тегін қойыңыз (төменде қараңыз): GitHub ZIP, орнатушыларды, кеңейту ZIP-терін, олардың `.sha256` файлдарын және екі манифестті өзі құрастырып тіркейді. Шығарылым сипаттамасында өзгерістерді және қай жүйелер тексерілгенін көрсетіңіз. Дайын файлдар репозиторий тарихына қосылмайды.
 
 ## GitHub-та шығару
 

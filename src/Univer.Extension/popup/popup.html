@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Simple Univer</title>
+<link rel="stylesheet" href="popup.css">
+</head>
+<body>
+<header class="head">
+  <img class="logo" src="../icons/128.png" width="32" height="32" alt="">
+  <div class="title">
+    <h1>Simple Univer</h1>
+    <p data-text="subtitle">Удобный вид для univer.kaznu.kz</p>
+  </div>
+</header>
+
+<main>
+  <fieldset class="group">
+    <legend data-text="layout">Вид страниц</legend>
+    <div class="layouts">
+      <label class="layout">
+        <input type="radio" name="layout" value="readable">
+        <span class="mini mini-readable" aria-hidden="true">
+          <i class="bar"></i><i class="tiles"><b></b><b></b><b></b><b></b></i><i class="card"></i>
+        </span>
+        <span class="name" data-text="readable">Удобный вид</span>
+      </label>
+      <label class="layout">
+        <input type="radio" name="layout" value="original">
+        <span class="mini mini-original" aria-hidden="true">
+          <i class="banner"></i><i class="menu"></i><i class="rows"><b></b><b></b><b></b><b></b><b></b></i>
+        </span>
+        <span class="name" data-text="original">Оригинальный вид</span>
+      </label>
+    </div>
+  </fieldset>
+
+  <fieldset class="group">
+    <legend data-text="theme">Тема</legend>
+    <div class="segments">
+      <label><input type="radio" name="theme" value="system"><span data-text="themeSystem">Как в системе</span></label>
+      <label><input type="radio" name="theme" value="light"><span data-text="themeLight">Светлая</span></label>
+      <label><input type="radio" name="theme" value="dark"><span data-text="themeDark">Тёмная</span></label>
+    </div>
+  </fieldset>
+
+  <div class="options">
+    <label class="option">
+      <span class="text"><span class="label" data-text="motion">Анимации</span><span class="hint" data-text="motionHint">Плавные переходы и отклик кнопок</span></span>
+      <input type="checkbox" role="switch" name="motion">
+    </label>
+    <label class="option">
+      <span class="text"><span class="label" data-text="confirm">Подтверждать уведомление и соглашение</span><span class="hint" data-text="confirmHint">Ставит отметку о прочтении и один раз отправляет форму сайта</span></span>
+      <input type="checkbox" role="switch" name="confirm">
+    </label>
+  </div>
+  <p class="status" role="status" aria-live="polite"></p>
+</main>
+
+<footer class="foot">
+  <a class="open" href="https://univer.kaznu.kz/" target="_blank" rel="noopener" data-text="openSite">Открыть univer.kaznu.kz</a>
+  <nav class="links">
+    <a href="https://sssox.github.io/SimpleUniver/privacy/" target="_blank" rel="noopener" data-text="privacy">Конфиденциальность</a>
+    <a href="https://sssox.github.io/SimpleUniver/" target="_blank" rel="noopener" data-text="project">Все версии</a>
+    <span class="version"></span>
+  </nav>
+</footer>
+<script src="popup.js"></script>
+</body>
+</html>

@@ -18,7 +18,7 @@ Simple Univer for Windows is an unofficial app for the [univer.kaznu.kz](https:/
 | `https://univer.kaznu.kz` | Everything you do on the portal, as in an ordinary browser. In addition, the app itself signs in with the saved login and password through the site's form, reads portal sections in the background for notifications and distance courses (read only, at most once every 10 minutes), on the schedule page reads the "My account" page (or, failing that, the study plan), course materials, syllabi and the schedule of the semester's other weeks (read only; found plans are not reread for the rest of the semester or until Refresh, courses without a matching syllabus, the programme and the course list are reread every 1–3 days, the group's weeks every 7 days) and downloads the files you chose |
 | Other sites whose links you open | The links panel inside the app (or your default browser, if "Open links in an external browser" is on) loads the page you opened, and also the move to Moodle from "Moodle LMS": the hand-off address is issued by the Univer site. Univer cookies are not passed there |
 | Servers the site loads resources from | Univer pages may include images, videos or scripts from other sites; the site decides this, as in any browser |
-| `github.com`, `*.githubusercontent.com` | The update check at start, at most once every 6 hours, and the installer download after you press Install. The check cannot be turned off. GitHub sees your IP address and the app's name; your login, password and portal data are not sent there. GitHub's rules: [GitHub Privacy Statement](https://docs.github.com/site-policy/privacy-policies/github-general-privacy-statement) |
+| `github.com`, `*.githubusercontent.com` | The update check at every start (while the app stays open, at most once every 6 hours) and the installer download after you press Install. The check cannot be turned off. GitHub sees your IP address and the app's name; your login, password and portal data are not sent there. GitHub's rules: [GitHub Privacy Statement](https://docs.github.com/site-policy/privacy-policies/github-general-privacy-statement) |
 | `download.microsoft.com`, `download.visualstudio.microsoft.com` | Only the installer, and only if the computer lacks .NET Framework or Visual C++ and you agreed to download them |
 
 The built-in Chromium starts with component updates and logging turned off. A downloaded update installer stays in `%LOCALAPPDATA%\Univer.Desktop\updates` and is deleted at the next start; the last check's result is kept in the settings.
@@ -36,18 +36,23 @@ Everything is stored locally only, in your Windows account profile:
 | Notifications | `%LOCALAPPDATA%\Univer.Desktop\notices.json` | Menu item titles, questionnaire names with deadlines, the site's message texts and "read" marks. No passwords or form values |
 | Syllabus tasks | The site's storage inside the browser profile | Your educational programme's code and name, the language division, the semester's course list, week plans from the syllabi (topics and scores), the weeks in which your group has each kind of class, a short hash of the login (so another student signing in on the same profile does not see your programme, course list and group weeks), and your folded and hidden choices. Removed with the profile on sign-out |
 | Browser profile | `%LOCALAPPDATA%\Univer.Desktop\Browser-Modern` (Modern) or `Browser` (Legacy) | Session cookies, cache and storage of the Univer site, as in an ordinary browser. The same folder holds the links panel's own profile: cookies and cache of the other sites you opened |
+| Start-up profile | `%LOCALAPPDATA%\Univer.Desktop\startup-*.jit` | Names of the program's own methods that .NET compiles at start, so the next start is faster. No page or account data |
 | Downloaded files | Your Downloads folder | The files you downloaded |
+| Grade summary | Your Downloads folder or the clipboard | Your subjects and scores as PDF or PNG; made only when you press Save PDF, Save PNG or Copy picture in the summary yourself |
 
 There is no personal data in the program folder (installed or portable). The installer puts only `installation-id.txt` there, with the variant name (for example `Univer.Desktop.modern.x64`), so that an update lands in the same folder.
 
 ## How to delete data
 
-- **Sign out** ("Settings → Account"): deletes the site's cookies and storage, replaces the browser profile and pauses automatic sign-in. The saved password stays until you remove it.
-- **Remove saved login** ("Settings → Account"): deletes the encrypted record and ends the session; the notification list is cleared too.
+- **Sign out** ("Settings → Account"): deletes the encrypted record with your login and password and the site's cookies and storage, and replaces the browser profile; the notification list is cleared too. The sign-out link on the site itself does the same but keeps the saved password and pauses automatic sign-in.
 - **Remove from list** in "Downloads": removes the entry; the file itself stays in the Downloads folder.
 - **Delete everything**: uninstall the program through "Settings → Apps", then delete the `%LOCALAPPDATA%\Univer.Desktop` folder. Uninstalling does not touch this folder by itself, so that updates and reinstalls keep your sign-in.
 
 Files are deleted the usual Windows way: there is no guaranteed erasure from the disk (especially SSDs) or from Windows backups. Signing out in the app does not end sessions on other devices.
+
+## Browser extension
+
+The Simple Univer extension for Chrome, Edge and Firefox has its own [extension privacy policy](https://sssox.github.io/SimpleUniver/privacy/). In short: it works only on `https://univer.kaznu.kz` pages, sends nothing to the developer or third parties, and does not read the Univer password. If the site itself shows a login and password for the university's printing or Wi-Fi, the extension puts them in a separate panel with a «Copy» button; it neither stores nor sends these values. In the browser it keeps the settings from its popup, the language, pinned sections and, while the browser is open, marks for the read notice and agreement already sent. The site's own storage keeps a cache of the study plan, programme and syllabus topics with a short hash of the login. Removing the extension erases its settings; the cache goes with univer.kaznu.kz site data in the browser settings.
 
 ## Your data on the site
 

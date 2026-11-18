@@ -131,6 +131,11 @@ jobs:
           POLICY: ${{ vars.SIGNPATH_POLICY }}
         run: .\scripts\apply-signed-files.ps1 -SignedRoot build\signed-installers -TargetRoot artifacts\ci -TestCertificate:($env:POLICY -ne 'release-signing')
 
+      # Univer-Extension-<version>-{chromium,firefox}.zip and their .sha256 land beside the app files. The Firefox one is
+      # for AMO, which signs it; a signed .xpi is added to the release by hand.
+      - name: Build the browser extension
+        run: .\scripts\build-extension.ps1 -OutputRoot artifacts\ci\extension
+
       - name: Keep the files of a manual run
         if: github.ref_type != 'tag'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

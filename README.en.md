@@ -8,7 +8,7 @@ A desktop app for the [Univer KazNU](https://univer.kaznu.kz/) student portal wi
 
 [![Release](https://img.shields.io/github/v/release/SSSox/Simple-UniverKazNU-Desktop?label=release)](https://github.com/SSSox/Simple-UniverKazNU-Desktop/releases/latest) [![Downloads](https://img.shields.io/github/downloads/SSSox/Simple-UniverKazNU-Desktop/total?label=downloads)](https://github.com/SSSox/Simple-UniverKazNU-Desktop/releases) [![License](https://img.shields.io/badge/license-GPL--3.0--or--later-blue)](LICENSE)
 
-**[Download the latest version](https://github.com/SSSox/Simple-UniverKazNU-Desktop/releases/latest)** · [Which file to download](#which-file-to-download) · [Privacy](PRIVACY.en.md) · [Security](SECURITY.en.md)
+**[Download the latest version](https://github.com/SSSox/Simple-UniverKazNU-Desktop/releases/latest)** · [Which file to download](#which-file-to-download) · [Download site](https://sssox.github.io/SimpleUniver/) · [Privacy](PRIVACY.en.md) · [Security](SECURITY.en.md)
 
 ![The Univer window: the portal's home page with section tiles and news](https://raw.githubusercontent.com/SSSox/Simple-UniverKazNU-Desktop/main/.github/readme/home.png)
 
@@ -28,7 +28,8 @@ A desktop app for the [Univer KazNU](https://univer.kaznu.kz/) student portal wi
 
 - **Schedule** with the current and next class, a day filter and a week grid.
 - **Syllabus tasks on the schedule.** Each class shows the topic of its week from the syllabus written for your educational programme, and the week's independent work is listed by course. When your group has seminars in other weeks than the syllabus says, the topics go to the classes in order, and independent work is named under the nearest seminar. Teacher consultations are left out. A topic folds on its own button, and one switch hides them all.
-- **Grades** by subject, clear assessment pages, all distance-course tasks on one page.
+- **Grades** by subject, clear assessment pages, all distance-course tasks on one page. The colour of a score shows where it stands against 50, 70 and 90, and the points left to the next mark are written beside it.
+- **Grade summary** (the «Print and PDF» button on the grades page): every subject on one sheet with a key to the colours, clear enough for parents. Print it, save it to Downloads as PDF or PNG, or copy it as a picture for a messenger. With many subjects the PNG is split into several pictures, each with its own Copy button.
 
 ![The schedule: time until the first class, the week's independent work and syllabus topics under the classes](https://raw.githubusercontent.com/SSSox/Simple-UniverKazNU-Desktop/main/.github/readme/schedule.png)
 
@@ -63,6 +64,14 @@ You can see whether your Windows is 32- or 64-bit in "Settings → System → Ab
 **Modern or Legacy.** Modern runs on current Chromium 152 (CefSharp 152.0.150) and is meant for Windows 10 and 11. Legacy exists only for Windows 7 SP1, 8 and 8.1: Chromium 110 and later do not run on these systems, so Legacy uses Chromium 109 (CefSharp 109.1.110). **Chromium 109 has known vulnerabilities and gets no more updates** ([GHSA-f87w-3j5w-v58p](https://github.com/advisories/GHSA-f87w-3j5w-v58p)). The app reminds you of this at startup and in its settings. Do not use Legacy on Windows 10/11.
 
 **Installer or portable.** The installer puts the app into the current user's profile, creates shortcuts and an uninstall entry in the Windows app list, and offers to download missing Microsoft components. The portable archive installs nothing: unpack it into any folder and run it from there. Both have the same features.
+
+## Browser extension
+
+On macOS, Linux, ChromeOS, Windows on ARM, or wherever you would rather not install the app, the Simple Univer extension for Chrome, Edge and Firefox gives the site the same look. It works only on `https://univer.kaznu.kz` and runs the same page scripts as the app: reading mode, schedule, attendance, grades and their summary, «Download all» in UMKD, pinned sections, the dark theme, and confirming the read notice and the agreement.
+
+The extension keeps no password: the browser's password manager remembers it, and the site's own button signs in. It does not restore an expired session, does not show files inside itself, and saves the grade summary as PDF through the browser's print dialog, without PNG. Permissions: `storage` and access to `https://univer.kaznu.kz/*`; it has no access to other sites. What it stores is described in [its privacy policy](https://sssox.github.io/SimpleUniver/privacy/).
+
+The extension is not yet published in the Chrome Web Store, Edge Add-ons or Firefox Add-ons. Until then Chrome and Edge can install it by hand: unpack `Univer-Extension-<version>-chromium.zip` into a folder you will keep (releases on the [Releases](../../releases) page carry it from the version after 0.15.0; until then it is built with the command in [BUILD.en.md](BUILD.en.md)), open `chrome://extensions` (in Edge `edge://extensions`), turn on developer mode and click «Load unpacked». Firefox keeps an unsigned extension only until it restarts, so it needs the signed version. Firefox also opens every downloaded PDF in a tab by default; for «Download all» to only save files, set the PDF action to «Save File» in Firefox settings, under «Files and Applications». All files and store links are on the download site [sssox.github.io/SimpleUniver](https://sssox.github.io/SimpleUniver/).
 
 ## Checking the downloaded file
 
@@ -106,7 +115,7 @@ The Visual C++ package must match the variant, not only Windows: Modern x86 need
 
 ## Updating and uninstalling
 
-The installed app checks GitHub by itself at start, at most once every 6 hours. When a new version is out, a window offers Later and Install and a "Don't show again" checkbox, which hides the window for that version only. The check always runs; its result and the same buttons are in Settings → Updates. After Install, Univer downloads the installer of its variant, verifies the SHA-256, closes, installs the new version and opens again.
+The installed app checks GitHub by itself at every start, and while it stays open at most once every 6 hours. When a new version is out, a window offers Later and Install and a "Don't show again" checkbox, which hides the window for that version only. The check always runs; its result and the same buttons are in Settings → Updates. After Install, Univer downloads the installer of its variant, verifies the SHA-256, closes, installs the new version and opens again.
 
 You can also update by hand: close Univer (in the tray too) and run the installer of the new version of **the same variant** over the old one. Sign-in, settings and the downloads list are kept. The installer does not let you install an older version over a newer one. Modern, Legacy, x64 and x86 go into different folders and do not interfere with each other, but two variants cannot run at the same time.
 
@@ -114,7 +123,7 @@ Portable also tells you about a new version but does not update itself: the butt
 
 Uninstalling: "Settings → Apps → Univer → Uninstall". The program is removed, while its data stays in `%LOCALAPPDATA%\Univer.Desktop` and downloaded files stay in your Downloads folder. To remove everything:
 
-1. Before uninstalling, open "Settings → Account → Remove saved login".
+1. Before uninstalling, open "Settings → Account → Sign out": your login and password are removed from this computer.
 2. After uninstalling, delete the `%LOCALAPPDATA%\Univer.Desktop` folder.
 
 ## First start
@@ -123,8 +132,8 @@ On the first start the app offers two ways to sign in: enter your Univer login a
 
 If settings are missing, damaged or temporarily unreadable, the saved password remains encrypted and automatic sign-in waits for an explicit "Sign in again". A settings read error cannot undo a previous sign-out.
 
-- "Settings → Account → Sign out" ends the session and clears cookies but keeps the saved password; automatic sign-in pauses until you press "Sign in again".
-- "Remove saved login" erases the saved record and ends the session.
+- "Settings → Account → Sign out" ends the session, clears cookies and removes the saved login and password from this computer. The app language stays as it was.
+- The sign-out link on the site itself only ends the session: the password stays saved, and automatic sign-in waits until you press "Sign in again" in "Settings → Account".
 - If your password changed on the site, the app stops after two rejections in a row and asks for the new one.
 
 With a saved sign-in the app itself confirms only two site dialogs that would otherwise block the portal: the read notice after sign-in and the additional agreement dialog with the "прочитал договор" (I have read the contract) checkbox. In both cases it ticks the checkbox and presses the site's own button. The app submits no other forms and confirms nothing else. Details: [SECURITY.en.md](SECURITY.en.md).
@@ -151,6 +160,7 @@ The app was tested on Windows 11 x64, including the 32-bit builds on the same sy
 The app has no server of its own, no analytics, telemetry or crash reports. Its own requests go only to `https://univer.kaznu.kz` and to GitHub, where updates come from; links to other sites open in a separate panel inside the app with its own browser profile, or in your browser if you turn on "Open links in an external browser". The password is stored on this computer, encrypted with Windows DPAPI for your account.
 
 - [PRIVACY.en.md](PRIVACY.en.md): what data is stored, where, and how to delete it.
+- [Extension privacy](https://sssox.github.io/SimpleUniver/privacy/): what the browser extension stores.
 - [SECURITY.en.md](SECURITY.en.md): what the app does and does not do, its limitations and how to report a vulnerability.
 
 ## Code signing policy
@@ -174,7 +184,8 @@ It is a C# WinForms app (.NET Framework, C# 7.3) with Chromium built in through 
 | `src/Univer.Desktop/Web/` | Chromium handlers, download checks (`DownloadService.cs`, `SessionHttp.cs`), sign-in automation (`AutomationController.cs`) |
 | `src/Univer.Desktop/UI/` | Windows, settings, "Downloads", translations (`Strings.cs`); `UI/Qa/`: built-in self-test on synthetic pages |
 | `src/Univer.Desktop/Assets/` | JavaScript added to the site's pages: layout, sign-in, schedule, notifications; `pdfjs/`: Mozilla PDF.js for viewing PDF |
-| `tests/` | xUnit tests for the C# code and jsdom page tests; no real accounts |
+| `src/Univer.Extension/` | The extension for Chrome, Edge and Firefox: manifest, settings popup and the scripts that do in the browser what the C# part does; `scripts/build-extension.ps1` takes the page scripts from `Assets/` unchanged |
+| `tests/` | xUnit tests for the C# code, jsdom tests for the pages and the extension; `tests/extension/`: checks of the extension in real Chrome and Firefox; no real accounts |
 | `scripts/` | Build, packaging, installer and checks ([BUILD.en.md](BUILD.en.md)) |
 | `installer/` | Inno Setup installer source and pinned Microsoft components |
 | `licenses/` | Third-party licenses ([THIRD-PARTY.en.md](THIRD-PARTY.en.md)) |
