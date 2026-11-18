@@ -41,6 +41,12 @@ test('the button waits until the page is well down, then shows a little above th
   assert.equal(b.classList.contains('on'), true);
   assert.equal(b.textContent, 'Наверх');
   assert.equal(b.type, 'button');
+  // The arrow is real SVG built node by node (the stores refuse HTML text), drawn before the label.
+  const svg = b.firstChild;
+  assert.equal(svg.namespaceURI, 'http://www.w3.org/2000/svg');
+  assert.equal(svg.getAttribute('stroke'), 'currentColor');
+  assert.deepEqual(Array.from(svg.children, path => path.getAttribute('d')), ['m5 12 7-7 7 7', 'M12 19V5']);
+  assert.equal(b.lastChild.tagName, 'SPAN');
   const css = b.parentNode.querySelector('style').textContent;
   assert.match(css, /\.top\{position:fixed;[^}]*right:24px;bottom:56px;/);
   assert.doesNotMatch(css, /bottom \.2s/, 'nothing animates a move: the button has one place');

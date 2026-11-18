@@ -73,6 +73,19 @@ test('each release manifest asks for univer.kaznu.kz and storage only, with no p
  assert.deepEqual(firefox.browser_specific_settings.gecko.data_collection_permissions,{required:['none']});
 });
 
+// What the stores' upload checks warn about: Edge cuts short_name at 12 characters, and Firefox's linter marks every
+// assignment of HTML text ("Unsafe assignment to innerHTML"), even of a constant icon.
+test('the release files pass the stores\' package checks: a short name of 12 characters, no HTML text written into the page',{skip:!windows&&'needs Windows PowerShell'},()=>{
+ for(const browser of ['chromium','firefox']){
+  const name=manifestOf(browser).short_name;
+  assert.ok(name&&name.length<=12,browser+' short_name '+name);
+  for(const file of filesOf(path.join(out,browser)).filter(file=>file.endsWith('.js'))){
+   const found=/\.(?:inner|outer)HTML\s*\+?=(?!=)|\.insertAdjacentHTML\s*\(|document\.write(?:ln)?\s*\(/.exec(read(file));
+   assert.equal(found,null,path.relative(out,file)+' writes HTML text: '+(found&&found[0]));
+  }
+ }
+});
+
 test('the page scripts run in the Windows app\'s order, each byte for byte in the Windows app\'s strict wrapper',{skip:!windows&&'needs Windows PowerShell'},()=>{
  const list=modules(),isolated=list.filter(name=>name!=='univer-automation.js');
  assert.ok(list.includes('univer-automation.js')&&isolated.length>=18,'unexpected list '+list.join());

@@ -24,7 +24,14 @@
     // remain beside it. The app's sidebar grows with the zoom: the QA window's page is 656 px at 150% (room made) and
     // 480 px at 200% (no room).
     var MIN_VIEW = 300, MIN_COLUMN = 360;
-    var ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12 7-7 7 7"/><path d="M12 19V5"/></svg>';
+    // Built node by node: the stores' checks refuse HTML text written into the page.
+    function icon() {
+        var ns = 'http://www.w3.org/2000/svg', svg = document.createElementNS(ns, 'svg');
+        [['viewBox', '0 0 24 24'], ['fill', 'none'], ['stroke', 'currentColor'], ['stroke-width', '2.2'], ['stroke-linecap', 'round'],
+            ['stroke-linejoin', 'round'], ['aria-hidden', 'true']].forEach(function (pair) { svg.setAttribute(pair[0], pair[1]); });
+        ['m5 12 7-7 7 7', 'M12 19V5'].forEach(function (d) { var path = document.createElementNS(ns, 'path'); path.setAttribute('d', d); svg.appendChild(path); });
+        return svg;
+    }
     var CSS = ':host{all:initial}' +
         '.top{position:fixed;z-index:800;right:24px;bottom:56px;display:inline-flex;align-items:center;gap:8px;box-sizing:border-box;height:40px;margin:0;padding:0 18px 0 14px;' +
         'border:0;border-radius:20px;background:var(--u-brand,#1b5fa6);color:#fff;font:600 14px/1 var(--u-font,"Segoe UI",Tahoma,sans-serif);white-space:nowrap;cursor:pointer;' +
@@ -53,7 +60,7 @@
         host = document.createElement('div'); host.id = 'univer-app-top';
         var root = host.attachShadow({ mode: 'open' }), style = document.createElement('style');
         style.textContent = CSS;
-        button = document.createElement('button'); button.type = 'button'; button.className = 'top'; button.innerHTML = ICON + '<span></span>';
+        button = document.createElement('button'); button.type = 'button'; button.className = 'top'; button.append(icon(), document.createElement('span'));
         label = button.lastChild;
         button.addEventListener('click', toTop);
         root.append(style, button);

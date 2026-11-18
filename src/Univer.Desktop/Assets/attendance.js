@@ -389,7 +389,12 @@
             var summaryList=document.createElement('section');summaryList.className='univer-app-attendance-overview';
             var actions=document.createElement('div');actions.className='univer-app-attendance-actions';
             var report=document.createElement('button');report.type='button';report.className='univer-app-attendance-report';report.setAttribute('aria-haspopup','dialog');
-            report.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9V3h12v6"/><rect x="3" y="9" width="18" height="8" rx="2"/><path d="M7 14h10v7H7z"/></svg><span></span>';
+            // The printer icon, node by node: the stores' checks refuse HTML text written into the page.
+            var svgNs='http://www.w3.org/2000/svg',printIcon=document.createElementNS(svgNs,'svg');printIcon.setAttribute('viewBox','0 0 24 24');printIcon.setAttribute('aria-hidden','true');
+            [['path',{d:'M6 9V3h12v6'}],['rect',{x:'3',y:'9',width:'18',height:'8',rx:'2'}],['path',{d:'M7 14h10v7H7z'}]].forEach(part=>{
+                var shape=document.createElementNS(svgNs,part[0]);Object.keys(part[1]).forEach(key=>shape.setAttribute(key,part[1][key]));printIcon.appendChild(shape);
+            });
+            report.append(printIcon,document.createElement('span'));
             var reportLabel=report.lastChild;
             report.addEventListener('click',()=>window.__univerReportV1?.open(reportCourses(model()),language,report));
             actions.appendChild(report);

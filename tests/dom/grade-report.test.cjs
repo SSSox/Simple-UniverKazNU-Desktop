@@ -28,8 +28,15 @@ test('the grades page offers the summary once a course has a grade, and the shee
  assert.equal(odd.d.querySelector('.univer-app-attendance-actions').hidden,true,'no summary where the app would not answer it');odd.close();
  const p=page(),button=p.d.querySelector('.univer-app-attendance-report');
  assert.equal(button.closest('[hidden]'),null);assert.equal(button.textContent,'Печать и PDF');assert.equal(button.getAttribute('aria-haspopup'),'dialog');
+ // Icons are real SVG built node by node (the stores refuse HTML text), each before its label.
+ const shapes=svg=>[svg.namespaceURI,...Array.from(svg.children,s=>s.namespaceURI==='http://www.w3.org/2000/svg'&&s.tagName)];
+ assert.deepEqual(shapes(button.firstChild),['http://www.w3.org/2000/svg','path','rect','path']);
  button.focus();button.click();
- const root=sheet(p);assert.ok(root);assert.ok(p.d.documentElement.hasAttribute('data-univer-report'));assert.ok(p.d.getElementById('univer-app-report-page'));
+ const root=sheet(p);assert.ok(root);
+ const svgNs='http://www.w3.org/2000/svg';
+ assert.deepEqual(Array.from(root.querySelectorAll('.actions button'),b=>shapes(b.firstChild)),
+  [[svgNs,'path','rect','path'],[svgNs,'path','path','path'],[svgNs,'rect','circle','path'],[svgNs,'rect','path']],'print, pdf, png, copy');
+ assert.deepEqual(shapes(root.querySelector('button.close').firstChild),['http://www.w3.org/2000/svg','path']);assert.ok(p.d.documentElement.hasAttribute('data-univer-report'));assert.ok(p.d.getElementById('univer-app-report-page'));
  assert.equal(root.querySelector('[role=dialog]').getAttribute('aria-modal'),'true');assert.equal(root.activeElement.textContent,'Печать');
  assert.deepEqual(Array.from(root.querySelectorAll('h3'),h=>h.textContent),['История Казахстана','Иностранный язык']);
  const rows=Array.from(root.querySelectorAll('.row')).map(r=>[r.querySelector('.label').textContent,r.dataset.band||'',r.querySelector('.value').textContent,r.querySelector('.note').textContent].join('|'));

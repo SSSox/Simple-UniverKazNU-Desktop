@@ -35,12 +35,13 @@
             page: 'Page {0} of {1}', copyPage: 'Copy', copyPageLabel: 'Copy page {0}', copiedPage: 'Page {0} copied — paste it into a message (Ctrl+V)',
             pictures: function (n) { return n + (n === 1 ? ' picture' : ' pictures'); } }
     };
+    // Shapes of each icon, built node by node in icon(): the stores' checks refuse HTML text written into the page.
     var ICONS = {
-        print: '<path d="M6 9V3h12v6"/><rect x="3" y="9" width="18" height="8" rx="2"/><path d="M7 14h10v7H7z"/>',
-        pdf: '<path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/>',
-        png: '<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="m21 17-5-5-9 8"/>',
-        copy: '<rect x="8" y="8" width="13" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/>',
-        close: '<path d="M6 6l12 12M18 6 6 18"/>'
+        print: [['path', { d: 'M6 9V3h12v6' }], ['rect', { x: '3', y: '9', width: '18', height: '8', rx: '2' }], ['path', { d: 'M7 14h10v7H7z' }]],
+        pdf: [['path', { d: 'M12 3v12' }], ['path', { d: 'm7 10 5 5 5-5' }], ['path', { d: 'M5 21h14' }]],
+        png: [['rect', { x: '3', y: '4', width: '18', height: '16', rx: '2' }], ['circle', { cx: '9', cy: '10', r: '2' }], ['path', { d: 'm21 17-5-5-9 8' }]],
+        copy: [['rect', { x: '8', y: '8', width: '13', height: '13', rx: '2' }], ['path', { d: 'M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3' }]],
+        close: [['path', { d: 'M6 6l12 12M18 6 6 18' }]]
     };
     // The bands' fills and ink, the same as on the page (desktop.js); the legend's tints are the sheet's own. The sheet is
     // paper, so they never turn dark.
@@ -117,10 +118,19 @@
     var host = null, shadow = null, sheets = [], scroller = null, status = null, buttons = {}, courses = [], language = 'ru', opener = null, busy = false, timer = 0, kept = null, made = null, signature = '', pressed = '', preparing = false, opening = Math.floor(Math.random() * 1e9) + 1;
     function words() { return WORDS[language] || WORDS.ru; }
     function element(tag, cls, text) { var node = document.createElement(tag); if (cls) node.className = cls; if (text != null) node.textContent = text; return node; }
-    function icon(name) { return '<svg viewBox="0 0 24 24" aria-hidden="true">' + ICONS[name] + '</svg>'; }
+    function icon(name) {
+        var ns = 'http://www.w3.org/2000/svg', svg = document.createElementNS(ns, 'svg');
+        svg.setAttribute('viewBox', '0 0 24 24'); svg.setAttribute('aria-hidden', 'true');
+        ICONS[name].forEach(function (part) {
+            var shape = document.createElementNS(ns, part[0]);
+            Object.keys(part[1]).forEach(function (key) { shape.setAttribute(key, part[1][key]); });
+            svg.appendChild(shape);
+        });
+        return svg;
+    }
     function button(name, primary) {
         var node = element('button', primary ? 'primary' : name === 'close' ? 'close' : '');
-        node.type = 'button'; node.innerHTML = icon(name);
+        node.type = 'button'; node.appendChild(icon(name));
         if (name === 'close') node.setAttribute('aria-label', words().close); else node.appendChild(element('span', '', words()[name]));
         node.addEventListener('click', function (event) { if (name === 'close') close(); else press(name, event); });
         buttons[name] = node; return node;
@@ -220,7 +230,7 @@
             var bar = element('div', 'page-bar'); bar.appendChild(element('span', '', label));
             if (buttons.copy) {
                 var copy = element('button', '');
-                copy.type = 'button'; copy.innerHTML = icon('copy'); copy.appendChild(element('span', '', w.copyPage));
+                copy.type = 'button'; copy.appendChild(icon('copy')); copy.appendChild(element('span', '', w.copyPage));
                 copy.setAttribute('aria-label', w.copyPageLabel.replace('{0}', number)); copy.disabled = busy;
                 copy.addEventListener('click', function (event) { press('copy:' + number, event); });
                 buttons['copy:' + number] = copy; bar.appendChild(copy);
