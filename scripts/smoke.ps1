@@ -23,8 +23,8 @@ try {
     # The office step opens the synthetic workbooks and presentations Excel and PowerPoint saved in both formats.
     $env:UNIVER_QA_FIXTURES = Join-Path $projectRoot 'tests\Univer.Desktop.Tests\Fixtures'
     $process = Start-Process -FilePath $app -ArgumentList $arguments -WindowStyle Hidden -PassThru
-    # The native run includes real Chromium download, keyboard, Office preview, file zoom and theme checks (5–6 minutes on
-    # Windows 11 x64 in Nov 2026; a loaded machine reached the old 420 s limit before the live steps); 600 s leaves room.
+    # The native run includes real Chromium download, keyboard, Office preview, file zoom and theme checks (5.5–6.5 minutes
+    # on Windows 11 x64 in Nov 2026; a loaded machine reached the old 420 s limit during the live steps); 600 s leaves room.
     $deadline = [DateTime]::UtcNow.AddSeconds(600)
     while (!$process.WaitForExit(1000) -and [DateTime]::UtcNow -lt $deadline) { }
     if (!$process.HasExited) {
