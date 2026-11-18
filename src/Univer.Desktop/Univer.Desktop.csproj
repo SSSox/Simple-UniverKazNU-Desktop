@@ -13,7 +13,7 @@
     <Platforms>x64;x86</Platforms>
     <RuntimeIdentifiers>win-x64;win-x86</RuntimeIdentifiers>
     <AssemblyName>Univer.Desktop</AssemblyName>
-    <Version>0.15.0</Version>
+    <Version>0.16.0</Version>
     <Product>Simple-UniverKazNU</Product>
     <!-- SignPath compares the product version; a build from Git would otherwise append the commit hash. -->
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>

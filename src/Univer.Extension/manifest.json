@@ -3,7 +3,7 @@
   "name": "__MSG_name__",
   "short_name": "SimpleUniver",
   "description": "__MSG_description__",
-  "version": "0.15.0.1",
+  "version": "0.16.0",
   "default_locale": "ru",
   "author": "SOX Team",
   "homepage_url": "https://sssox.github.io/SimpleUniver/",
