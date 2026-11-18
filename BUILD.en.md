@@ -74,7 +74,7 @@ npm.cmd test
 .\scripts\test-build-release.ps1
 ```
 
-`smoke.ps1` starts the built app with `--self-test` in a separate temporary profile: windows, sign-in on synthetic pages, downloads, the file viewer, themes, notifications, sign-out. It touches neither a real account nor your Univer profile. `-Live` adds a read of the public `univer.kaznu.kz` sign-in page without submitting the form or any sign-in data. `-Only <step>` runs one step (`settings`, `shell`, `document`, `presentation`, `form-download`, `layout-load`, `downloads`, `office`, `zoom`, `theme`, `notices`, `live`, `logout`). Repeat smoke for every variant you release.
+`smoke.ps1` starts the built app with `--self-test` in a separate temporary profile: windows, sign-in on synthetic pages, downloads, the file viewer, themes, notifications, sign-out. It touches neither a real account nor your Univer profile. `-Live` adds a read of the public `univer.kaznu.kz` sign-in page without submitting the form or any sign-in data. `-Only <step>` runs one step (`settings`, `shell`, `document`, `presentation`, `form-download`, `layout-load`, `downloads`, `office`, `zoom`, `theme`, `notices`, `live`, `logout`).
 
 The installer checks install and remove the app in a separate folder and never touch an already installed Univer:
 
@@ -113,26 +113,6 @@ node tests\extension\firefox.mjs --ext artifacts\extension-qa\firefox --out <fol
 
 The build takes the list of page scripts from `Web/AutomationController.cs` and the files themselves from `Assets/` unchanged, each in its own strict wrapper; the extension's own scripts are in `src/Univer.Extension/`. The normal build works only on `https://univer.kaznu.kz`; the QA build also on `127.0.0.1` for the synthetic pages of `tests/extension/pages.mjs`. `chrome.mjs` loads the extension into a throwaway Chrome profile over the DevTools pipe with no open port, `firefox.mjs` installs it as a temporary add-on in a separate Firefox profile through WebDriver BiDi; `--live` adds the public sign-in page without typing any credentials. `npm.cmd test` checks the extension scripts on jsdom and the normal build (`tests/dom/extension-build.test.cjs`: the single `storage` permission, one site, page script bytes equal to `Assets/`).
 
-Publishing: the `chromium` ZIP goes to the Chrome Web Store and Edge Add-ons, the `firefox` ZIP to Firefox Add-ons (AMO), which signs it. Add the signed file to the release as `Univer-Extension-<version>-firefox.xpi`, and put the store page addresses in `stores.json` of the site repository [SSSox/SimpleUniver](https://github.com/SSSox/SimpleUniver). Privacy policy for the stores: https://sssox.github.io/SimpleUniver/privacy/.
+## Releases
 
-## New version
-
-1. Raise the version in `src/Univer.Desktop/Univer.Desktop.csproj` (`<Version>`), `src/Univer.Desktop/app.manifest` (`assemblyIdentity`, four parts), `package.json` and `src/Univer.Extension/manifest.json` (`version`; a fourth part only for a fix to the extension alone), then run `npm.cmd install --package-lock-only --ignore-scripts`. The `VersionTests` test checks that the versions match.
-2. Build all four variants and run the checks above for each.
-3. Push the tag `vX.Y.Z` (see below): GitHub builds and attaches the ZIPs, installers, the extension ZIPs, their `.sha256` and both manifests. In the release description list the changes and which systems were tested. Ready-made files are not added to the repository history.
-
-## Release on GitHub
-
-Public releases are built by `.github/workflows/release.yml` on a clean GitHub machine. The tag `vX.Y.Z` must match the project version: the build runs the tests, builds the four variants, checks that they start, packages them and publishes the release. A manual run does the same but only keeps the files for 7 days.
-
-Signing turns on when the repository has the `SIGNPATH_ORGANIZATION_ID` and `SIGNPATH_POLICY` variables and the `SIGNPATH_API_TOKEN` secret. The build then waits twice for manual approval in SignPath: first for `Univer.Desktop.exe`, then for the installers, which already contain the signed application. The signing settings are in `.signpath/artifact-configurations/`.
-
-The installed app looks in the latest release for `Univer-Desktop-<version>-<variant>-<bits>-setup.exe` and its `.sha256` under the tag `vX.Y.Z`. If these names change, installed apps cannot update.
-
-## Build for the owner's review
-
-The crawler of the real portal (`UI/Qa/MainForm.Review.cs` and the files next to it) is not part of the normal build. It is built only explicitly and only for the owner's local review, and is never shared:
-
-```powershell
-dotnet build .\src\Univer.Desktop\Univer.Desktop.csproj -c Release -p:Platform=x64 -p:BrowserFlavor=Modern -p:QaReview=true
-```
+Public releases are built by `.github/workflows/release.yml` on a clean GitHub machine: for the tag `vX.Y.Z` it runs the tests, builds the four variants, checks that they start and publishes the files with their `.sha256`.

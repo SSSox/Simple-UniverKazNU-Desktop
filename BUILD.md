@@ -74,7 +74,7 @@ npm.cmd test
 .\scripts\test-build-release.ps1
 ```
 
-`smoke.ps1` запускает собранное приложение с ключом `--self-test` в отдельном временном профиле: окна, вход на синтетических страницах, скачивания, просмотр файлов, темы, уведомления, выход. Ни настоящий аккаунт, ни ваш профиль Univer он не трогает. `-Live` добавляет чтение публичной страницы входа `univer.kaznu.kz` без отправки формы и данных входа. `-Only <шаг>` запускает один шаг (`settings`, `shell`, `document`, `presentation`, `form-download`, `layout-load`, `downloads`, `office`, `zoom`, `theme`, `notices`, `live`, `logout`). Повторите smoke для каждого выпускаемого варианта.
+`smoke.ps1` запускает собранное приложение с ключом `--self-test` в отдельном временном профиле: окна, вход на синтетических страницах, скачивания, просмотр файлов, темы, уведомления, выход. Ни настоящий аккаунт, ни ваш профиль Univer он не трогает. `-Live` добавляет чтение публичной страницы входа `univer.kaznu.kz` без отправки формы и данных входа. `-Only <шаг>` запускает один шаг (`settings`, `shell`, `document`, `presentation`, `form-download`, `layout-load`, `downloads`, `office`, `zoom`, `theme`, `notices`, `live`, `logout`).
 
 Проверки установщика ставят и удаляют приложение в отдельной папке и не трогают уже установленный Univer:
 
@@ -113,26 +113,6 @@ node tests\extension\firefox.mjs --ext artifacts\extension-qa\firefox --out <п�
 
 Сборка берёт список скриптов страниц из `Web/AutomationController.cs`, а сами файлы из `Assets/` без изменений, каждый в своей строгой обёртке; свои скрипты расширения лежат в `src/Univer.Extension/`. Обычная сборка работает только на `https://univer.kaznu.kz`, QA-сборка ещё и на `127.0.0.1` для синтетических страниц `tests/extension/pages.mjs`. `chrome.mjs` загружает расширение во временный профиль Chrome через DevTools pipe без открытого порта, `firefox.mjs` ставит его временным дополнением в отдельный профиль Firefox через WebDriver BiDi; `--live` добавляет публичную страницу входа без ввода данных. `npm.cmd test` проверяет скрипты расширения на jsdom и обычную сборку (`tests/dom/extension-build.test.cjs`: одно разрешение `storage`, один сайт, байты скриптов страниц совпадают с `Assets/`).
 
-Публикация: ZIP `chromium` загружается в Chrome Web Store и Edge Add-ons, ZIP `firefox` в Firefox Add-ons (AMO), где его подписывают. Подписанный файл добавьте в выпуск как `Univer-Extension-<версия>-firefox.xpi`, а адреса страниц в магазинах впишите в `stores.json` репозитория сайта [SSSox/SimpleUniver](https://github.com/SSSox/SimpleUniver). Политика конфиденциальности для магазинов: https://sssox.github.io/SimpleUniver/privacy/.
+## Выпуски
 
-## Новая версия
-
-1. Поднимите версию в `src/Univer.Desktop/Univer.Desktop.csproj` (`<Version>`), `src/Univer.Desktop/app.manifest` (`assemblyIdentity`, четыре части), `package.json` и `src/Univer.Extension/manifest.json` (`version`; четвёртая часть только для исправлений одного расширения), затем `npm.cmd install --package-lock-only --ignore-scripts`. Тест `VersionTests` проверяет, что версии совпадают.
-2. Соберите все четыре варианта, прогоните проверки выше для каждого.
-3. Поставьте тег `vX.Y.Z` (см. ниже): GitHub сам соберёт и прикрепит ZIP, установщики, ZIP расширения, их `.sha256` и оба манифеста. В описании выпуска перечислите изменения и какие системы проверены. Готовые файлы в историю репозитория не добавляются.
-
-## Выпуск на GitHub
-
-Публичные выпуски собирает `.github/workflows/release.yml` на чистой машине GitHub. Тег `vX.Y.Z` должен совпадать с версией проекта: сборка запускает тесты, собирает четыре варианта, проверяет их запуск, упаковывает и публикует выпуск. Ручной запуск делает то же самое, но только хранит файлы 7 дней.
-
-Подпись включается, когда в репозитории заданы переменные `SIGNPATH_ORGANIZATION_ID`, `SIGNPATH_POLICY` и секрет `SIGNPATH_API_TOKEN`. Тогда сборка дважды ждёт ручного подтверждения в SignPath: сначала для `Univer.Desktop.exe`, затем для установщиков, в которых уже лежит подписанное приложение. Настройки подписи лежат в `.signpath/artifact-configurations/`.
-
-Установленное приложение ищет в последнем выпуске файлы `Univer-Desktop-<версия>-<вариант>-<разрядность>-setup.exe` и их `.sha256` под тегом `vX.Y.Z`. Если изменить эти имена, приложения не смогут обновиться.
-
-## Сборка для ревью владельцем
-
-Обходчик настоящего кабинета (`UI/Qa/MainForm.Review.cs` и соседние) в обычную сборку не входит. Он собирается только явно и только для локального ревью владельцем, никому не передаётся:
-
-```powershell
-dotnet build .\src\Univer.Desktop\Univer.Desktop.csproj -c Release -p:Platform=x64 -p:BrowserFlavor=Modern -p:QaReview=true
-```
+Публичные выпуски собирает `.github/workflows/release.yml` на чистой машине GitHub: по тегу `vX.Y.Z` он запускает тесты, собирает четыре варианта, проверяет их запуск и публикует файлы вместе с их `.sha256`.

@@ -46,7 +46,7 @@ A desktop app for the [Univer KazNU](https://univer.kaznu.kz/) student portal wi
 
 ![The PIN screen when the app starts](https://raw.githubusercontent.com/SSSox/Simple-UniverKazNU-Desktop/main/.github/readme/pin.png)
 
-The home page and "All sections" were captured in a real account, with no personal data in the frame. The schedule, УМКД and PIN screen use demo data. The screenshots show the Russian interface.
+There is no personal data in the screenshots. They show the Russian interface.
 
 ## Which file to download
 
@@ -71,7 +71,7 @@ On macOS, Linux, ChromeOS, Windows on ARM, or wherever you would rather not inst
 
 The extension keeps no password: the browser's password manager remembers it, and the site's own button signs in. It does not restore an expired session, does not show files inside itself, and saves the grade summary as PDF through the browser's print dialog, without PNG. Permissions: `storage` and access to `https://univer.kaznu.kz/*`; it has no access to other sites. What it stores is described in [its privacy policy](https://sssox.github.io/SimpleUniver/privacy/).
 
-The extension is not yet published in the Chrome Web Store, Edge Add-ons or Firefox Add-ons. Until then Chrome and Edge can install it by hand: unpack `Univer-Extension-<version>-chromium.zip` into a folder you will keep (releases on the [Releases](../../releases) page carry it from the version after 0.15.0; until then it is built with the command in [BUILD.en.md](BUILD.en.md)), open `chrome://extensions` (in Edge `edge://extensions`), turn on developer mode and click «Load unpacked». Firefox keeps an unsigned extension only until it restarts, so it needs the signed version. Firefox also opens every downloaded PDF in a tab by default; for «Download all» to only save files, set the PDF action to «Save File» in Firefox settings, under «Files and Applications». All files and store links are on the download site [sssox.github.io/SimpleUniver](https://sssox.github.io/SimpleUniver/).
+Until the extension is in the stores, Chrome and Edge can install it by hand: unpack `Univer-Extension-<version>-chromium.zip` into a folder you will keep (releases newer than 0.15.0 on the [Releases](../../releases) page carry it, or build it with [BUILD.en.md](BUILD.en.md)), open `chrome://extensions` (in Edge `edge://extensions`), turn on developer mode and click «Load unpacked». Firefox keeps an unsigned extension only until it restarts, so it needs the signed version. Firefox also opens every downloaded PDF in a tab by default; for «Download all» to only save files, set the PDF action to «Save File» in Firefox settings, under «Files and Applications». All files and store links are on the download site [sssox.github.io/SimpleUniver](https://sssox.github.io/SimpleUniver/).
 
 ## Checking the downloaded file
 
