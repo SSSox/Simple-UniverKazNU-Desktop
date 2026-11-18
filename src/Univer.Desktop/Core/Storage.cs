@@ -100,7 +100,7 @@ namespace Univer.Desktop.Core
         public Preferences LoadPreferences()
         {
             var path = Path.Combine(root, "preferences.json");
-            var value = File.Exists(path) ? json.Deserialize<Preferences>(File.ReadAllText(path)) : new Preferences();
+            var value = File.Exists(path) ? json.Deserialize<Preferences>(ReadShared(path)) : new Preferences();
             if (value == null || !IsProfileName(value.Profile)) throw new IOException("Invalid preferences");
             if (value.Language != "ru" && value.Language != "kz" && value.Language != "en") value.Language = "ru";
             if (value.Zoom < 50 || value.Zoom > 200) value.Zoom = 100;
@@ -114,6 +114,12 @@ namespace Univer.Desktop.Core
             if (value.UpdateChecked < 0) value.UpdateChecked = 0;
             if (!IsProfileName(value.WebProfile)) value.WebProfile = Guid.NewGuid().ToString("N");
             return value;
+        }
+        // A reader never stands in the way of a save: File.Replace must be able to delete the file it replaces.
+        private static string ReadShared(string path)
+        {
+            using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
+            using (var reader = new StreamReader(stream, Encoding.UTF8, true)) return reader.ReadToEnd();
         }
         // Loaded independently, so an unreadable DPAPI record (for example after a Windows password reset) keeps valid settings.
         public StoredState Load()
@@ -274,7 +280,7 @@ namespace Univer.Desktop.Core
         // Whether preferences.json already holds this profile name: only then may other web profiles be cleaned at start-up.
         public bool WebProfileSaved(string profile)
         {
-            try { var path = Path.Combine(root, "preferences.json"); return IsProfileName(profile) && File.Exists(path) && File.ReadAllText(path).Contains(profile); }
+            try { var path = Path.Combine(root, "preferences.json"); return IsProfileName(profile) && File.Exists(path) && ReadShared(path).Contains(profile); }
             catch (IOException) { return false; }
             catch (UnauthorizedAccessException) { return false; }
         }

@@ -42,6 +42,23 @@ namespace Univer.Desktop.Tests
             Assert.Contains(recipe, step => step.Part.ToString() == telling);
         }
 
+        // The addresses the site's own menu opens (the owner's list of 18 Nov 2026) find the same recipes as the short forms above.
+        [Theory]
+        [InlineData("/my/messages/index/", nameof(RecipePart.SelectCard))]
+        [InlineData("/my/appeals/index/", nameof(RecipePart.Action))]
+        [InlineData("/student/mydata/edit/", nameof(RecipePart.Photo))]
+        [InlineData("/student/practik/indexlist/", nameof(RecipePart.DocRows))]
+        [InlineData("/student/contract/list/", nameof(RecipePart.Pager))]
+        [InlineData("/student/myexam/schedule/", nameof(RecipePart.DocCards))]
+        [InlineData("/student/mymidterm/schedule/", nameof(RecipePart.Empty))]
+        [InlineData("/student/TestList", nameof(RecipePart.Video))]
+        [InlineData("/student/rating", nameof(RecipePart.Table))]
+        [InlineData("/student/stud/rating/anket", nameof(RecipePart.Stats))]
+        public void TheSiteMenusOwnAddressesFindTheirRecipes(string path, string telling)
+        {
+            EachListedPageHasItsOwnRecipe(path, telling);
+        }
+
         [Fact]
         public void AQuestionnaireIsNotItsListAndTheSecondFaqPageIsNotTheFirst()
         {

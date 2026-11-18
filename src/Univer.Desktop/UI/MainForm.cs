@@ -444,6 +444,12 @@ namespace Univer.Desktop.UI
             toast.Render(null, "", "", "", "", "");
             feedback.Render(message, heading, text, Strings.Get(action, lang), secondary, Strings.Get("dismiss", lang));
         }
+        // The sidebar's account line and its dot: saved sign-in, paused, or sign-in on the website.
+        private void UpdateAccountLine()
+        {
+            localAccount.Text = Strings.Get(credentials == null ? "localManual" : prefs.AutoLoginPaused ? "localPaused" : "localSaved", prefs.Language);
+            sidebar.Invalidate();
+        }
         private void Localize()
         {
             var lang = prefs.Language;
@@ -457,7 +463,7 @@ namespace Univer.Desktop.UI
             foreach (var section in Sections) section.Button.Text = Strings.Get(section.Name, lang);
             portalGroup.Text = Strings.Get("groupPortal", lang); appGroup.Text = Strings.Get("groupApp", lang);
             back.Text = Strings.Get("backToSite", lang); mode.Text = Strings.Get("view", lang);
-            localAccount.Text = Strings.Get(credentials == null ? "localManual" : prefs.AutoLoginPaused ? "localPaused" : "localSaved", lang);
+            UpdateAccountLine();
             SetButtonLabel(back, document != null ? "backToSite" : "back"); SetButtonLabel(forward, "forward"); SetButtonLabel(refresh, "refresh");
             SetButtonLabel(mode, "view"); SetButtonLabel(zoomIn, "zoomIn"); SetButtonLabel(zoomOut, "zoomOut");
             SetButtonLabel(find, document != null || DownloadsVisible ? "findInDocument" : "findOnPage"); findBar.SetLanguage(lang);

@@ -9,6 +9,7 @@ namespace Univer.Desktop.Core
     {
         public const string Origin = "https://univer.kaznu.kz";
         public const string Home = Origin + "/";
+        public const string LoginAddress = Origin + "/user/login";
         private static readonly Regex PrintPath = Path(@"^/student/(?:iup(?:/\d+)*/?|transcript(?:/\d+)?/?|recbook(?:/\d+)?/?|interactive/syllabus/print/\d+/\d+/?|myschedule/print/\d+/\d+/?)$");
         private static readonly Regex ProtectedPath = Path(@"^/student/umkd/get/\d+/\d+/\d+/\d+/?$");
         private static readonly Regex MaterialsPath = Path(@"^/student/umkd/\d+/\d+/\d+/?$");

@@ -13,7 +13,7 @@ namespace Univer.Desktop.UI
     // the header, then placeholder tiles, tables or text that match where the student is going.
     internal sealed class LoadingView : Panel
     {
-        private enum Shape { Home, Bachelor, Schedule, Grades, Courses, Files, Table, Document, Page, Web, Recipe }
+        private enum Shape { Home, Bachelor, Schedule, Grades, Courses, Files, Table, Document, Page, Web, Recipe, SignIn }
         private RecipeStep[] recipe;
         // The site's header in CSS pixels: where the tray of tabs starts after the logo, and how wide it is.
         private const int LogoBox = 128, TrayWidth = 271;
@@ -44,6 +44,8 @@ namespace Univer.Desktop.UI
                 if (Visible) { clock.Restart(); animation.Interval = Motion.Enabled && !Motion.Reduced ? 66 : 500; animation.Start(); if (IsHandleCreated) Refresh(); } else { animation.Stop(); clock.Stop(); }
             };
         }
+        // Which layout the placeholder draws, for self-test.
+        public string ShapeName { get { return shape.ToString(); } }
         public void SetLanguage(string language) { Text = AccessibleName = Strings.Get("loading", language); slowText = Strings.Get("loadingProgress", language); Invalidate(); }
         // The destination picks the placeholder layout; unknown pages get a generic heading with text blocks. "web" is another
         // site in the link window: no Univer header, only a column of text.
@@ -59,6 +61,7 @@ namespace Univer.Desktop.UI
                 : under("/student/attendance") ? Shape.Grades
                 : under("/student/bachelor") ? Shape.Bachelor
                 : under("/news/student") || path == "/" || under("/ssc") && path.Length <= 5 ? Shape.Home
+                : path == "/user/login" || path == "/user/login/" ? Shape.SignIn
                 : Regex.IsMatch(path, @"^/student/umkd(/0/\d+/\d+)?/?$") ? Shape.Courses
                 : under("/student/umkd/") ? Shape.Files
                 : found != null ? Shape.Recipe
@@ -120,7 +123,16 @@ namespace Univer.Desktop.UI
             var document = shape == Shape.Document || shape == Shape.Web;
             if (!document && captured != null && captured.Fits(Width / s)) { ComposeCaptured(s, bones, blocks); DrawBlocks(g, bones, blocks); return; }
             var headerBottom = document ? 0 : d(56);
-            if (!document)
+            if (shape == Shape.SignIn)
+            {
+                // The sign-in page's header: the site's name and the language flags, then the reading bar, empty there.
+                using (var white = new SolidBrush(Card)) g.FillRectangle(white, 0, 0, Width, headerBottom + d(30));
+                using (var line = new Pen(Edge)) { g.DrawLine(line, 0, headerBottom, Width, headerBottom); g.DrawLine(line, 0, headerBottom + d(30), Width, headerBottom + d(30)); }
+                bar(left + d(8), d(20), d(66), d(16), d(4));
+                var flags = box(right - d(124), d(8), d(124), control); block(flags, d(12), palette.Track, palette.Line);
+                for (var i = 0; i < 3; i++) bar(flags.Left + d(14) + i * d(36), d(20), d(26), d(16), d(3));
+            }
+            else if (!document)
             {
                 // The site's header: its logo from 1040 px up, the two catalogues in one tray, then All sections, the
                 // language flags and the account. The logo's box is kept so nothing shifts when the page arrives.
@@ -330,6 +342,39 @@ namespace Univer.Desktop.UI
                 case Shape.Recipe:
                     Draw(recipe, bones, blocks, s, y);
                     break;
+                case Shape.SignIn:
+                    {
+                        // «Авторизация», then one card: the login form on the left, the help text beside it (under it when narrow).
+                        var page = Math.Min(Width - 2 * d(narrow ? 16 : 32), d(1400)); var pageLeft = (Width - page) / 2;
+                        y = headerBottom + d(30) + d(38); bar(pageLeft, y, d(124), d(18), d(5)); y += d(28);
+                        var inner = page - d(50); var stacked = inner < d(700);
+                        var form = box(pageLeft + d(25), y + d(24), stacked ? inner : d(400), d(390));
+                        var textLeft = stacked ? form.Left : form.Right + d(30); var textWidth = stacked ? inner : pageLeft + page - d(25) - textLeft;
+                        var t = stacked ? form.Bottom + d(28) : y + d(28);
+                        // The text column: the greeting centred on two lines, two questions with their answers, the closing line.
+                        var textBars = new List<Block>();
+                        Action<float, float, float, float> line = (x, top, w, h) => textBars.Add(new Block { Area = new RectangleF(x, top, Math.Max(1, w), h), Radius = d(4) });
+                        line(textLeft + textWidth * .05f, t, textWidth * .9f, d(14)); line(textLeft + textWidth * .3f, t + d(24), textWidth * .4f, d(14)); t += d(72);
+                        foreach (var answers in new[] { 7, 8 })
+                        {
+                            line(textLeft, t, Math.Min(d(340), textWidth * .7f), d(14)); t += d(30);
+                            for (var l = 0; l < answers; l++) { line(textLeft + d(28), t, (textWidth - d(28)) * (l % 3 == 2 ? .6f : .95f - l % 2 * .07f), d(11)); t += d(21); }
+                            t += d(4);
+                        }
+                        line(textLeft, t + d(22), textWidth * .9f, d(14)); line(textLeft, t + d(44), textWidth * .2f, d(14));
+                        var cardBottom = Math.Max(form.Bottom + d(24), t + d(83));
+                        block(box(pageLeft, y, page, cardBottom - y), d(16), Card, Edge); block(form, d(12), Card, Edge); bones.AddRange(textBars);
+                        // The form: its heading, Login and Password with their fields, the button, the university account choice.
+                        var fieldX = form.Left + d(28); var fieldWidth = form.Width - d(56);
+                        bar(fieldX, form.Top + d(48), Math.Min(d(206), fieldWidth), d(13), d(4));
+                        bar(fieldX, form.Top + d(86), d(46), d(12), d(4)); block(box(fieldX, form.Top + d(108), fieldWidth, control), d(8), Card, outline);
+                        bar(fieldX, form.Top + d(171), d(54), d(12), d(4)); block(box(fieldX, form.Top + d(194), fieldWidth, control), d(8), Card, outline);
+                        bar(fieldX, form.Top + d(242), fieldWidth, control, d(8));
+                        bar(fieldX + d(2), form.Top + d(317), d(13), d(13), d(3));
+                        for (var l = 0; l < 3; l++) bar(fieldX + d(30), form.Top + d(303) + l * d(21), d(l == 1 ? 112 : 96 - l * 8), d(12), d(4));
+                        if (fieldWidth > d(320)) for (var l = 0; l < 3; l++) bar(fieldX + d(182), form.Top + d(307) + l * d(18), d(l == 2 ? 74 : 124), d(10), d(4));
+                        break;
+                    }
                 default:
                     bar(left, y, d(280), d(20), d(5)); y += d(40);
                     var table = box(left, y, pageWidth, Height); block(table, d(12), Card, Edge);

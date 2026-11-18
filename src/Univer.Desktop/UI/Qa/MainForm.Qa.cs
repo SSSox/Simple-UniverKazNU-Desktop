@@ -357,8 +357,8 @@ namespace Univer.Desktop.UI
             rotationFaultForQa = () => { remembered = storage.LoadPreferences().SessionClearPending; throw new TimeoutException("QA rotation fault"); };
             try { await EndSessionAsync(false); } catch (TimeoutException) { faulted = true; } finally { rotationFaultForQa = null; }
             Check(remembered, "a logout in progress is remembered on disk until the session is replaced", results);
-            for (var wait = DateTime.UtcNow.AddSeconds(5); storage.LoadPreferences().SessionClearPending && DateTime.UtcNow < wait;) await Task.Delay(50);
-            Check(!prefs.SessionClearPending && !storage.LoadPreferences().SessionClearPending && prefs.WebProfile != faultWebProfile,
+            for (var wait = DateTime.UtcNow.AddSeconds(5); SavedPreferencesForQa().SessionClearPending && DateTime.UtcNow < wait;) await Task.Delay(50);
+            Check(!prefs.SessionClearPending && !SavedPreferencesForQa().SessionClearPending && prefs.WebProfile != faultWebProfile,
                 "the session recovered from an interrupted logout replaces both profiles and clears the reminder", results);
             Check(faulted && main != null && main != beforeFault && context != null && prefs.Profile != faultProfile && prefs.AutoLoginPaused && !rotating,
                 "an interrupted session rotation starts a fresh paused session instead of leaving a stale or missing browser", results);
@@ -367,25 +367,64 @@ namespace Univer.Desktop.UI
             Check(preparedBrowsers.Contains(main), "the recovered session browser is prepared through its current-session events", results);
             // New credentials are saved before the old profile ends; a Chromium deadline there leaves a fresh session that
             // signs in by itself instead of a paused one. Synthetic credentials stay in this isolated self-test profile.
-            rotationFaultForQa = () => { throw new TimeoutException("QA rotation fault"); };
+            var newAccountOnSignIn = true;
+            rotationFaultForQa = () => { newAccountOnSignIn = OpensOnSignIn(); throw new TimeoutException("QA rotation fault"); };
             bool changed;
             try { changed = await ApplySettingsAsync(SettingsAction.Save, new Credentials { Login = "qa-fixture", Password = Guid.NewGuid().ToString("N") }, prefs.Language, prefs.Readable); }
             finally { rotationFaultForQa = null; }
             Check(changed && credentials != null && !prefs.AutoLoginPaused && !guard.Blocked && messages.Shows("sessionReset") && !commandBusy,
                 "a Chromium deadline while saving new credentials keeps automatic sign-in on in the fresh session", results);
             for (var wait = DateTime.UtcNow.AddSeconds(15); !preparedBrowsers.Contains(main) && DateTime.UtcNow < wait;) await Task.Delay(50);
-            for (var wait = DateTime.UtcNow.AddSeconds(5); storage.LoadPreferences().AutoLoginPaused && DateTime.UtcNow < wait;) await Task.Delay(50);
-            Check(!storage.LoadPreferences().AutoLoginPaused, "the resumed automatic sign-in is saved for the next launch", results);
-            rotationFaultForQa = () => { throw new TimeoutException("QA rotation fault"); };
+            for (var wait = DateTime.UtcNow.AddSeconds(5); SavedPreferencesForQa().AutoLoginPaused && DateTime.UtcNow < wait;) await Task.Delay(50);
+            Check(!SavedPreferencesForQa().AutoLoginPaused, "the resumed automatic sign-in is saved for the next launch", results);
+            // The loading cover: a new account's session signs in by itself and opens on the home page; while the app signs in,
+            // the sign-in page keeps the asked page's placeholder, and once its sign-in is stopped the sign-in page is drawn.
+            Check(!newAccountOnSignIn, "a new account's fresh session is covered by the home page's placeholder, not the sign-in page's", results);
+            var keptWhileSigningIn = KeepsPlaceholder(SitePolicy.LoginAddress);
+            guard.Stop();
+            Check(keptWhileSigningIn && !KeepsPlaceholder(SitePolicy.LoginAddress),
+                "the sign-in page keeps the asked page's placeholder only while the app signs in by itself", results);
+            // The sidebar's account line is read while the old session ends (under the cover), not after the new one is up.
+            string pausedLine = null; var logoutOnSignIn = false;
+            rotationFaultForQa = () => { pausedLine = localAccount.Text; logoutOnSignIn = OpensOnSignIn(); throw new TimeoutException("QA rotation fault"); };
             try { await LogoutAsync(); } finally { rotationFaultForQa = null; }
+            // A start that finds a paused saved sign-in on a new profile (an interrupted logout finished at start) is not signed in either.
+            Check(logoutOnSignIn && credentials != null && prefs.AutoLoginPaused && OpensOnSignIn(),
+                "a logout's new profile, and a start on a new profile with a paused saved sign-in, open on the sign-in page's placeholder", results);
             Check(!storageFailed && !messages.Shows("storageError") && messages.Current?.Action != MessageAction.Settings && prefs.AutoLoginPaused && !commandBusy,
                 "a Chromium deadline during logout leaves a paused session without a banner, not a storage failure", results);
+            Check(pausedLine == Strings.Get("localPaused", prefs.Language), "while the site's logout replaces the session the sidebar already says automatic sign-in is paused (" + pausedLine + ")", results);
             // Chromium must not shut down while the recovered browser is still being prepared.
             for (var wait = DateTime.UtcNow.AddSeconds(15); !preparedBrowsers.Contains(main) && DateTime.UtcNow < wait;) await Task.Delay(50);
             Check(preparedBrowsers.Contains(main), "the browser recovered after the logout deadline is prepared before exit", results);
+            // Settings «Выйти из аккаунта» removes the sign-in: under the cover the sidebar must not still say it is saved.
+            // A new account's session is paused until its rotation ends, and then signs in: meanwhile the sign-in page keeps the
+            // placeholder already shown.
+            var startingKept = false;
+            sessionCreatedForQa = () => startingKept = KeepsPlaceholder(SitePolicy.LoginAddress);
+            try { await ApplySettingsAsync(SettingsAction.Save, new Credentials { Login = "qa-fixture", Password = Guid.NewGuid().ToString("N") }, prefs.Language, prefs.Readable); }
+            finally { sessionCreatedForQa = null; }
+            Check(startingKept, "while a new account's session starts, the sign-in page keeps the placeholder already shown", results);
+            for (var wait = DateTime.UtcNow.AddSeconds(15); !preparedBrowsers.Contains(main) && DateTime.UtcNow < wait;) await Task.Delay(50);
+            string removedLine = null;
+            rotationFaultForQa = () => removedLine = localAccount.Text;
+            try { await EndSessionAsync(true); } finally { rotationFaultForQa = null; }
+            Check(credentials == null && removedLine == Strings.Get("localManual", prefs.Language) && localAccount.Text == removedLine,
+                "while «Выйти из аккаунта» replaces the session the sidebar no longer says the sign-in is saved (" + removedLine + ")", results);
+            for (var wait = DateTime.UtcNow.AddSeconds(15); !preparedBrowsers.Contains(main) && DateTime.UtcNow < wait;) await Task.Delay(50);
+            Check(preparedBrowsers.Contains(main), "the browser after removing the sign-in is prepared before exit", results);
         }
         // Self-test only: makes the next session rotation fail after its cookies were cleared.
         private Action rotationFaultForQa;
+        // A queued save may be replacing preferences.json at that moment: a busy file is read again.
+        private Preferences SavedPreferencesForQa()
+        {
+            for (var tries = 0; ; tries++)
+            {
+                try { return storage.LoadPreferences(); }
+                catch (IOException) when (tries < 20) { System.Threading.Thread.Sleep(50); }
+            }
+        }
         private static void Check(bool passed, string name, List<string> results)
         { if (!passed) throw new InvalidOperationException(name); results.Add("PASS " + name); }
         // Screenshots are evidence, not checks: a 32-bit run can fail inside GDI+, so a capture is retried once after a

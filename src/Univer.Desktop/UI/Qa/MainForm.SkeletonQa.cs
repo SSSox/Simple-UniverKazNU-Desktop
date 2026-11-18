@@ -17,7 +17,7 @@ namespace Univer.Desktop.UI
             "/student/rating/", "/student/rating/57", "/student/rating/57/go", "/student/mydata", "/student/practik", "/student/advicer",
             "/student/contract", "/student/academcalendar", "/student/myexam", "/student/mymidterm", "/student/educplan", "/student/profile",
             "/student/stud/rating/anket/", "/student/stud/rating/anket/achievements/add", "/student/testlist", "/student/fail",
-            "/student/failfx", "/student/gpaincrease", "/student/attestation"
+            "/student/failfx", "/student/gpaincrease", "/student/attestation", "/user/login"
         };
         private async Task SkeletonQaAsync(string qa, List<string> results)
         {
@@ -44,7 +44,7 @@ namespace Univer.Desktop.UI
                 }
                 // 200 % in the narrow window: pills wrap, IGPA's switch goes under its heading; nothing is blank.
                 var zoomed = new List<string>();
-                foreach (var route in new[] { "/student/stud/rating/anket/", "/student/stud/rating/anket/achievements/add", "/my/messages", "/student/attestation" })
+                foreach (var route in new[] { "/student/stud/rating/anket/", "/student/stud/rating/anket/achievements/add", "/my/messages", "/student/attestation", "/user/login" })
                 {
                     var ink = await SkeletonQaShotAsync(qa, SitePolicy.Origin + route, "skeleton-zoom-" + route.Trim('/').Replace('/', '-'), 2);
                     if (ink.Item1 < .03) zoomed.Add(route);
@@ -53,7 +53,7 @@ namespace Univer.Desktop.UI
                 Size = size; WindowState = state; await Task.Delay(600);
                 prefs.Theme = ThemeChoice.Dark; ApplyTheme();
                 var dark = new List<string>();
-                foreach (var route in new[] { "/student/rating/57", "/student/stud/rating/anket/", "/student/myexam", "/my/calculatorgpa" })
+                foreach (var route in new[] { "/student/rating/57", "/student/stud/rating/anket/", "/student/myexam", "/my/calculatorgpa", "/user/login" })
                 {
                     var ink = await SkeletonQaShotAsync(qa, SitePolicy.Origin + route, "skeleton-dark-" + route.Trim('/').Replace('/', '-'));
                     if (ink.Item1 < .03 || ink.Item3 != Theme.DarkPalette.Background.ToArgb()) dark.Add(route + " " + ink.Item1.ToString("0.000"));

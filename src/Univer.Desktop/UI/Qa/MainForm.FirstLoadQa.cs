@@ -76,26 +76,41 @@ namespace Univer.Desktop.UI
             }
         }
 
-        private readonly List<string> firstLoadPages = new List<string>(), firstLoadHeadings = new List<string>();
+        private readonly List<string> firstLoadPages = new List<string>(), firstLoadHeadings = new List<string>(), firstLoadShapes = new List<string>(), firstLoadBanners = new List<string>();
+        // Self-test only: every placeholder ShowRoute draws, so a redirect between two samples cannot hide one; and a call at
+        // the end of each session start.
+        private List<string> shownForQa;
+        private Action sessionCreatedForQa;
 
         // From the press until a second after the cover lifts over the sign-in page: every page the session showed and every
         // toolbar heading, with a window frame under the cover and one after it.
         private async Task FirstLoadSamplesAsync(string qa, string language)
         {
-            firstLoadPages.Clear(); firstLoadHeadings.Clear();
+            firstLoadPages.Clear(); firstLoadHeadings.Clear(); firstLoadShapes.Clear(); firstLoadBanners.Clear();
             var before = main; var covered = false; DateTime? revealed = null;
+            var leftOver = messages.Current?.Key;
+            var shown = shownForQa = new List<string>();
+            try
+            {
             for (var until = DateTime.UtcNow.AddSeconds(30); DateTime.UtcNow < until; await Task.Delay(60))
             {
                 var heading = (pageTitle.Text + " | " + pageState.Text).Trim();
                 if (!firstLoadHeadings.Contains(heading)) firstLoadHeadings.Add(heading);
+                var banner = messages.Current?.Key;
+                if (banner != null && banner != leftOver && !firstLoadBanners.Contains(banner)) firstLoadBanners.Add(banner);
                 if (main == before || main == null || !main.IsBrowserInitialized) continue;
+                if (loading.Visible && !firstLoadShapes.Contains(loading.ShapeName)) firstLoadShapes.Add(loading.ShapeName);
                 if (loading.Visible && !covered) { covered = true; FirstLoadFrame(Path.Combine(qa, "first-load-" + language + "-cover.png")); }
                 var page = await AutomationController.EvaluateAsync(main, FirstLoadProbe);
                 if (page != null && page.Split('|')[1].Length > 0 && !firstLoadPages.Contains(page)) firstLoadPages.Add(page);
                 if (revealed == null && !loading.Visible && page != null && page.Split('|')[2] == "login") revealed = DateTime.UtcNow;
                 if (revealed != null && DateTime.UtcNow - revealed.Value > TimeSpan.FromSeconds(1)) break;
             }
-            QaTrace("first-load-" + language + " address " + sessionAddress + " pages " + string.Join(" ; ", firstLoadPages) + " headings " + string.Join(" ; ", firstLoadHeadings));
+            }
+            finally { shownForQa = null; }
+            foreach (var drawn in shown) if (!firstLoadShapes.Contains(drawn)) firstLoadShapes.Add(drawn);
+            QaTrace("first-load-" + language + " address " + sessionAddress + " pages " + string.Join(" ; ", firstLoadPages) + " headings " + string.Join(" ; ", firstLoadHeadings) +
+                " placeholders " + string.Join(" ; ", firstLoadShapes) + " banners " + string.Join(" ; ", firstLoadBanners));
             FirstLoadFrame(Path.Combine(qa, "first-load-" + language + ".png"));
             try
             {
@@ -114,6 +129,10 @@ namespace Univer.Desktop.UI
             Check(firstLoadPages.All(page => page.Split('|')[3].Length == 0) && last.Split('|')[3].Length == 0, "nothing was typed into the live sign-in form " + when, results);
             Check(firstLoadHeadings.All(heading => !KazakhLetters.IsMatch(heading)), "the toolbar heading never showed Kazakh " + when, results);
             Check(messages.Current?.Action != MessageAction.Settings, "no banner over the sign-in page " + when, results);
+            // The session ends on the site's sign-in page: the cover draws that page from the start, never the home page first.
+            Check(firstLoadShapes.Count > 0 && firstLoadShapes.All(shape => shape == "SignIn"),
+                "the cover drew the sign-in page's placeholder all along " + when + " (" + string.Join(", ", firstLoadShapes) + ")", results);
+            Check(!firstLoadBanners.Contains("saving"), "no «Сохранение…» banner while the session was replaced " + when + " (" + string.Join(", ", firstLoadBanners) + ")", results);
         }
 
         // Evidence, not a check: PrintWindow takes Chromium's area too, but a hidden QA window may give an empty picture.

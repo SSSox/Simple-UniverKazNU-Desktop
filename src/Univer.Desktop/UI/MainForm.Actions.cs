@@ -40,12 +40,14 @@ namespace Univer.Desktop.UI
         private async Task<bool> ApplySettingsAsync(SettingsAction action, Credentials next, string language, bool readable, bool? tray = null, bool? animations = null, string theme = null, bool? externalLinks = null)
         {
             if (commandBusy || closing) return false;
-            commandBusy = true; SetCommandEnabled(false); SetStatus("saving");
+            commandBusy = true; SetCommandEnabled(false);
             var languageChanged = prefs.Language != language; var rotated = false;
             var logout = action == SettingsAction.Remove;
+            // Settings' own button says it is working; a logout puts no banner over the window (the owner's request).
+            if (!logout) SetStatus("saving");
             try
             {
-                if (logout) { await EndSessionAsync(action == SettingsAction.Remove); return !closing; }
+                if (logout) { await EndSessionAsync(true); return !closing; }
                 var change = action == SettingsAction.Manual ? SettingsChange.AppearanceOnly : SettingsDecision.Classify(credentials, next, prefs.AutoLoginPaused || guard.Stopped);
                 var updated = prefs.Clone(); updated.Language = language; updated.Readable = readable; if (tray.HasValue) updated.Tray = tray.Value; if (animations.HasValue) updated.Animations = animations.Value; if (theme != null) updated.Theme = ThemeChoice.Normalize(theme); if (externalLinks.HasValue) updated.ExternalLinks = externalLinks.Value;
                 if (action == SettingsAction.Manual) updated.AutoLoginPaused = true;
@@ -56,9 +58,15 @@ namespace Univer.Desktop.UI
                     // old session still has to go: a run that ends before the profiles are replaced is finished by the next.
                     updated.AutoLoginPaused = true; updated.SessionClearPending = true; await storage.SavePreferencesAsync(updated); prefs = updated; guard.Stop();
                     if (change == SettingsChange.NewCredentials) { await SaveAccountAsync(next); credentials = next; }
-                    rotated = true; await RotateSessionAsync();
-                    updated = prefs.Clone(); updated.AutoLoginPaused = false;
-                    await storage.SavePreferencesAsync(updated); prefs = updated;
+                    // The new session is paused until the rotation ends, and then signs in by itself.
+                    rotated = true; accountStarting = true;
+                    try
+                    {
+                        await RotateSessionAsync();
+                        updated = prefs.Clone(); updated.AutoLoginPaused = false;
+                        await storage.SavePreferencesAsync(updated); prefs = updated;
+                    }
+                    finally { accountStarting = false; }
                 }
                 else { await storage.SavePreferencesAsync(updated); prefs = updated; }
                 if (closing) return false;
@@ -100,7 +108,10 @@ namespace Univer.Desktop.UI
             guard.Stop(); automation.Navigating(); prefs.AutoLoginPaused = true;
             await storage.SavePreferencesAsync(stopped); prefs = stopped;
             if (remove) { await RemoveAccountAsync(); credentials = null; }
-            await RotateSessionAsync();
+            // The sidebar says so while the old session ends: under the cover it must not still read «Вход сохранён».
+            if (!closing) UpdateAccountLine();
+            loggingOut = true;
+            try { await RotateSessionAsync(); } finally { loggingOut = false; }
             // The sign-in page in the chosen language says it all: no banner over it (the owner's request).
             if (!closing) { messages.FinishSettings(); RenderFeedback(); Localize(); }
         }

@@ -78,7 +78,7 @@ namespace Univer.Desktop.UI
         private int revealGeneration;
         // What the first session found and the address each session opened with; the live self-test reads them, and
         // freshForQa lets it take the new-profile road a self-test otherwise skips.
-        private bool sessionStarted, profileAbsentAtStart, freshForQa;
+        private bool sessionStarted, profileAbsentAtStart, freshForQa, loggingOut, languageHop, accountStarting;
         private string sessionAddress;
         private void CreateSession()
         {
@@ -103,7 +103,22 @@ namespace Univer.Desktop.UI
             sessionAddress = fresh ? SitePolicy.LanguageSwitch(prefs.Language) : selfTest ? "about:blank" : SitePolicy.Home;
             main = CreateBrowser(sessionAddress, false);
             canvas.Controls.Add(main); main.BringToFront(); error = false; timer.Start();
-            presentationBegan = DateTime.UtcNow; ShowRoute(SitePolicy.Home); loading.Visible = true; loading.BringToFront();
+            languageHop = false;
+            presentationBegan = DateTime.UtcNow; ShowRoute(fresh && OpensOnSignIn() ? SitePolicy.LoginAddress : SitePolicy.Home); loading.Visible = true; loading.BringToFront();
+            sessionCreatedForQa?.Invoke();
+        }
+        // A new profile the app will not sign in by itself (a logout; a start without a saved sign-in or with a paused one) opens
+        // on the site's sign-in page: the cover draws that page from the start instead of the home page. A new account's
+        // rotation is paused only until it ends, and signs in.
+        private bool OpensOnSignIn() { return loggingOut || !rotating && !Credentials.SignInActive(credentials, prefs); }
+        // A language flag only redirects to a page: the placeholder already shown (that page's) stays, for the flag link and for
+        // its redirect to the home page (a new profile's flag link goes on through the home page to the sign-in page). So does the
+        // one of the page asked for while the app signs in by itself on the sign-in page (a new account's session too, paused
+        // only until its rotation ends); a refused or stopped sign-in shows that page.
+        private bool KeepsPlaceholder(string url, bool afterFlag = false)
+        {
+            return SitePolicy.Language(url) != null || afterFlag && SitePolicy.SamePage(url, SitePolicy.Home)
+                || SitePolicy.LoginPage(url) && (accountStarting || Credentials.SignInActive(credentials, prefs)) && !guard.Blocked;
         }
         private ChromiumWebBrowser CreateBrowser(string url, bool viewer)
         {
@@ -251,8 +266,8 @@ namespace Univer.Desktop.UI
                 onlineTestReturn = page; route = page ?? url;
             }
             lastMethod = method; if (method == "GET") lastGet = url;
-            // A language flag only redirects to a page: the placeholder already shown (that page's) stays.
-            awaitingCommit = browser; awaitingSince = DateTime.UtcNow; if (viewer || SitePolicy.Language(url) == null) ShowRoute(route);
+            var afterFlag = languageHop; if (!viewer) languageHop = SitePolicy.Language(url) != null;
+            awaitingCommit = browser; awaitingSince = DateTime.UtcNow; if (viewer || !KeepsPlaceholder(url, afterFlag)) ShowRoute(route);
             error = false; messages.BeginNavigation(); automation.Navigating(); presentationBegan = DateTime.UtcNow; SetPresentation(browser, true); RenderFeedback(); UpdatePollingRate();
         }
         private void ReceivePageMessage(ChromiumWebBrowser browser, bool viewer, string value, bool trusted, bool mainFrame)

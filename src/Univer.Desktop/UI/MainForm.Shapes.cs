@@ -21,7 +21,7 @@ namespace Univer.Desktop.UI
         // The placeholder for a navigation: the destination's drawn shape and, in the reading layout, its layout from the last visit.
         private void ShowRoute(string url)
         {
-            loading.SetRoute(url);
+            loading.SetRoute(url); shownForQa?.Add(loading.ShapeName);
             shapeRoute = url == "document" ? null : url;
             loading.Captured = shapeRoute != null && prefs.Readable && pageShapes != null ? pageShapes.Find(url) : null;
         }

@@ -220,7 +220,7 @@ namespace Univer.Desktop.UI
                 // Letter grades: a soft dark tile near the card (luminance under 0.04, channels within 40 of each other) and light ink.
                 SetPresentation(main, true); main.LoadHtml(AttestationFixture(false), SitePolicy.Origin + "/student/attestation/"); await WaitQaPresentationAsync(); await ApplyPresentationAsync(); await Task.Delay(400);
                 var letters = await AutomationController.EvaluateAsync(main, "(function(){" + contrast + "return Array.from(document.querySelectorAll('#l4 .univer-app-grade')).map(function(b){var s=getComputedStyle(b),v=s.backgroundColor.match(/\\d+/g).slice(0,3).map(Number);" +
-                    "return b.dataset.band+':'+(l(s.backgroundColor)<0.04&&Math.max.apply(null,v)-Math.min.apply(null,v)<=40)+':'+k(l(s.color),l(s.backgroundColor)).toFixed(2);}).join('|');})()") ?? "";
+                    "return b.dataset.band+':'+(s.backgroundColor!=='rgba(0, 0, 0, 0)'&&l(s.backgroundColor)<0.04&&Math.max.apply(null,v)-Math.min.apply(null,v)<=40)+':'+k(l(s.color),l(s.backgroundColor)).toFixed(2);}).join('|');})()") ?? "";
                 QaTrace("qa-polish-dark-letters " + letters);
                 using (var client = main.GetDevToolsClient()) File.WriteAllBytes(Path.Combine(qa, "polish-dark-letters.png"), (await client.Page.CaptureScreenshotAsync()).Data);
                 var letterParts = letters.Split('|').Select(x => x.Split(':')).ToList();
