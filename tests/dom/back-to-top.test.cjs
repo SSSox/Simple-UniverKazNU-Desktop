@@ -173,6 +173,33 @@ test('a room given up is checked again at once, and a clock set back does not st
   q.w.close();
 });
 
+test('a page that has not changed since a check found nothing is not measured again; a changed one is', () => {
+  // A control clear of the button; the app's poll configures again every second.
+  const p = page(site, [{ left: 16, top: 3000, width: 100, height: 32 }]);
+  let at = p.w.Date.now(), measured = 0;
+  p.w.Date.now = () => at;
+  const count = (node) => { const read = node.getBoundingClientRect; node.getBoundingClientRect = () => { measured++; return read(); }; };
+  p.nodes.forEach(count);
+  p.top.configure(true, 'ru');
+  assert.equal(measured, 1, 'the first check measures the page');
+  for (let i = 0; i < 5; i++) { at += 1500; p.top.configure(true, 'ru'); }
+  assert.equal(measured, 1, 'the same page is not measured again');
+  assert.equal(p.room(), null);
+  // A control that appears later under the button's place is found by the next poll.
+  const late = p.d.createElement('a'); late.href = '/ssc/apply/late'; late.textContent = 'Подать заявку'; p.d.getElementById('l4').appendChild(late);
+  late.getBoundingClientRect = () => ({ left: 860, width: 110, height: 32, right: 970, top: 3000 - p.w.scrollY, bottom: 3032 - p.w.scrollY });
+  at += 1500; p.top.configure(true, 'ru');
+  assert.equal(p.room(), '160');
+  p.w.close();
+  // A resize asks again even when nothing else changed.
+  const q = page(site, [{ left: 16, top: 3000, width: 100, height: 32 }]);
+  at = q.w.Date.now(); measured = 0; q.w.Date.now = () => at; q.nodes.forEach(count);
+  q.top.configure(true, 'ru');
+  q.w.dispatchEvent(new q.w.Event('resize')); at += 1500; q.top.configure(true, 'ru');
+  assert.equal(measured, 2);
+  q.w.close();
+});
+
 test('desktop.js narrows the page column by the room, and the schedule only on the right', () => {
   for (let n = 144; n <= 240; n += 16) assert.ok(desktop.includes('[data-univer-top-room="' + n + '"] { --u-top-room:' + n + 'px; }'), String(n));
   assert.match(desktop, /\[data-univer-top-room\]:not\(\.univer-app-schedule-page\) #l4 td\.center \{ padding-left:max\(32px, calc\(\(100% - var\(--u-page\)\) \/ 2\), var\(--u-top-room\)\)!important; padding-right:max\(/);
