@@ -10,6 +10,9 @@
     // permission may take. The sheet reads this before it draws its buttons. Values the page scripts read as window.X are
     // written to window: in Firefox globalThis is the content script's own sandbox, which window.X does not see.
     window.__univerReportPictures = false;
+    // The Windows app keeps the home panels' last reading in its own profile; a browser's storage of the site is not the
+    // extension's to fill, so the panels are read from the site on every visit.
+    window.__univerOverviewKeep = false;
     function send(message) {
         if (typeof message !== 'string' || message.length > 262144) return;
         if (!handler) { if (queue.length < 64) queue.push(message); return; }

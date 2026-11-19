@@ -35,6 +35,7 @@ Everything is stored locally only, in your Windows account profile:
 | Downloads list | `%LOCALAPPDATA%\Univer.Desktop\downloads.json` | Names, paths, sizes and dates of downloaded files and the course a file came from; a hash is stored instead of the file's address. No cookies |
 | Notifications | `%LOCALAPPDATA%\Univer.Desktop\notices.json` | Menu item titles, questionnaire names with deadlines, the site's message texts and "read" marks. No passwords or form values |
 | Syllabus tasks | The site's storage inside the browser profile | Your educational programme's code and name, the language division, the semester's course list, week plans from the syllabi (topics and scores), the weeks in which your group has each kind of class, a short hash of the login (so another student signing in on the same profile does not see your programme, course list and group weeks), and your folded and hidden choices. Removed with the profile on sign-out |
+| Home page panels | The site's storage inside the browser profile | What the panels showed last time: this week's classes, your scores by course (midterms, exam, total), the list of your requests with their statuses, plus a short hash of the login and the language. This way the panels appear at once instead of after the site answers. A record older than 14 days (for the schedule, from an earlier week) is not shown and is replaced at the next read. Removed with the profile on sign-out |
 | Browser profile | `%LOCALAPPDATA%\Univer.Desktop\Browser-Modern` (Modern) or `Browser` (Legacy) | Session cookies, cache and storage of the Univer site, as in an ordinary browser. The same folder holds the links panel's own profile: cookies and cache of the other sites you opened |
 | Start-up profile | `%LOCALAPPDATA%\Univer.Desktop\startup-*.jit` | Names of the program's own methods that .NET compiles at start, so the next start is faster. No page or account data |
 | Downloaded files | Your Downloads folder | The files you downloaded |
@@ -56,7 +57,7 @@ The Simple Univer extension for Chrome, Edge and Firefox has its own [extension 
 
 ## Your data on the site
 
-Grades, schedule, questionnaires and other portal data are kept by the university on its website; the app only shows them. Al-Farabi KazNU is responsible for processing this data under its own rules.
+Grades, schedule, questionnaires and other portal data are kept by the university on its website; the app shows them and keeps only the copies listed in the table above (the week's classes, scores, requests, syllabus plans). Al-Farabi KazNU is responsible for processing this data under its own rules.
 
 ## Changes
 

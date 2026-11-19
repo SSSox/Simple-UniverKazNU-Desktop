@@ -45,6 +45,7 @@ namespace Univer.Desktop.UI
                     QaStep("report", () => ReportQaAsync(qa, results)),
                     QaStep("speed", () => SpeedQaAsync(results)),
                     QaStep("idle", () => IdleQaAsync(results)),
+                    QaStep("kept", () => KeptQaAsync(qa, results)),
                     QaStep("product", () => ProductQaAsync(qa, results)),
                     QaStep("theme", () => ThemeQaAsync(qa, results)),
                     QaStep("notices", () => NoticesQaAsync(qa, results)),

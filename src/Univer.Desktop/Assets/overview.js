@@ -1,18 +1,20 @@
 /* Read-only summaries on the tab pages: Бакалавр shows today's classes and the grade summary, the Е-услуги desk
-   shows the latest requests. Each is read from the site's own GET page once per visit and never changes it. */
+   shows the latest requests. Each is read from the site's own GET page once per visit and never changes it.
+   What a panel showed is kept in the site's storage of this profile, so the next visit draws it at once and the page read
+   after it redraws only what differs. */
 (function () {
     'use strict';
     if (location.origin !== 'https://univer.kaznu.kz' || window.__univerOverviewV1) return;
     var common = window.__univerCommonV1, clean = common.clean;
     var language = 'ru', active = false, owned = [], loads = new Map(), generation = 0, scheduleTimer;
     function text() {
-        return language === 'en' ? {room:'Room', today:'Today', grades:'Grades', requests:'My requests', loading:'Loading…', failed:'Could not load. Open the page itself.', noClasses:'No classes today',
+        return language === 'en' ? {room:'Room', today:'Today', grades:'Grades', requests:'My requests', loading:'Loading…', failed:'Could not load. Open the page itself.', stale:'Saved {0}. Could not refresh.', noClasses:'No classes today',
                 allSchedule:'Full schedule', allGrades:'All grades', allRequests:'All requests', noRequests:'No requests yet', now:'Now', next:'Next', done:'Finished', noGrades:'No grades yet', showAll:'Show all', collapse:'Show less', nextClasses:'Next classes', open:'Open request', upNow:'Class in progress', upNext:'Next class', then:'Then', last:'Last class today',
                 days:['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday']} :
-            language === 'kz' ? {room:'Дәрісхана', today:'Бүгін', grades:'Үлгерім', requests:'Менің өтінімдерім', loading:'Жүктелуде…', failed:'Жүктеу мүмкін болмады. Бетті ашыңыз.', noClasses:'Бүгін сабақ жоқ',
+            language === 'kz' ? {room:'Дәрісхана', today:'Бүгін', grades:'Үлгерім', requests:'Менің өтінімдерім', loading:'Жүктелуде…', failed:'Жүктеу мүмкін болмады. Бетті ашыңыз.', stale:'{0} сақталған. Жаңарту мүмкін болмады.', noClasses:'Бүгін сабақ жоқ',
                 allSchedule:'Толық кесте', allGrades:'Барлық бағалар', allRequests:'Барлық өтінімдер', noRequests:'Өтінімдер әлі жоқ', now:'Қазір', next:'Келесі', done:'Аяқталды', noGrades:'Бағалар әлі жоқ', showAll:'Барлығын көрсету', collapse:'Жасыру', nextClasses:'Келесі сабақтар', open:'Өтінімді ашу', upNow:'Сабақ жүріп жатыр', upNext:'Келесі сабақ', then:'Содан кейін', last:'Бүгінгі соңғы сабақ',
                 days:['Жексенбі','Дүйсенбі','Сейсенбі','Сәрсенбі','Бейсенбі','Жұма','Сенбі']} :
-            {room:'Ауд.', today:'Сегодня', grades:'Успеваемость', requests:'Мои заявки', loading:'Загрузка…', failed:'Не удалось загрузить. Откройте страницу целиком.', noClasses:'Сегодня пар нет',
+            {room:'Ауд.', today:'Сегодня', grades:'Успеваемость', requests:'Мои заявки', loading:'Загрузка…', failed:'Не удалось загрузить. Откройте страницу целиком.', stale:'Сохранено {0}. Обновить не удалось.', noClasses:'Сегодня пар нет',
                 allSchedule:'Всё расписание', allGrades:'Вся успеваемость', allRequests:'Все заявки', noRequests:'Заявок пока нет', now:'Идёт', next:'Следующая', done:'Прошла', noGrades:'Оценок пока нет', showAll:'Показать все', collapse:'Свернуть', nextClasses:'Ближайшие пары', open:'Открыть заявку', upNow:'Идёт пара', upNext:'Следующая пара', then:'Затем', last:'Это последняя пара сегодня',
                 days:['Воскресенье','Понедельник','Вторник','Среда','Четверг','Пятница','Суббота']};
     }
@@ -51,6 +53,63 @@
         if (!loads.has(key)) { var load = read(url); loads.set(key, load); load.catch(function () { if (loads.get(key) === load) loads.delete(key); }); }
         return loads.get(key);
     }
+    // The last visit's panels. They belong to the account that signed in here (the mark the sign-in form leaves) and to one
+    // language; without the mark nothing is read or written, and another account's or a damaged record is removed. Only
+    // parsed text is kept, never the site's markup. The browser extension keeps none (__univerOverviewKeep === false).
+    var KEY = 'univer.desktop.overview.v1', LIMIT = 200000, WEEK = 7 * 86400000, AGE = 14 * 86400000;
+    var keeps = window.__univerOverviewKeep !== false;
+    function owner() { try { return localStorage.getItem('univer.app.account.v1') || ''; } catch (_) { return ''; } }
+    function forget() { try { localStorage.removeItem(KEY); } catch (_) { } }
+    function kept() {
+        var who = keeps ? owner() : ''; if (!who) return null;
+        try {
+            var raw = localStorage.getItem(KEY); if (!raw) return null;
+            var all = raw.length <= LIMIT ? JSON.parse(raw) : null;
+            if (!all || typeof all !== 'object' || all.owner !== who) { forget(); return null; }
+            return all;
+        } catch (_) { forget(); return null; }
+    }
+    function saved(name, valid) {
+        var all = kept(), part = all && all.language === language ? all[name] : null;
+        try { return part && Number.isFinite(part.at) && part.at <= Date.now() + 60000 && valid(part) ? part : null; } catch (_) { return null; }
+    }
+    function keep(name, part, valid) {
+        var who = keeps ? owner() : ''; if (!who) return;
+        try {
+            part.at = Date.now(); if (!valid(part)) return;
+            var all = kept(); if (!all || all.language !== language) all = {owner:who, language:language};
+            all[name] = part;
+            var raw = JSON.stringify(all); if (raw.length <= LIMIT) localStorage.setItem(KEY, raw);
+        } catch (_) { }
+    }
+    function words(value, max) { return typeof value === 'string' && value.length <= (max || 400); }
+    function isLessons(list) {
+        return Array.isArray(list) && list.length <= 40 && list.every(function (l) {
+            return l && Number.isInteger(l.start) && Number.isInteger(l.end) && l.start >= 0 && l.end <= 1500 && words(l.subject) && words(l.details, 2000) &&
+                l.parts && words(l.parts.name) && Array.isArray(l.parts.rest) && l.parts.rest.length <= 12 && l.parts.rest.every(function (v) { return words(v); }) &&
+                ['type','kind','room','faculty','teacher','period'].every(function (k) { return words(l.parts[k]); });
+        });
+    }
+    function isWeek(part) {
+        return Number.isFinite(part.start) && Number.isFinite(part.end) && part.end > part.start && part.end - part.start <= WEEK && Array.isArray(part.days) && part.days.length <= 8 && part.days.every(isLessons) &&
+            (part.following == null || Number.isFinite(part.following.date) && isLessons(part.following.lessons));
+    }
+    function isCourses(part) {
+        return Date.now() - part.at < AGE && Array.isArray(part.list) && part.list.length <= 80 && part.list.every(function (c) {
+            return c && words(c.name) && words(c.token, 2000) && Array.isArray(c.scores) && c.scores.length <= 8 &&
+                c.scores.every(function (s) { return s && words(s.label, 40) && words(s.max, 40) && words(s.value, 40); });
+        });
+    }
+    function isRequests(part) {
+        return Date.now() - part.at < AGE && Array.isArray(part.list) && part.list.length <= 60 && part.list.every(function (r) {
+            return r && words(r.service) && words(r.date, 40) && words(r.sort, 80) && words(r.status) && /^\/ssc\/(?:StatementPage\?statementId=\d{1,12}|StatementList)$/.test(r.href);
+        });
+    }
+    // The site's own sign-out link: the next account must not find these panels (the app also replaces the whole profile).
+    if (keeps) document.addEventListener('click', function (event) {
+        var link = event.target && event.target.closest ? event.target.closest('a[href]') : null;
+        try { if (link && /^\/user\/logout\/?$/i.test(new URL(link.getAttribute('href'), location.href).pathname)) forget(); } catch (_) { }
+    }, true);
     function minutes(value) { var m = value.split(':'); return +m[0] * 60 + +m[1]; }
     function clock(value) { return String(Math.floor(value / 60)).padStart(2, '0') + ':' + String(value % 60).padStart(2, '0'); }
     // Today's column of the weekly table, rowspans resolved, the same reading as the schedule page itself.
@@ -163,11 +222,12 @@
         return /заверш|выполн|готов|выдан|аяқта|орында|дайын|complete|done|ready|issued/.test(v) ? 'done' : /отклон|отказ|аннул|бас тарт|reject|declin|cancel/.test(v) ? 'fail' :
             /обработ|рассмотр|нов|ожида|қаралу|өңде|process|review|pending|new/.test(v) ? 'wait' : '';
     }
+    function pending() { return element('p', 'univer-app-pending', text().loading); }
     function panel(cls, title, href, linkText) {
         var box = element('section', 'univer-app-overview ' + cls); box.setAttribute('aria-label', title);
         var head = element('div', 'univer-app-overview-head'), h = element('h2', '', title), link = element('a', 'univer-app-overview-link', linkText);
         link.href = href; head.append(h, link); box.appendChild(head);
-        var body = element('div', 'univer-app-overview-body'); body.appendChild(element('p', 'univer-app-pending', text().loading)); box.appendChild(body);
+        var body = element('div', 'univer-app-overview-body'); body.appendChild(pending()); box.appendChild(body);
         return {box:box, body:body};
     }
     function settled(body, render) {
@@ -176,9 +236,28 @@
     function fail(body) { settled(body, function () { body.replaceChildren(element('p', 'univer-app-overview-empty', text().failed)); }); }
     // Kazakh month names from our own list: whether Chromium 109 and old Android WebViews format 'kk' dates was never checked.
     var KZ_MONTHS = ['қаңтар','ақпан','наурыз','сәуір','мамыр','маусым','шілде','тамыз','қыркүйек','қазан','қараша','желтоқсан'];
-    function dayName(date) {
-        return text().days[date.getDay()] + ', ' + (language === 'kz' ? date.getDate() + ' ' + KZ_MONTHS[date.getMonth()] :
-            date.toLocaleDateString(language === 'en' ? 'en-GB' : 'ru-RU', {day:'numeric', month:'long'}));
+    function dayMonth(date) {
+        return language === 'kz' ? date.getDate() + ' ' + KZ_MONTHS[date.getMonth()] : date.toLocaleDateString(language === 'en' ? 'en-GB' : 'ru-RU', {day:'numeric', month:'long'});
+    }
+    function dayName(date) { return text().days[date.getDay()] + ', ' + dayMonth(date); }
+    // A list drawn from the last visit that the site did not confirm says when it was read.
+    function stale(body, at) {
+        if (body.querySelector('.univer-app-overview-stale')) return;
+        var date = new Date(at);
+        body.appendChild(element('p', 'univer-app-overview-stale', text().stale.replace('{0}', dayMonth(date) + ', ' + clock(date.getHours() * 60 + date.getMinutes()))));
+    }
+    // A panel with one list: drawn at once from the last visit, then read from the site and redrawn only if it differs.
+    function listed(box, name, url, valid, parse, render) {
+        var epoch = generation, old = saved(name, valid), shown = '';
+        if (old) {
+            try { render(box.body, old.list); shown = JSON.stringify(old.list); }
+            catch (_) { shown = ''; box.body.replaceChildren(pending()); }
+        }
+        once(name, url).then(function (doc) {
+            var list = parse(doc);
+            keep(name, {list:list}, valid);
+            if (epoch === generation && JSON.stringify(list) !== shown) settled(box.body, function () { render(box.body, list); });
+        }, function () { if (epoch !== generation) return; if (shown) stale(box.body, old.at); else fail(box.body); });
     }
     function renderToday(body, lessons, upcoming) {
         body.replaceChildren();
@@ -277,11 +356,51 @@
         var grades = panel('univer-app-overview-grades', text().grades, '/student/attendance/full/', text().allGrades);
         grid.append(today.box, grades.box);
         if (anchor.classList.contains('univer-app-gpa')) anchor.after(grid); else anchor.before(grid);
-        var epoch = generation;
+        var epoch = generation, signature = '', updating = false, loadedDay = new Date().toDateString(), scheduleDoc = null, keptDoc = null, keptMark = '', live = false;
+        function show(lessons, upcoming, now, instant) {
+            var at = now.getHours() * 60 + now.getMinutes();
+            var key = now.toDateString() + JSON.stringify([lessons, upcoming, (lessons || []).map(function (l) { return at < l.start ? 'next' : at < l.end ? 'now' : 'done'; })]);
+            if (key === signature) { tickCounts(today.body); return; }
+            signature = key;
+            var expanded = today.body.querySelector('button[aria-expanded=true]'), focused = today.body.contains(document.activeElement);
+            if (instant) renderToday(today.body, lessons, upcoming); else settled(today.body, function () { renderToday(today.body, lessons, upcoming); });
+            var more = today.body.querySelector('button');
+            if (expanded && more) more.click();
+            if (focused && more) more.focus();
+        }
+        var over = function (lessons, at) { return !lessons || !lessons.length || lessons.every(function (l) { return l.end <= at; }); };
+        // The week the site showed, by column, with the first classes of the following week once they were read.
+        function keepWeek(doc, now, upcoming) {
+            var select = doc.getElementById('weekSelect'), table = doc.querySelector('table.schedule'); if (!select || !table) return;
+            var options = Array.from(select.options), current = options.find(function (o) { return o.selected || o.hasAttribute('selected'); }) || options[0];
+            var range = current && weekRange(current.value + ' ' + current.textContent), start = range ? range[0].getTime() : NaN;
+            // The week ends with the last day the site names: one that starts midweek is not next Monday's.
+            var end = range ? range[range.length - 1].getTime() + 86400000 : NaN;
+            if (!(now.getTime() >= start && now.getTime() < end)) return;
+            var following = upcoming && upcoming.date.getTime() >= end ? {date:upcoming.date.getTime(), lessons:upcoming.lessons} : null, mark = start + '|' + !!following;
+            if (doc === keptDoc && mark === keptMark) return;
+            if (!following) { var old = saved('schedule', isWeek); if (old && old.start === start) following = old.following || null; }
+            var days = []; for (var column = 1; column < columns(doc); column++) days.push(lessonsOn(doc, column) || []);
+            keptDoc = doc; keptMark = mark; keep('schedule', {start:start, end:end, days:days, following:following}, isWeek);
+        }
+        // This week's classes from the last visit, until the site's page arrives.
+        var week = saved('schedule', isWeek), first = new Date();
+        if (week && first.getTime() >= week.start && first.getTime() < week.end) {
+            try {
+                var column = first.getDay() === 0 ? 7 : first.getDay(), lessons = first.getDay() === 0 ? [] : week.days[column - 1] || [], upcoming = null;
+                if (over(lessons, first.getHours() * 60 + first.getMinutes())) {
+                    for (var c = column + 1; !upcoming && c <= week.days.length; c++)
+                        if (week.days[c - 1].length) upcoming = {date:new Date(first.getFullYear(), first.getMonth(), first.getDate() + c - first.getDay()), lessons:week.days[c - 1]};
+                    if (!upcoming && week.following && week.following.date > first.getTime()) upcoming = {date:new Date(week.following.date), lessons:week.following.lessons};
+                }
+                show(lessons, upcoming, first, true);
+            } catch (_) { signature = ''; today.body.replaceChildren(pending()); }
+        }
         once('schedule', '/student/myschedule/').then(async function (doc) {
-            var signature = '', updating = false, loadedDay = new Date().toDateString(), scheduleDoc = doc;
+            scheduleDoc = doc;
             async function update() {
-                if (updating || epoch !== generation || (signature && document.hidden)) return;
+                // A hidden page waits, except for the first reading after a panel drawn from the last visit.
+                if (updating || epoch !== generation || (live && signature && document.hidden)) return;
                 updating = true;
                 try {
                     var now = new Date();
@@ -289,25 +408,17 @@
                         try { scheduleDoc = await once('schedule-day:' + now.toDateString(), '/student/myschedule/'); loadedDay = now.toDateString(); }
                         catch (_) { if (epoch === generation && signature !== 'unavailable') { signature = 'unavailable'; fail(today.body); } return; }
                     }
-                    var lessons = lessonsToday(scheduleDoc, now), upcoming = null, at = now.getHours() * 60 + now.getMinutes();
-                    if (!lessons || !lessons.length || lessons.every(function (l) { return l.end <= at; })) { try { upcoming = await nextClasses(scheduleDoc, now); } catch (_) { upcoming = null; } }
-                    var key = now.toDateString() + JSON.stringify([lessons, upcoming, (lessons || []).map(function (l) { return at < l.start ? 'next' : at < l.end ? 'now' : 'done'; })]);
-                    if (epoch === generation && key === signature) tickCounts(today.body);
-                    else if (epoch === generation) {
-                        signature = key;
-                        var expanded = today.body.querySelector('button[aria-expanded=true]'), focused = today.body.contains(document.activeElement);
-                        settled(today.body, function () { renderToday(today.body, lessons, upcoming); });
-                        var more = today.body.querySelector('button');
-                        if (expanded && more) more.click();
-                        if (focused && more) more.focus();
-                    }
+                    var lessons = lessonsToday(scheduleDoc, now), upcoming = null;
+                    if (over(lessons, now.getHours() * 60 + now.getMinutes())) { try { upcoming = await nextClasses(scheduleDoc, now); } catch (_) { upcoming = null; } }
+                    keepWeek(scheduleDoc, now, upcoming);
+                    if (epoch === generation) { show(lessons, upcoming, now, false); live = true; }
                 } finally { updating = false; }
             }
             await update();
             // A summary rebuilt after the site replaced the page content takes over the single refresh timer.
             if (epoch === generation) { clearInterval(scheduleTimer); scheduleTimer = setInterval(update, 30000); }
         }, function () { if (epoch === generation) fail(today.body); });
-        once('grades', '/student/attendance/full/').then(function (doc) { if (epoch === generation) settled(grades.body, function () { renderGrades(grades.body, courseScores(doc)); }); }, function () { if (epoch === generation) fail(grades.body); });
+        listed(grades, 'grades', '/student/attendance/full/', isCourses, courseScores, renderGrades);
     }
     function desk() {
         if (document.querySelector('.univer-app-overview-requests-panel')) return;
@@ -315,8 +426,7 @@
         if (!anchor) return;
         var box = panel('univer-app-overview-requests-panel', text().requests, '/ssc/StatementList', text().allRequests); owned.push(box.box);
         anchor.after(box.box);
-        var epoch = generation;
-        once('requests', '/ssc/StatementList').then(function (doc) { if (epoch === generation) settled(box.body, function () { renderRequests(box.body, requests(doc)); }); }, function () { if (epoch === generation) fail(box.body); });
+        listed(box, 'requests', '/ssc/StatementList', isRequests, requests, renderRequests);
     }
     window.__univerOverviewV1 = {
         apply: function (lang) {
