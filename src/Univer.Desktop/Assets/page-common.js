@@ -81,26 +81,66 @@
     // scale, an empty cell or a word gets no band: nothing is guessed.
     var MARKS = [50, 70, 90], BANDS = ['low', 'fair', 'good', 'top'];
     function number(value) { var text = String(value == null ? '' : value).trim(); return /^-?\d+(?:[.,]\d+)?$/.test(text) ? Number(text.replace(',', '.')) : NaN; }
+    // The level the student (or a parent) aims at: «Удовлетворительно», «Хорошо» or «Отлично», chosen on the grades page.
+    // With one, what is left is counted to its mark instead of the next one, and a score at or above it has nothing left.
+    // Kept in the site's localStorage (it goes with the profile on logout); the browser extension keeps it only while
+    // the page lives (__univerGoalKeep === false).
+    var GOAL_KEY = 'univer.desktop.grade-goal.v1', GOALS = ['fair', 'good', 'top'], aim = null, aimRead = false, aimHeard = [];
+    function goal() {
+        if (!aimRead) {
+            aimRead = true;
+            if (window.__univerGoalKeep !== false) try { var kept = localStorage.getItem(GOAL_KEY); if (GOALS.indexOf(kept) >= 0) aim = kept; } catch (_) { }
+        }
+        return aim;
+    }
+    function setGoal(name) {
+        var next = GOALS.indexOf(name) >= 0 ? name : null;
+        if (next === goal()) return;
+        aim = next;
+        if (window.__univerGoalKeep !== false) try { if (aim) localStorage.setItem(GOAL_KEY, aim); else localStorage.removeItem(GOAL_KEY); } catch (_) { }
+        aimHeard.slice().forEach(function (heard) { try { heard(aim); } catch (_) { } });
+    }
+    function onGoal(heard) { if (typeof heard === 'function' && aimHeard.indexOf(heard) < 0) aimHeard.push(heard); }
+    function goalMark(name) { var index = GOALS.indexOf(name); return index < 0 ? null : MARKS[index]; }
     function band(value, max) {
         var score = number(value);
         if (!isFinite(score) || number(max) !== 100) return null;
         score = Math.max(0, Math.min(100, score));
-        var index = MARKS.filter(function (mark) { return score >= mark; }).length, next = MARKS[index] || null;
+        var index = MARKS.filter(function (mark) { return score >= mark; }).length, wanted = goal(), mark = goalMark(wanted);
+        var next = mark ? (score < mark ? mark : null) : MARKS[index] || null;
         // Rounded up to a tenth: 49.95 is 0.1 short of 50, never "0 left" under a band that is not yet reached.
         var gap = next ? Math.round((next - score) * 1000) / 1000 : 0;
-        return { band: BANDS[index], score: score, next: next, left: next ? Math.ceil(gap * 10 - 1e-9) / 10 : 0 };
+        return { band: BANDS[index], score: score, next: next, left: next ? Math.ceil(gap * 10 - 1e-9) / 10 : 0, goal: wanted, reached: !!mark && !next };
     }
     // Kazakh puts the dative ending on the mark itself.
     var BAND_WORDS = {
-        ru: { low: 'Недобор', fair: 'Удовлетворительно', good: 'Хорошо', top: 'Отлично', left: function (n, mark) { return 'ещё ' + n + ' до ' + mark; } },
-        kz: { low: 'Жеткіліксіз', fair: 'Қанағаттанарлық', good: 'Жақсы', top: 'Өте жақсы', left: function (n, mark) { return mark + ({ 50: '-ге', 70: '-ке', 90: '-ға' }[mark] || '') + ' дейін ' + n + ' балл'; } },
-        en: { low: 'Insufficient', fair: 'Satisfactory', good: 'Good', top: 'Excellent', left: function (n, mark) { return n + (n === '1' ? ' point' : ' points') + ' to ' + mark; } }
+        ru: { low: 'Недобор', fair: 'Удовлетворительно', good: 'Хорошо', top: 'Отлично', goal: 'Цель', noGoal: 'Нет', reached: 'Цель достигнута', left: function (n, mark) { return 'ещё ' + n + ' до ' + mark; } },
+        kz: { low: 'Жеткіліксіз', fair: 'Қанағаттанарлық', good: 'Жақсы', top: 'Өте жақсы', goal: 'Мақсат', noGoal: 'Жоқ', reached: 'Мақсатқа жетті', left: function (n, mark) { return mark + ({ 50: '-ге', 70: '-ке', 90: '-ға' }[mark] || '') + ' дейін ' + n + ' балл'; } },
+        en: { low: 'Insufficient', fair: 'Satisfactory', good: 'Good', top: 'Excellent', goal: 'Goal', noGoal: 'None', reached: 'Goal reached', left: function (n, mark) { return n + (n === '1' ? ' point' : ' points') + ' to ' + mark; } }
     };
     var RANGES = { low: '0–49', fair: '50–69', good: '70–89', top: '90–100' };
     function figure(value, lang) { var text = String(value); return lang === 'en' ? text : text.replace('.', ','); }
     function bandWords(lang) { return BAND_WORDS[lang] || BAND_WORDS.ru; }
-    // What the band says in a few words: what is left to the next mark, or the band's name at the top.
-    function bandNote(found, lang) { var words = bandWords(lang); return found.next ? words.left(figure(found.left, lang), found.next) : words.top; }
+    // What the band says in a few words: what is left to the next mark (to the goal's, when one is chosen), that the goal
+    // is reached, or the band's name at the top.
+    function bandNote(found, lang) { var words = bandWords(lang); return found.next ? words.left(figure(found.left, lang), found.next) : found.reached ? words.reached : words.top; }
+    // The goal switch: «Нет» and the three levels, one pressed. Each place that shows it styles it itself (the grades page,
+    // the summary's own shadow root).
+    function goalPicker(lang) {
+        var words = bandWords(lang), box = document.createElement('div'), caption = document.createElement('span');
+        box.className = 'univer-app-goal'; box.setAttribute('role', 'group'); box.setAttribute('aria-label', words.goal);
+        caption.className = 'univer-app-goal-caption'; caption.textContent = words.goal; caption.setAttribute('aria-hidden', 'true'); box.appendChild(caption);
+        [null].concat(GOALS).forEach(function (name) {
+            var button = document.createElement('button'), mark = goalMark(name);
+            button.type = 'button'; button.dataset.goal = name || 'none'; button.textContent = name ? words[name] : words.noGoal;
+            if (mark) button.title = words[name] + ': ' + RANGES[name];
+            button.setAttribute('aria-pressed', String(goal() === name));
+            button.addEventListener('click', function () { setGoal(name); });
+            box.appendChild(button);
+        });
+        return box;
+    }
+    function goalPressed(box) { Array.prototype.forEach.call(box.querySelectorAll('button[data-goal]'), function (button) { button.setAttribute('aria-pressed', String((goal() || 'none') === button.dataset.goal)); }); }
     // One score tile (label, value, a bar of its share of the maximum), the same on the home page and the grades page.
     // A score out of 100 also takes its band's colour and says what is left to the next mark.
     // Compact (the home card): one line a course, the band in colour and the bar, its words in the label and tooltip only.
@@ -118,8 +158,9 @@
             var note = bandNote(found, lang);
             if (!compact) { var next = document.createElement('span'); next.className = 'univer-app-overview-score-next'; next.textContent = note; chip.appendChild(next); }
             chip.dataset.univerBand = found.band;
-            chip.title = words[found.band] + ': ' + RANGES[found.band] + (found.next ? '. ' + note.charAt(0).toLocaleUpperCase() + note.slice(1) : '');
-            said += '. ' + words[found.band] + (found.next ? ', ' + note : '');
+            var more = found.next || found.reached;
+            chip.title = words[found.band] + ': ' + RANGES[found.band] + (more ? '. ' + note.charAt(0).toLocaleUpperCase() + note.slice(1) : '');
+            said += '. ' + words[found.band] + (more ? ', ' + note.charAt(0).toLocaleLowerCase() + note.slice(1) : '');
         }
         chip.setAttribute('aria-label', said);
         Array.from(chip.children).forEach(function (child) { child.setAttribute('aria-hidden', 'true'); });
@@ -127,6 +168,11 @@
     }
     window.__univerCommonV1 = Object.freeze({
         band: band,
+        goal: goal,
+        goalMark: goalMark,
+        onGoal: onGoal,
+        goalPicker: goalPicker,
+        goalPressed: goalPressed,
         bandWords: bandWords,
         bandNote: bandNote,
         bandRange: function (name) { return RANGES[name] || ''; },

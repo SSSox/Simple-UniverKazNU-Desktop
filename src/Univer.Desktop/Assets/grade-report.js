@@ -15,6 +15,7 @@
     var WORDS = {
         ru: { dialog: 'Сводка успеваемости', title: 'Успеваемость', asOf: 'Данные на {0}', locale: 'ru-RU',
             how: 'РК — рубежный контроль, за каждый можно получить до 100 баллов. Цвет показывает уровень, полоса — сколько баллов набрано, отметки на ней — 50, 70 и 90.',
+            goal: 'Цель: {0} — от {1} баллов. У каждой оценки показано, сколько баллов осталось до цели.', absences: 'Пропуски',
             print: 'Печать', pdf: 'Сохранить PDF', png: 'Сохранить PNG', copy: 'Копировать картинку', close: 'Закрыть', outOf: 'из', none: 'Оценки пока не выставлены',
             working: 'Готовим файл…', saved: 'Сохранено в «Загрузки»: {0}', copied: 'Картинка скопирована — вставьте её в сообщение (Ctrl+V)', failed: 'Не удалось сохранить. Попробуйте ещё раз.', copyFailed: 'Не удалось скопировать картинку. Попробуйте ещё раз.',
             reveal: 'Показать в папке', source: 'Источник: журнал посещений и успеваемости, univer.kaznu.kz',
@@ -22,6 +23,7 @@
             pictures: function (n) { var t = n % 10, h = n % 100; return n + ' ' + (t === 1 && h !== 11 ? 'картинка' : t >= 2 && t <= 4 && (h < 12 || h > 14) ? 'картинки' : 'картинок'); } },
         kz: { dialog: 'Үлгерім қорытындысы', title: 'Үлгерім', asOf: '{0} күнгі деректер', locale: 'kk-KZ',
             how: 'РК — аралық бақылау, әрқайсысы үшін 100 балға дейін алуға болады. Түс деңгейді көрсетеді, жолақ — жиналған балл, ондағы белгілер — 50, 70 және 90.',
+            goal: 'Мақсат: {0} — {1} балдан бастап. Әр бағаның жанында мақсатқа дейін қанша балл қалғаны көрсетілген.', absences: 'Қатыспаған сабақтар',
             print: 'Басып шығару', pdf: 'PDF сақтау', png: 'PNG сақтау', copy: 'Суретті көшіру', close: 'Жабу', outOf: '/', none: 'Бағалар әлі қойылмаған',
             working: 'Файл дайындалуда…', saved: '«Жүктеулер» бумасына сақталды: {0}', copied: 'Сурет көшірілді — оны хабарламаға қойыңыз (Ctrl+V)', failed: 'Сақтау мүмкін болмады. Қайталап көріңіз.', copyFailed: 'Суретті көшіру мүмкін болмады. Қайталап көріңіз.',
             reveal: 'Қалтада көрсету', source: 'Дереккөз: сабаққа қатысу және үлгерім журналы, univer.kaznu.kz',
@@ -29,6 +31,7 @@
             pictures: function (n) { return n + ' сурет'; } },
         en: { dialog: 'Grade summary', title: 'Grades', asOf: 'As of {0}', locale: 'en-GB',
             how: 'RK is a midterm checkpoint, each worth up to 100 points. The colour shows the level, the bar how many points are earned, and its marks are 50, 70 and 90.',
+            goal: 'Goal: {0}, from {1} points. Each grade shows how many points are left to the goal.', absences: 'Absences',
             print: 'Print', pdf: 'Save PDF', png: 'Save PNG', copy: 'Copy picture', close: 'Close', outOf: 'of', none: 'No grades yet',
             working: 'Preparing the file…', saved: 'Saved to Downloads: {0}', copied: 'Picture copied — paste it into a message (Ctrl+V)', failed: 'Could not save. Try again.', copyFailed: 'Could not copy the picture. Try again.',
             reveal: 'Show in folder', source: 'Source: attendance and grades journal, univer.kaznu.kz',
@@ -61,6 +64,11 @@
         'button:focus-visible{outline:2px solid #1b5fa6;outline-offset:2px}button:disabled{opacity:.55;cursor:default}' +
         'button svg{flex:none;width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}' +
         'button.close{position:absolute;top:12px;right:12px;width:36px;padding:0;justify-content:center;border-color:transparent}' +
+        // The goal switch stands under the bar, off the paper: the sheet says the chosen goal in words.
+        '.goal-row{flex:none;display:flex;padding:8px 20px;background:#fff;border-bottom:1px solid #dfe5ec}' +
+        '.univer-app-goal{display:flex;flex-wrap:wrap;align-items:center;gap:6px}.univer-app-goal-caption{margin-right:6px;color:#5b6b7c;font-size:13px;font-weight:500}' +
+        '.univer-app-goal button{height:30px;padding:0 12px;border-radius:999px}' +
+        '.univer-app-goal button[aria-pressed=true]{border-color:#1b5fa6;background:#e6f0fb;color:#134a85;font-weight:600}' +
         '.status{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px;margin:0;padding:8px 20px;background:#f4f8fc;border-bottom:1px solid #dfe5ec;font-size:13px}' +
         '.status[hidden]{display:none}.status.bad{background:#fdf0ef;color:#a32c22}.status button{height:28px;padding:0 10px}' +
         '.scroll{flex:1 1 auto;overflow:auto;overscroll-behavior:contain;padding:20px}' +
@@ -92,19 +100,23 @@
         '.track .mark{position:absolute;top:0;bottom:0;width:2px;margin-left:-1px;background:#fff}' +
         '.value{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}.value b{font-size:18px;font-weight:600;color:var(--ink,#16283b)}.value small{margin-left:4px;color:#5b6b7c;font-size:12px}' +
         '.note{font-size:13px;line-height:1.35}.note b{display:block;color:var(--ink,#16283b);font-weight:600}.note span{color:#3d4f61}' +
+        // What is left to the mark is what a parent looks for first: a soft plate in the band's own tint.
+        '.note .left{display:inline-block;margin-top:3px;padding:2px 8px;border-radius:6px;background:var(--soft,#eef2f6);color:var(--ink,#16283b);font-weight:600;white-space:nowrap}' +
+        '.aim{margin:10px 0 0;font-size:13.5px}.aim b{font-weight:600}' +
+        '.missed{margin:6px 0 0;color:#3d4f61;font-size:13px}.missed b{margin-left:6px;color:#16283b;font-weight:600}' +
         '.none{margin:0;color:#5b6b7c}' +
         '.source{margin:18px 0 0;padding-top:12px;border-top:1px solid #e3e8ee;color:#5b6b7c;font-size:12px}' +
         // The picture: the sheet alone, flat on the page, at its own width.
         ':host([data-mode=capture]) .scrim{position:absolute;left:0;top:0;right:auto;bottom:auto;display:block;padding:0;background:none;animation:none}' +
         ':host([data-mode=capture]) .dialog{display:block;width:auto;max-height:none;overflow:visible;border-radius:0;background:none;box-shadow:none;animation:none}' +
-        ':host([data-mode=capture]) .bar,:host([data-mode=capture]) .status{display:none}' +
+        ':host([data-mode=capture]) .bar,:host([data-mode=capture]) .status,:host([data-mode=capture]) .goal-row{display:none}' +
         ':host([data-mode=capture]) .scroll{overflow:visible;padding:0}:host([data-mode=capture]) .sheet{margin:0;box-shadow:none;zoom:1!important}' +
         ':host([data-mode=capture]) .page-bar{display:none}' +
         '@media (prefers-reduced-motion:reduce){.scrim,.dialog{animation:none}}' +
         ':host(.still) .scrim,:host(.still) .dialog{animation:none}' +
         '@media print{.scrim{position:static;display:block;padding:0;background:none;animation:none}' +
         '.dialog{display:block;width:auto;max-height:none;overflow:visible;border-radius:0;background:none;box-shadow:none;animation:none}' +
-        '.bar,.status{display:none!important}.scroll{overflow:visible;padding:0}.sheet{width:auto;margin:0;padding:0;box-shadow:none;zoom:1!important}' +
+        '.bar,.status,.goal-row{display:none!important}.scroll{overflow:visible;padding:0}.sheet{width:auto;margin:0;padding:0;box-shadow:none;zoom:1!important}' +
         // On paper the pages flow as one sheet: Chromium breaks them between courses itself.
         '.page-bar,.cont-head,.pageno,.sheet:not(.last) .source{display:none!important}.page+.page{margin:0}' +
         '.cont-head+.course{padding-top:14px;border-top:1px solid #e3e8ee}}';
@@ -115,7 +127,7 @@
         ':root:root:root[' + MARK + '],:root:root:root[' + MARK + ']>body{height:auto!important;min-height:0!important;margin:0!important;padding:0!important;overflow:visible!important;background:transparent!important}' +
         ':root:root:root:root[' + MARK + ']{background:#fff!important;color-scheme:light!important}' +
         ':root:root:root[' + MARK + ']>body>#' + ID + '{display:block!important;position:static!important}}';
-    var host = null, shadow = null, sheets = [], scroller = null, status = null, buttons = {}, courses = [], language = 'ru', opener = null, busy = false, timer = 0, kept = null, made = null, signature = '', pressed = '', preparing = false, opening = Math.floor(Math.random() * 1e9) + 1;
+    var host = null, shadow = null, sheets = [], scroller = null, status = null, buttons = {}, courses = [], language = 'ru', opener = null, busy = false, timer = 0, kept = null, goalRow = null, waiting = null, made = null, signature = '', pressed = '', preparing = false, opening = Math.floor(Math.random() * 1e9) + 1;
     function words() { return WORDS[language] || WORDS.ru; }
     function element(tag, cls, text) { var node = document.createElement(tag); if (cls) node.className = cls; if (text != null) node.textContent = text; return node; }
     function icon(name) {
@@ -137,18 +149,22 @@
     }
     // A request goes to the app only from the student's own click, one at a time. A document that cannot reach the app (it
     // missed the document-start script) says so at once instead of waiting.
+    // The goal cannot change while the app makes a file of the sheet as it is.
+    function goalFree(free) { if (goalRow) Array.prototype.forEach.call(goalRow.querySelectorAll('button'), function (node) { node.disabled = !free; }); }
     function press(name, event) {
         if (!event.isTrusted || busy || !host) return;
         if (typeof __univerNative !== 'function') { say(words().failed, true); return; }
-        busy = true; pressed = name; Object.keys(buttons).forEach(function (key) { if (key !== 'close') buttons[key].disabled = true; });
+        busy = true; pressed = name; Object.keys(buttons).forEach(function (key) { if (key !== 'close') buttons[key].disabled = true; }); goalFree(false);
         if (name !== 'print') say(words().working, false);
         // The app takes the pages one after another: each one more picture gets more time.
         clearTimeout(timer); timer = setTimeout(function () { if (status && preparing) say(''); idle(); }, 40000 + 15000 * (sheets.length - 1));
         __univerNative('univer-report:' + name);
     }
     // The pressed button was disabled, so Chromium took focus from it: it comes back, and Escape keeps working.
+    // An update that came while the app made a file is drawn once the file is done.
     function idle() {
-        busy = false; clearTimeout(timer); Object.keys(buttons).forEach(function (key) { buttons[key].disabled = false; });
+        busy = false; clearTimeout(timer); Object.keys(buttons).forEach(function (key) { buttons[key].disabled = false; }); goalFree(true);
+        if (host && waiting) { var next = waiting; waiting = null; update(next.list, next.lang); }
         if (host && !shadow.activeElement) (buttons[pressed] || buttons.print).focus({ preventScroll: true });
     }
     function say(text, bad, reveal) {
@@ -185,7 +201,7 @@
         if (period.max) value.appendChild(element('small', '', words().outOf + ' ' + period.max));
         line.appendChild(value);
         var note = element('span', 'note');
-        if (found) { note.appendChild(element('b', '', names[found.band])); if (found.next) note.appendChild(element('span', '', common.bandNote(found, language))); }
+        if (found) { note.appendChild(element('b', '', names[found.band])); if (found.next || found.reached) note.appendChild(element('span', found.next ? 'left' : '', common.bandNote(found, language))); }
         line.appendChild(note);
         return line;
     }
@@ -195,7 +211,11 @@
         var node = element('article', 'sheet'), wrap = element('div', 'page');
         if (first) {
             node.appendChild(element('h1', '', w.title)); node.appendChild(element('p', 'meta', w.asOf.replace('{0}', when)));
-            var how = element('section', 'how'); how.appendChild(element('p', '', w.how)); scale().forEach(function (part) { how.appendChild(part); }); node.appendChild(how);
+            var how = element('section', 'how'); how.appendChild(element('p', '', w.how)); scale().forEach(function (part) { how.appendChild(part); });
+            // The chosen goal in words: the picture and the PDF say what the «left» numbers are counted to.
+            var wanted = common.goal();
+            if (wanted) how.appendChild(element('p', 'aim', w.goal.replace('{0}', '«' + common.bandWords(language)[wanted] + '»').replace('{1}', String(common.goalMark(wanted)))));
+            node.appendChild(how);
         } else {
             var head = element('div', 'cont-head'); head.appendChild(element('p', 'cont-title', w.title)); head.appendChild(element('p', 'meta', w.asOf.replace('{0}', when))); node.appendChild(head);
         }
@@ -215,6 +235,7 @@
             var block = element('section', 'course'); block.appendChild(element('h3', '', course.name));
             if (course.periods.length) course.periods.forEach(function (period) { block.appendChild(row(period)); });
             else block.appendChild(element('p', 'none', course.note || w.none));
+            if (course.absences > 0) { var missed = element('p', 'missed', w.absences); missed.appendChild(element('b', '', String(course.absences))); block.appendChild(missed); }
             current.insertBefore(block, current.lastChild);
             if (current.offsetHeight > PAGE && current.querySelector('.course') !== block && sheets.length < MAX_PAGES) {
                 current = page(false, w, when); current.insertBefore(block, current.lastChild);
@@ -258,7 +279,8 @@
         bar.append(title, actions, button('close'));
         status = element('p', 'status'); status.setAttribute('role', 'status'); status.hidden = true;
         scroller = element('div', 'scroll'); sheets = [];
-        dialog.append(bar, status, scroller); scrim.appendChild(dialog); shadow.append(style, scrim);
+        goalRow = element('div', 'goal-row'); goalRow.appendChild(common.goalPicker(language));
+        dialog.append(bar, goalRow, status, scroller); scrim.appendChild(dialog); shadow.append(style, scrim);
         // A click on the dim backdrop closes, as in the app's other sheets, but not the second click of a double click on the
         // button that opened it.
         scrim.addEventListener('mousedown', function (event) { if (event.target === scrim && event.detail < 2) close(); });
@@ -275,9 +297,34 @@
         if (event.shiftKey && (at === first || !at)) { event.preventDefault(); last.focus(); }
         else if (!event.shiftKey && (at === last || !at)) { event.preventDefault(); first.focus(); }
     }
+    function mark(list) { return JSON.stringify(list) + language + '|' + (common.goal() || ''); }
+    // Another goal while the sheet is open: the same numbers, counted to it. On the grades page attendance.js hears the
+    // change first and sends its update; this one then finds nothing new.
+    common.onGoal(function () {
+        if (!host) return;
+        if (busy) { waiting = waiting || { list: courses, lang: language }; return; }
+        if (mark(courses) === signature) { common.goalPressed(goalRow); return; }
+        signature = mark(courses); common.goalPressed(goalRow); render();
+    });
+    // New numbers, another language or another goal: the sheet is made again (the time it shows, too). While a file is made
+    // the sheet stays as it was and the newest update waits. The goal switch is made again only for another language,
+    // so the button just pressed keeps the focus.
+    function update(list, lang) {
+        if (!host || !Array.isArray(list)) return;
+        if (busy) { waiting = { list: list, lang: lang }; return; }
+        var was = language; language = WORDS[lang] ? lang : 'ru';
+        var next = mark(list);
+        if (next === signature) { language = was; return; }
+        courses = list; signature = next; made = new Date();
+        if (was !== language) goalRow.replaceChildren(common.goalPicker(language)); else common.goalPressed(goalRow);
+        shadow.getElementById('title').textContent = words().dialog;
+        // The pages' own buttons are made again by render().
+        Object.keys(buttons).forEach(function (key) { if (key.indexOf('copy:') === 0) return; var label = buttons[key].querySelector('span'); if (label) label.textContent = words()[key]; else buttons[key].setAttribute('aria-label', words().close); });
+        render();
+    }
     function open(list, lang, from) {
         if (!Array.isArray(list)) return;
-        language = WORDS[lang] ? lang : 'ru'; courses = list; signature = JSON.stringify(list) + language; made = new Date();
+        language = WORDS[lang] ? lang : 'ru'; courses = list; signature = mark(list); made = new Date();
         opener = from || document.activeElement;
         if (host) close(true);
         opening += 1; build(); host.classList.toggle('still', window.__univerMotion === false);
@@ -291,7 +338,7 @@
     function close(quiet) {
         if (!host) return;
         idle(); window.removeEventListener('resize', fit); document.removeEventListener('keydown', key, true);
-        host.remove(); host = shadow = scroller = status = null; sheets = []; buttons = {}; kept = null;
+        host.remove(); host = shadow = scroller = status = goalRow = waiting = null; sheets = []; buttons = {}; kept = null;
         document.documentElement.removeAttribute(MARK);
         var style = document.getElementById(ID + '-page'); if (style) style.remove();
         if (!quiet && opener && opener.isConnected) opener.focus({ preventScroll: true });
@@ -304,17 +351,7 @@
         shown: function () { return !!(host && host.isConnected); },
         // Which opening of the sheet is on screen (0: none): the app's answer to an earlier opening is not shown on this one.
         opened: function () { return host && host.isConnected ? opening : 0; },
-        // New numbers or another language while the sheet is open: it is made again (the time it shows, too).
-        update: function (list, lang) {
-            if (!host || !Array.isArray(list)) return;
-            var next = JSON.stringify(list) + (WORDS[lang] ? lang : 'ru');
-            if (next === signature) return;
-            language = WORDS[lang] ? lang : 'ru'; courses = list; signature = next; made = new Date();
-            shadow.getElementById('title').textContent = words().dialog;
-            // The pages' own buttons are made again by render().
-            Object.keys(buttons).forEach(function (key) { if (key.indexOf('copy:') === 0) return; var label = buttons[key].querySelector('span'); if (label) label.textContent = words()[key]; else buttons[key].setAttribute('aria-label', words().close); });
-            render();
-        },
+        update: update,
         // The app's answer to a pressed button.
         done: function (answer) {
             if (!host || (answer && answer.opening != null && String(answer.opening) !== String(opening))) return;

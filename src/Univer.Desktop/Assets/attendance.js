@@ -35,6 +35,15 @@
         list.forEach(item=>box.appendChild(common.scoreChip(item,language,true)));
         return box;
     }
+    function absenceText() { return language==='en'?{label:'Absences',lecture:'lectures',seminar:'seminars',sro:'independent work'}:language==='kz'?{label:'Қатыспаған сабақтар',lecture:'дәріс',seminar:'семинар',sro:'СӨЖ'}:{label:'Пропуски',lecture:'лекции',seminar:'семинары',sro:'СРО'}; }
+    // Absences are the journal's own «н» marks in a class's date cells; anything else in a cell is not counted.
+    function absences(table) {
+        var count=0;
+        ownRows(table).forEach(row=>Array.from(row.cells).forEach(cell=>{ if (cell.tagName==='TD' && /^н$/i.test(clean(cell))) count++; }));
+        return count;
+    }
+    // Every class counts, labs and practicals with no known type too; a type counts only its own.
+    function missed(group,type) { return group.lessons.filter(l=>!type||l.type===type).reduce((sum,lesson)=>sum+lesson.tables.reduce((n,table)=>n+absences(table),0),0); }
     function cell(cls,text) { var node=document.createElement('span'); node.className=cls; node.setAttribute('role','cell'); if (text!=null) node.textContent=text; return node; }
     // A period's name without its "(100)".
     function periodKey(value) { return value.replace(/\s*\(.*$/,'').replace(/\s+/g,''); }
@@ -72,7 +81,9 @@
                 // The course total out of 100 shows its band and what is left to the next mark.
                 if (level) {
                     var note=common.bandNote(level,language), next=document.createElement('span'); next.className='univer-app-score-next'; next.setAttribute('aria-hidden','true'); next.textContent=note; score.appendChild(next);
-                    score.dataset.univerBand=level.band; said+='. '+common.bandWords(language)[level.band]+(level.next?', '+note:'');
+                    // What is left is the part a parent looks for: it stands out; a reached goal or the top band is plain.
+                    if (level.next) next.dataset.univerLeft='true';
+                    score.dataset.univerBand=level.band; said+='. '+common.bandWords(language)[level.band]+(level.next||level.reached?', '+note:'');
                 }
                 score.setAttribute('aria-label',said);
                 total.appendChild(score);
@@ -244,6 +255,14 @@
         });
         // Anything the server wrote that is not a recognised period stays readable as its own line.
         if (group.overall && selected==='all' && !periods.length) { var value=document.createElement('p');value.className='univer-app-attendance-overall-value';value.textContent=clean(group.overall);box.appendChild(value); }
+        // Absences of the shown class types, by type when more than one has them.
+        var gone=types.map(type=>({type,count:missed(group,type)})).filter(item=>item.count>0);
+        if (gone.length||(selected==='all'&&missed(group))) {
+            var lost=document.createElement('p'), words=absenceText(), sum=selected==='all'?missed(group):gone.reduce((n,item)=>n+item.count,0); lost.className='univer-app-attendance-absences';
+            var lostLabel=document.createElement('span'); lostLabel.textContent=words.label; var lostValue=document.createElement('b'); lostValue.textContent=String(sum); lost.append(lostLabel,lostValue);
+            if (gone.length>1) { var parts=document.createElement('small'); parts.textContent=gone.map(item=>words[item.type]+' '+item.count).join(', '); lost.appendChild(parts); }
+            box.appendChild(lost);
+        }
         if (!any) { var empty=document.createElement('p'); empty.className='univer-app-attendance-nothing'; empty.textContent=selected==='all'?courseText().empty:text().empty; box.appendChild(empty); }
         // Nothing to total: one quiet line instead of an empty card.
         if (!any && !group.overall) box.classList.add('univer-app-attendance-summary-empty');
@@ -291,7 +310,7 @@
     function reportCourses(groups) {
         return groups.filter(group=>group.heading).map(group=>{
             var periods=group.overall?scores(clean(group.overall)):[];
-            return {name:group.name,periods:periods.map(p=>({label:p.label,max:p.max,value:p.value})),note:!periods.length&&group.overall?clean(group.overall):''};
+            return {name:group.name,periods:periods.map(p=>({label:p.label,max:p.max,value:p.value})),note:!periods.length&&group.overall?clean(group.overall):'',absences:missed(group)};
         });
     }
     function reportText() { return language==='en'?'Print and PDF':language==='kz'?'Басып шығару және PDF':'Печать и PDF'; }
@@ -350,6 +369,9 @@
         // Only where the app takes the summary's buttons (SitePolicy.Grades: numeric parts after full/show).
         state.report.hidden=!REPORT_PAGE.test(location.pathname)||!report.some(course=>course.periods.length);
         state.reportLabel.textContent=reportText();
+        // The goal is offered with the same numbers the summary needs; it speaks the page's language.
+        if (state.goalLanguage!==language) { var picker=common.goalPicker(language); state.goal.replaceWith(picker); state.goal=picker; state.goalLanguage=language; }
+        common.goalPressed(state.goal);
         window.__univerReportV1?.update(report,language);
         state.bar.querySelectorAll('button').forEach(button=>{button.textContent=text()[button.dataset.kind];button.setAttribute('aria-pressed',String(selected===button.dataset.kind));});
         state.bar.setAttribute('aria-label',text().filter);
@@ -397,13 +419,14 @@
             report.append(printIcon,document.createElement('span'));
             var reportLabel=report.lastChild;
             report.addEventListener('click',()=>window.__univerReportV1?.open(reportCourses(model()),language,report));
-            actions.appendChild(report);
+            var goalBox=common.goalPicker(language);
+            actions.append(goalBox,report);
             // The class-type switch and the summary's button share one row: filters on the left, the action on the right.
             var filterRow=document.createElement('div');filterRow.className='univer-app-attendance-filter-row';filterRow.append(bar,actions);
             tools.append(courses,caption,filterRow,note,summaryList);
             insertAfterCell(groups[0].heading||groups[0].lessons[0].cell,tools,true);
             // The filter bar has its own lifetime; summary rebuilds must not remove it.
-            var host=owned.pop(); state={bar,host,caption,note,courses,courseCaption,courseList,allCourse,courseButtons:new Map(),overview:summaryList,report:actions,reportLabel,signature:null};
+            var host=owned.pop(); state={bar,host,caption,note,courses,courseCaption,courseList,allCourse,courseButtons:new Map(),overview:summaryList,report:actions,reportLabel,goal:goalBox,goalLanguage:language,signature:null};
         }
         if (state.signature!==signature) { state.signature=signature; render(groups); }
     }
@@ -414,5 +437,7 @@
         labels.forEach((record,link)=>{record.caption.remove();record.attrs.forEach(a=>{if(a[1]===null)link.removeAttribute(a[0]);else link.setAttribute(a[0],a[1]);});}); labels.clear();
         state?.host.remove(); state=null;
     }
+    // Another goal: the totals and an open summary count what is left to it.
+    common.onGoal(()=>{ if (state&&state.host.isConnected) render(model()); });
     window.__univerAttendanceV1={apply,release};
 })();

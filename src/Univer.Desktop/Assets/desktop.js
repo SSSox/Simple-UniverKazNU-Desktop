@@ -687,7 +687,19 @@
 :root.univer-mobile #l4 :is(.univer-app-attendance-overview,.univer-app-attendance-filter-note,.univer-app-attendance-overall-value,.univer-app-attendance-actions)[hidden] { display:none!important; }
 /* «Печать и PDF» opens the grade summary (grade-report.js): one quiet button at the right of the class-type row. */
 :root.univer-mobile #l4 .univer-app-attendance-filter-row { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:10px 16px; }
-:root.univer-mobile #l4 .univer-app-attendance-actions { display:flex; margin:0 0 0 auto; }
+:root.univer-mobile #l4 .univer-app-attendance-actions { display:flex; flex-wrap:wrap; align-items:center; gap:10px 16px; margin:0 0 0 auto; }
+/* The goal level: «Нет» and three levels, one pressed; what is left on the totals is counted to it. */
+:root.univer-mobile #l4 .univer-app-goal { display:flex; flex-wrap:wrap; align-items:center; gap:6px; }
+:root.univer-mobile #l4 .univer-app-goal-caption { margin-right:4px; color:var(--u-muted); font-size:13px; font-weight:500; }
+:root:root:root:root.univer-mobile #l4 .univer-app-goal button { width:auto!important; height:32px!important; min-height:32px!important; margin:0!important; padding:0 12px!important; border:1px solid var(--u-line)!important; border-radius:999px!important; background:var(--u-surface)!important; box-shadow:none!important; color:var(--u-text)!important; font-size:13px!important; font-weight:500!important; cursor:pointer; }
+:root:root:root:root.univer-mobile #l4 .univer-app-goal button:hover { background:var(--u-surface-2)!important; }
+:root:root:root:root.univer-mobile #l4 .univer-app-goal button[aria-pressed=true] { border-color:var(--u-brand-line)!important; background:var(--u-brand-soft)!important; color:var(--u-ink)!important; font-weight:600!important; }
+:root:root:root:root.univer-mobile #l4 .univer-app-goal button:focus-visible { outline:2px solid var(--u-brand)!important; outline-offset:2px; }
+/* What is left to the mark stands out as a soft plate in the band's tint; absences are one line of the course card. */
+:root:root:root:root.univer-mobile #l4 .univer-app-score-next[data-univer-left] { display:inline-block; padding:2px 8px; border-radius:6px; background:var(--univer-band-soft); font-weight:600; }
+:root:root:root:root.univer-mobile #l4 p.univer-app-attendance-absences { display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 8px; margin:0!important; padding:10px 16px!important; color:var(--u-muted); font-size:14px!important; }
+:root.univer-mobile #l4 p.univer-app-attendance-absences b { color:var(--u-text); font-weight:600; }
+:root.univer-mobile #l4 p.univer-app-attendance-absences small { font-size:13px; }
 :root:root:root:root.univer-mobile #l4 button.univer-app-attendance-report { display:inline-flex!important; align-items:center; gap:8px; width:auto!important; height:36px!important; min-height:36px!important; margin:0!important; padding:0 14px!important; border:1px solid var(--u-line)!important; border-radius:10px!important; background:var(--u-surface)!important; box-shadow:none!important; color:var(--u-brand)!important; font-size:13px!important; font-weight:600!important; }
 :root:root:root:root.univer-mobile #l4 button.univer-app-attendance-report:hover { background:var(--u-brand-soft)!important; }
 :root:root:root:root.univer-mobile #l4 button.univer-app-attendance-report:focus-visible { outline:2px solid var(--u-brand)!important; outline-offset:2px; }

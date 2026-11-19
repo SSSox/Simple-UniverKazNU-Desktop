@@ -13,6 +13,8 @@
     // The Windows app keeps the home panels' last reading in its own profile; a browser's storage of the site is not the
     // extension's to fill, so the panels are read from the site on every visit.
     window.__univerOverviewKeep = false;
+    // The goal level chosen on the grades page lives only while its page does.
+    window.__univerGoalKeep = false;
     function send(message) {
         if (typeof message !== 'string' || message.length > 262144) return;
         if (!handler) { if (queue.length < 64) queue.push(message); return; }
