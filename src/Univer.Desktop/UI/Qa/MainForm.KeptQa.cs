@@ -44,18 +44,29 @@ namespace Univer.Desktop.UI
                 var until = DateTime.UtcNow.AddSeconds(4); var record = "";
                 while (DateTime.UtcNow < until && (record = await AutomationController.EvaluateAsync(main, "(JSON.parse(localStorage.getItem('univer.desktop.overview.v1')||'{}').grades||{list:[]}).list.length+'|'+" + grades) ?? "") != "3|3") await Task.Delay(100);
                 Check(record == "3|3", "a first visit reads the grades from the site and keeps them", results);
+                // The schedule page's list of this week's independent work, as syllabus-tasks.js keeps it: one long task.
+                const string task = "Подготовить письменный разбор источников по теме курса, сравнить подходы разных авторов и записать выводы в таблицу для обсуждения на семинаре";
+                await AutomationController.EvaluateAsync(main, "(function(){var r=JSON.parse(localStorage.getItem('univer.desktop.overview.v1'));var d=new Date(),s=new Date(d.getFullYear(),d.getMonth(),d.getDate()-(d.getDay()+6)%7);" +
+                    "r.work={at:Date.now(),start:s.getTime(),end:new Date(s.getFullYear(),s.getMonth(),s.getDate()+7).getTime(),list:[{course:'Социология',href:'/student/umkd/7001/2026/1',name:'СРО 2',topic:" + json.Serialize(string.Join(" ", Enumerable.Repeat(task, 5))) + ",score:15}," +
+                    "{course:'Культурология',href:'/student/umkd/7002/2026/1',name:'',topic:'Эссе',score:0}]};localStorage.setItem('univer.desktop.overview.v1',JSON.stringify(r));return 'seeded'})()");
                 // The site's pages never answer here: what is on screen when the page is uncovered came from the record.
                 await open("silent");
                 var shown = await AutomationController.EvaluateAsync(main, state);
                 QaTrace("kept silent " + shown);
                 Check(shown == "3|false|", "the next visit shows the kept grades as soon as the page is shown", results);
+                // Under the two panels, as wide as both, the long task cut to two lines.
+                const string work = "(function(){var b=document.querySelector('.univer-app-overview-work');if(!b)return 'none';var t=b.querySelector('.univer-app-overview-work-topic'),r=b.getBoundingClientRect(),g=document.querySelector('.univer-app-overview-grid').getBoundingClientRect();" +
+                    "return b.querySelectorAll('.univer-app-overview-work-list>li').length+'|'+(t.scrollHeight>t.clientHeight+1)+'|'+(t.clientHeight<=2*parseFloat(getComputedStyle(t).lineHeight)+1)+'|'+(Math.abs(r.left-g.left)<2&&Math.abs(r.right-g.right)<2&&r.top>=g.bottom)+'|'+(b.querySelector('a.univer-app-overview-course-link').getBoundingClientRect().height<=24)})()";
+                var listed = await AutomationController.EvaluateAsync(main, work);
+                QaTrace("kept work " + listed);
+                Check(listed == "2|true|true|true|true", "this week's independent work is listed under the panels from the record, long tasks in two lines", results);
                 await open("down");
                 until = DateTime.UtcNow.AddSeconds(4);
                 while (DateTime.UtcNow < until && !(shown = await AutomationController.EvaluateAsync(main, state) ?? "").Contains("Сохранено")) await Task.Delay(100);
                 QaTrace("kept down " + shown);
                 Check(shown.StartsWith("3|false|Сохранено ", StringComparison.Ordinal) && shown.EndsWith(". Обновить не удалось.", StringComparison.Ordinal), "kept grades stay when the site cannot be read and say when they were read", results);
                 // The note is inside its card, not clipped, and readable in both themes and in a narrow window.
-                const string note = "(function(){var n=document.querySelector('.univer-app-overview-stale'),box=n.closest('.univer-app-overview'),a=n.getBoundingClientRect(),b=box.getBoundingClientRect();" +
+                Func<string, string> fits = selector => "(function(){var n=document.querySelector('" + selector + "'),box=n.closest('.univer-app-overview'),a=n.getBoundingClientRect(),b=box.getBoundingClientRect();" +
                     "var lum=function(c){var v=c.match(/[\\d.]+/g).map(Number).slice(0,3).map(function(x){x/=255;return x<=.03928?x/12.92:Math.pow((x+.055)/1.055,2.4)});return .2126*v[0]+.7152*v[1]+.0722*v[2]};" +
                     "var back='',e=n;while(e&&!back){var c=getComputedStyle(e).backgroundColor;if(!/rgba\\(.*,\\s*0\\)|transparent/.test(c))back=c;e=e.parentElement}back=back||'rgb(255,255,255)';" +
                     "var f=lum(getComputedStyle(n).color),g=lum(back),ratio=(Math.max(f,g)+.05)/(Math.min(f,g)+.05);n.scrollIntoView({block:'center'});" +
@@ -63,11 +74,14 @@ namespace Univer.Desktop.UI
                 Func<string, Task> look = async name =>
                 {
                     await Task.Delay(300);
-                    var seen = (await AutomationController.EvaluateAsync(main, note) ?? "").Split('|'); double ratio = 0;
-                    QaTrace("kept note " + name + " " + string.Join("|", seen));
-                    Check(seen.Length == 2 && seen[0] == "true" && double.TryParse(seen[1], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out ratio) && ratio >= 4.5, "the note fits its card and keeps 4.5:1 contrast (" + name + ")", results);
-                    await Task.Delay(150);
-                    using (var client = main.GetDevToolsClient()) File.WriteAllBytes(Path.Combine(qa, "kept-" + name + ".png"), (await client.Page.CaptureScreenshotAsync()).Data);
+                    foreach (var part in new[] { new[] { "", ".univer-app-overview-grades .univer-app-overview-stale" }, new[] { "-work", ".univer-app-overview-work-topic" }, new[] { "-work", ".univer-app-overview-work-meta" } })
+                    {
+                        var seen = (await AutomationController.EvaluateAsync(main, fits(part[1])) ?? "").Split('|'); double ratio = 0;
+                        QaTrace("kept " + part[1] + " " + name + " " + string.Join("|", seen));
+                        Check(seen.Length == 2 && seen[0] == "true" && double.TryParse(seen[1], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out ratio) && ratio >= 4.5, part[1] + " fits its card and keeps 4.5:1 contrast (" + name + ")", results);
+                        await Task.Delay(150);
+                        using (var client = main.GetDevToolsClient()) File.WriteAllBytes(Path.Combine(qa, "kept" + part[0] + "-" + name + ".png"), (await client.Page.CaptureScreenshotAsync()).Data);
+                    }
                 };
                 await look("light");
                 Size = MinimumSize; await look("narrow");
@@ -75,7 +89,7 @@ namespace Univer.Desktop.UI
                 prefs.Theme = ThemeChoice.Dark; ApplyTheme(); await RefreshDocumentScriptsAsync();
                 await open("down");
                 until = DateTime.UtcNow.AddSeconds(4);
-                while (DateTime.UtcNow < until && await AutomationController.EvaluateAsync(main, "document.querySelector('.univer-app-overview-stale')?'note':''") != "note") await Task.Delay(100);
+                while (DateTime.UtcNow < until && await AutomationController.EvaluateAsync(main, "document.querySelector('.univer-app-overview-grades .univer-app-overview-stale')?'note':''") != "note") await Task.Delay(100);
                 await look("dark");
             }
             finally

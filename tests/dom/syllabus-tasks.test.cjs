@@ -71,17 +71,21 @@ const lessons = [
   [['Политология', 'семинар', 'Помощников П. П.'], ['Иностранный язык', 'семинар', 'Языкова Я. Я.']],
   [['Физическая культура', 'практика', 'Спортов С. С.']]];
 
-function page(content, { routes: map = {}, local, dark } = {}) {
+function page(content, { routes: map = {}, local, dark, now, extension } = {}) {
   const html = '<table class="wrappertable"><tr id="l1"><td class="header">КазНУ</td></tr><tr id="l4"><td>' + content + '</td></tr></table>';
   const errors = [], virtualConsole = new VirtualConsole();
   virtualConsole.on('jsdomError', error => errors.push(String(error.message)));
   const dom = new JSDOM(html, { url: 'https://univer.kaznu.kz/student/myschedule/', runScripts: 'outside-only', virtualConsole });
   const w = dom.window, requests = []; opened.push(w);
+  // now: the moment the page is open at, as Date arguments in local time.
+  if (now) { const Real = w.Date, at = new Real(...now).getTime(); w.Date = class extends Real { constructor(...args) { super(...(args.length ? args : [at])); } static now() { return at; } }; }
   Object.defineProperty(w.document, 'readyState', { value: 'complete', configurable: true });
   w.HTMLElement.prototype.getClientRects = function () { return this.closest('[hidden]') ? [] : [{ width: 100, height: 30 }]; };
   w.jQuery = () => ({ bind() {} });
   w.__univerNative = () => {};
   if (local) Object.entries(local).forEach(([key, value]) => w.localStorage.setItem(key, value));
+  // What the extension's prelude.js sets before the page scripts.
+  if (extension) w.__univerOverviewKeep = false;
   w.fetch = address => {
     requests.push(address);
     // Every other week of the schedule is the shown page again unless a test gives that week its own classes; null is a failed read.
@@ -140,6 +144,43 @@ test('the week\'s independent work is listed by course without consultations', a
   // Only the adapter's class name links are restyled; the panel's links stay plain.
   assert.equal(p.d.querySelector('.univer-app-syl-panel a.univer-app-page-link'), null);
   apply(p, false); p.close();
+});
+
+test('the current week\'s independent work is kept for the home page only from a finished reading of that week', async () => {
+  const OVERVIEW = 'univer.desktop.overview.v1', mark = { 'univer.app.account.v1': 'a1' }, WEDNESDAY = [2026, 8, 23, 10, 0];
+  const work = p => (JSON.parse(p.w.localStorage.getItem(OVERVIEW) || '{}').work || null);
+  // Week 4 (21–27 September) on screen on its Wednesday: the list the page shows, without consultations.
+  const p = page(schedule(lessons), { routes: routes(), local: mark, now: WEDNESDAY });
+  apply(p); await until(done(p));
+  const kept = JSON.parse(p.w.localStorage.getItem(OVERVIEW));
+  assert.equal(kept.owner, 'a1'); assert.equal(kept.language, 'ru');
+  assert.equal(kept.work.start, new Date(2026, 8, 21).getTime()); assert.equal(kept.work.end, new Date(2026, 8, 28).getTime());
+  assert.deepEqual(kept.work.list.map(w => [w.course, w.href, w.name, w.topic, w.score]), [
+    ['Культурология', '/student/umkd/7002/2026/1', '', 'Прием СРС 1 «Символы культуры»', 22],
+    ['История Казахстана', '/student/umkd/7005/2026/1', 'СРО 1', 'Контрольная работа. Письменно.', 15]]);
+  assert.ok(!/СРОП|Консультация|Разъяснение/.test(JSON.stringify(kept.work)));
+  const at = kept.work.at; apply(p, false); apply(p); await until(done(p));
+  assert.equal(work(p).at, at, 'the same list is not written again');
+  p.close();
+  // Another week on screen, a week read on another day, or no account mark: nothing is kept.
+  for (const [content, now, local] of [[schedule(lessons, 5), WEDNESDAY, mark], [schedule(lessons), [2026, 8, 28, 9, 0], mark], [schedule(lessons), WEDNESDAY, {}]]) {
+    const other = page(content, { routes: routes(), local, now });
+    apply(other); await until(done(other));
+    assert.equal(work(other), null); other.close();
+  }
+  // A course whose syllabus could not be read, or the group's other weeks that could not be read: the list carries a
+  // note on this page and is not kept for the home page.
+  const broken = routes(); broken['/student/interactive/syllabus/print/9030/2'] = null;
+  const failedWeeks = routes(); failedWeeks[weekHref(5)] = null;
+  for (const map of [broken, failedWeeks]) {
+    const other = page(schedule(lessons), { routes: map, local: mark, now: WEDNESDAY });
+    apply(other); await until(() => done(other)() && !!other.d.querySelector('.univer-app-syl-note'));
+    assert.equal(work(other), null); other.close();
+  }
+  // The browser extension keeps nothing.
+  const extension = page(schedule(lessons), { routes: routes(), local: mark, now: WEDNESDAY, extension: true });
+  apply(extension); await until(done(extension));
+  assert.equal(work(extension), null); extension.close();
 });
 
 test('long topics are cut and expand on demand, and extra entries of one class wait behind a button', async () => {

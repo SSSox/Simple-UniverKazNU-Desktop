@@ -989,6 +989,8 @@
 :root:root.univer-mobile .univer-app-overview-courses>li, :root:root.univer-mobile #l4 ul.univer-app-attendance-overview-list>li { display:flex; flex-wrap:nowrap; align-items:center; justify-content:space-between; gap:12px; padding:6px 0!important; }
 /* The site's list links are tall tap targets; a course name in a row is plain text with a link's colour. */
 :root:root:root.univer-mobile #l4 .univer-app-overview-courses>li>a.univer-app-overview-course-link { display:block!important; min-height:0!important; padding:0!important; line-height:1.4!important; }
+:root:root:root.univer-mobile #l4 .univer-app-overview-work-list .univer-app-overview-lesson-main>a.univer-app-overview-course-link { display:block!important; min-height:0!important; margin:0!important; padding:0!important; line-height:1.4!important; }
+:root:root.univer-mobile .univer-app-overview-work-list>li { padding:12px 0!important; }
 :root:root.univer-mobile .univer-app-overview-scores { flex-wrap:nowrap; gap:6px; }
 :root:root.univer-mobile .univer-app-overview-score, :root:root.univer-mobile .univer-app-overview-courses .univer-app-overview-score { box-sizing:border-box; min-width:68px; padding:3px 8px 6px; background:var(--u-surface); }
 /* Score bands out of 100 (page-common.js band): below 50 a shortfall, 50–69 satisfactory, 70–89 good, 90+ excellent. Soft

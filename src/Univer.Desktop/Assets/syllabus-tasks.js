@@ -37,7 +37,7 @@
     var WEEK = /^\/student\/myschedule\/(\d{4})\/([12])\/\d{1,2}\.\d{1,2}\.\d{4}\/\d{1,2}\.\d{1,2}\.\d{4}\/?$/;
     // The classes a seminar row or independent work can belong to.
     var CLASSES = ['seminar', 'practice', 'lab'];
-    var enabled = false, language = 'ru', generation = 0, style = null, model = null, active = 0, programPromise = null, counter = 0;
+    var enabled = false, language = 'ru', generation = 0, style = null, model = null, active = 0, programPromise = null, counter = 0, workKept = '';
     var views = new Map(), controllers = new Set(), teachers = new Map(), timers = new Set(), prefs = null;
 
     function text() {
@@ -536,7 +536,25 @@
         if (!select || select.tagName !== 'SELECT' || select.selectedIndex < 0) return null;
         var option = select.options[select.selectedIndex], number = weekNumber(option, select.selectedIndex);
         var term = (String(option.value || '').match(/\/myschedule\/(\d{4})\/([12])\//) || location.pathname.match(/^\/student\/myschedule\/(\d{4})\/([12])(?:\/|$)/) || []);
-        return number >= 1 && number <= LIMITS.weeks ? {number:number, term:term[1] ? '/' + term[1] + '/' + term[2] : ''} : null;
+        // The week's first and last day as the option names them; the end is the day after the last one.
+        var dates = (String(option.value || '') + ' ' + clean(option)).match(/\d{1,2}\.\d{1,2}\.\d{4}/g) || [];
+        var day = function (value, after) { var p = value.split('.'); return new Date(+p[2], +p[1] - 1, +p[0] + after).getTime(); };
+        var start = dates.length >= 2 ? day(dates[0], 0) : NaN, end = dates.length >= 2 ? day(dates[1], 1) : NaN;
+        return number >= 1 && number <= LIMITS.weeks ? {number:number, term:term[1] ? '/' + term[1] + '/' + term[2] : '', start:start, end:end} : null;
+    }
+    // The home page lists this week's independent work from what this page found (overview.js keeps it with the account and
+    // language): only the week on screen, only while it is the current one, and only from a finished reading in which every
+    // course was read and the group's weeks were laid over the syllabi, so the list is the one this page shows without notes.
+    function keepWork(state, items) {
+        var week = state.week, now = Date.now(), overview = window.__univerOverviewV1;
+        if (!overview || !overview.keepWork || !(week.start < week.end) || week.end - week.start > 7 * 86400000 || now < week.start || now >= week.end) return;
+        var list = items.slice(0, 40).map(function (item) {
+            return {course:item.job.name.slice(0, 400), href:item.job.href, name:(item.entry.name || '').slice(0, 80), topic:cut(item.entry.topic || '', LIMITS.topic), score:Number.isFinite(item.entry.score) && item.entry.score > 0 ? item.entry.score : 0};
+        });
+        var signature = language + '|' + week.start + '|' + JSON.stringify(list);
+        if (signature === workKept) return;
+        workKept = signature;
+        overview.keepWork(language, {start:week.start, end:week.end, list:list});
     }
 
     /* Drawing. */
@@ -653,6 +671,7 @@
         var notes = [];
         if (errors.length) notes.push([L.failed, errors, true]);
         if (model.pattern.state === 'failed') notes.push([L.noWeeks, [], true]);
+        if (!reading && !notes.length && model.state === 'ready') keepWork(state, items);
         setText(ui.count, items.length ? String(items.length) : '');
         setHidden(ui.count, !items.length);
         setAttribute(ui.fold, 'aria-expanded', String(P.sro));

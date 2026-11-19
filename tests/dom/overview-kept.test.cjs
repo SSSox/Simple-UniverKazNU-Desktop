@@ -179,3 +179,58 @@ test('the site\'s sign-out link removes the record; other links leave it', async
     p.node('#out').click(); assert.equal(p.stored(), null);
   } finally { p.close(); }
 });
+
+// What the schedule page keeps of the week's independent work (syllabus-tasks.js) for the week of 9 November.
+const WORK = {course: 'Политология', href: '/student/umkd/7001/2026/1', name: 'СРО 1', topic: 'Эссе о разделении властей', score: 15.5};
+const withWork = (list, options) => {
+  const o = Object.assign({start: new Date(2026, 10, 9).getTime(), end: new Date(2026, 10, 16).getTime(), at: new Date(2026, 10, 8, 20, 0).getTime(), language: 'ru', owner: 'a1'}, options);
+  return JSON.stringify({owner: o.owner, language: o.language, work: {at: o.at, start: o.start, end: o.end, list}});
+};
+const work = p => { const box = p.node('.univer-app-overview-work'); return box && Array.from(box.querySelectorAll('.univer-app-overview-work-list>li')).map(li => li.textContent); };
+
+test('the week\'s independent work kept by the schedule page is listed on Бакалавр while that week lasts', async () => {
+  const p = visit({storage: withWork([WORK, Object.assign({}, WORK, {course: 'История', href: '/student/umkd/7005/2026/1', name: '', score: 0, topic: ''})]), hold: true});
+  try {
+    assert.deepEqual(work(p), ['ПолитологияСРО 1 · макс. балл: 15,5Эссе о разделении властей', 'История']);
+    assert.equal(p.node('.univer-app-overview-work a.univer-app-overview-course-link').getAttribute('href'), '/student/umkd/7001/2026/1');
+    assert.equal(p.node('.univer-app-overview-work .univer-app-overview-caption').textContent, '9–15 ноября');
+    assert.equal(p.node('.univer-app-overview-work .univer-app-overview-stale').textContent, 'Прочитано в расписании 8 ноября, 20:00');
+    assert.equal(p.node('.univer-app-overview-grid').nextElementSibling, p.node('.univer-app-overview-work'), 'under the two panels');
+    await p.open();
+    assert.equal(work(p).length, 2, 'the site\'s pages do not replace it');
+    assert.equal(JSON.parse(p.stored()).work.list.length, 2, 'reading the schedule and grades keeps it');
+    p.w.__univerOverviewV1.release(); assert.equal(p.node('.univer-app-overview-work'), null, 'Original takes it away');
+  } finally { p.close(); }
+  const shows = options => { const q = visit(Object.assign({hold: true}, options)); try { return work(q); } finally { q.close(); } };
+  const across = visit({hold: true, at: [2026, 11, 1, 9, 0], language: 'en', storage: withWork([WORK], {language: 'en', start: new Date(2026, 10, 30).getTime(), end: new Date(2026, 11, 7).getTime()})});
+  try {
+    assert.equal(across.node('.univer-app-overview-work .univer-app-overview-caption').textContent, '30 November – 6 December');
+    assert.match(work(across)[0], /СРО 1 · max score: 15\.5/);
+  } finally { across.close(); }
+  assert.equal(shows({storage: withWork([WORK]), at: [2026, 10, 16, 8, 0]}), null, 'the next week does not show it');
+  assert.equal(shows({storage: withWork([WORK]), language: 'kz'}), null, 'another language does not');
+  assert.equal(shows({storage: withWork([WORK], {owner: 'b2'})}), null, 'another account does not');
+  assert.equal(shows({storage: withWork([])}), null, 'a week without work shows no panel');
+  assert.equal(shows({storage: withWork([WORK]), keep: false}), null, 'the extension reads nothing');
+  for (const bad of [{href: 'https://example.com/'}, {href: '/student/bachelor/'}, {score: -1}, {topic: 'x'.repeat(1201)}, {course: {}}])
+    assert.equal(shows({storage: withWork([Object.assign({}, WORK, bad)])}), null, JSON.stringify(bad));
+  assert.equal(shows({storage: withWork([WORK], {end: new Date(2026, 10, 30).getTime()})}), null, 'a "week" longer than seven days');
+});
+
+test('the schedule page writes the week\'s work beside the panels\' record, for its account and language only', async () => {
+  const storage = await record();
+  const p = visit({storage, hold: true});
+  try {
+    const api = p.w.__univerOverviewV1, part = {start: new Date(2026, 10, 9).getTime(), end: new Date(2026, 10, 16).getTime(), list: [WORK]};
+    api.keepWork('ru', part);
+    const kept = JSON.parse(p.stored());
+    assert.equal(kept.work.list[0].topic, WORK.topic); assert.ok(kept.grades && kept.schedule, 'the other panels stay');
+    api.keepWork('ru', Object.assign({}, part, {list: [Object.assign({}, WORK, {href: 'javascript:alert(1)'})]}));
+    assert.equal(JSON.parse(p.stored()).work.list[0].href, WORK.href, 'an invalid list is not written');
+    api.keepWork('de', part); assert.equal(JSON.parse(p.stored()).language, 'ru');
+    // Written in another language, the record starts again in that language.
+    api.keepWork('en', part); assert.deepEqual(Object.keys(JSON.parse(p.stored())).sort(), ['language', 'owner', 'work']);
+  } finally { p.close(); }
+  const bare = visit({mark: '', hold: true});
+  try { bare.w.__univerOverviewV1.keepWork('ru', {start: 1, end: 2, list: []}); assert.equal(bare.stored(), null, 'no account mark, nothing written'); } finally { bare.close(); }
+});

@@ -155,6 +155,10 @@
 :root.univer-mobile .univer-app-overview-request:hover { background:var(--u-brand-soft,#e9f1fb); }
 :root.univer-mobile .univer-app-overview-request:focus-visible { outline:2px solid var(--u-brand,#1b5fa6); outline-offset:0; }
 :root.univer-mobile .univer-app-overview-request>.univer-app-status { margin-left:auto; }
+/* The week's independent work under the two panels: course, its entry and score, and the task in two lines. */
+:root.univer-mobile .univer-app-overview-work-list .univer-app-overview-course-link { display:block; color:var(--u-brand,#1b5fa6)!important; font-size:14px; font-weight:500; line-height:1.4; text-decoration:none; }
+:root.univer-mobile .univer-app-overview-work-list .univer-app-overview-course-link:hover { text-decoration:underline; }
+:root.univer-mobile .univer-app-overview-work-topic { display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:2; margin:4px 0 0!important; overflow:hidden; color:var(--u-ink,#16283b); font-size:13px!important; line-height:1.45; overflow-wrap:anywhere; }
 :root.univer-mobile .univer-app-overview-score { position:relative; display:inline-flex; align-items:baseline; gap:6px; min-width:84px; padding:6px 10px 9px; border:1px solid var(--u-line,#dfe5ec); border-radius:8px; overflow:hidden; }
 :root.univer-mobile .univer-app-overview-score-label { color:var(--u-muted,#5b6b7c); font-size:12px; }
 :root.univer-mobile .univer-app-overview-score-value { color:var(--u-ink,#16283b); font-size:15px; font-weight:600; font-variant-numeric:tabular-nums; }
