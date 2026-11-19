@@ -49,6 +49,7 @@ test('the page deadline: a page whose scripts never finish is uncovered 1.5 s af
  p.w.eval(read('scripts/prelude.js'));
  assert.equal(p.w.__univerReportPictures,false,'the grade summary hides PNG and Copy picture');
  assert.equal(p.w.__univerOverviewKeep,false,'the home panels keep nothing in the browser');
+ assert.equal(p.w.__univerUmkdSeenKeep,false,'UMKD pages keep no list of files seen');
  time.tick(1400);assert.equal(root.style.opacity,'0','still within the deadline');
  time.tick(200);assert.equal(root.style.opacity,'');assert.equal(root.style.pointerEvents,'');
  p.close();
@@ -77,7 +78,7 @@ test('what the page scripts read as window.__univer… the extension writes to w
   for(const m of read(file).matchAll(/globalThis\.(__univer\w+)\s*=(?!=)/g))
    assert.ok(!readByPages.has(m[1]),file+' writes globalThis.'+m[1]+', which the page scripts read as window.'+m[1]);
  }
- for(const name of ['__univerTheme','__univerMotion','__univerReportPictures','__univerOverviewKeep'])assert.ok(readByPages.has(name),name+' is still read by the page scripts');
+ for(const name of ['__univerTheme','__univerMotion','__univerReportPictures','__univerOverviewKeep','__univerUmkdSeenKeep'])assert.ok(readByPages.has(name),name+' is still read by the page scripts');
 });
 
 test('messages sent before the extension listens wait for it, oversized ones are dropped',()=>{

@@ -43,7 +43,19 @@ namespace Univer.Desktop.UI
             string opened = null; outsideProbe = url => { opened = url; return true; };
             try
             {
-                main.LoadHtml(heading + UmkdCourseFixture(), SitePolicy.Origin + "/student/umkd/321/2026/1"); await WaitQaPresentationAsync();
+                // The last visit saw every file but the third lecture: that one is marked as new, after its link.
+                const string seen = "<script>localStorage.setItem('univer.app.account.v1','qa-umkd');localStorage.setItem('univer.desktop.umkd-seen.v1',JSON.stringify({owner:'qa-umkd',pages:{'/student/umkd/321/2026/1':{at:Date.now(),ids:['9001/321','9002/321','9003/321']}}}));</script>";
+                main.LoadHtml(heading + seen + UmkdCourseFixture(), SitePolicy.Origin + "/student/umkd/321/2026/1"); await WaitQaPresentationAsync();
+                var tagged = await AutomationController.EvaluateAsync(main, "(function(){var t=Array.from(document.querySelectorAll('#l4 .univer-app-file-new'));if(t.length!==1)return 'count '+t.length;" +
+                    "var lum=function(c){var v=c.match(/[\\d.]+/g).map(Number).slice(0,3).map(function(x){x/=255;return x<=.03928?x/12.92:Math.pow((x+.055)/1.055,2.4)});return .2126*v[0]+.7152*v[1]+.0722*v[2]};" +
+                    "var s=getComputedStyle(t[0]),f=lum(s.color),g=lum(s.backgroundColor),ratio=(Math.max(f,g)+.05)/(Math.min(f,g)+.05),a=t[0].previousElementSibling,r=t[0].getBoundingClientRect(),c=t[0].closest('td').getBoundingClientRect();" +
+                    "t[0].scrollIntoView({block:'center'});return t[0].closest('tr').id==='9004'&&a&&a.matches('a.downLoad')&&a.textContent==='Лекция 3. Общество.pdf'&&r.height>=18&&r.height<=22&&r.right<=c.right+1&&r.left>=c.left-1&&ratio>=4.5?'tagged':JSON.stringify([t[0].closest('tr').id,r.height,r.left,c.left,r.right,c.right,ratio])})()");
+                QaTrace("umkd-new " + tagged);
+                await AutomationController.EvaluateAsync(main, "localStorage.removeItem('univer.desktop.umkd-seen.v1');localStorage.removeItem('univer.app.account.v1');'cleared'");
+                Check(tagged == "tagged", "a UMKD file added since the last visit is marked after its name, readable and inside its cell", results);
+                await Task.Delay(150);
+                using (var client = main.GetDevToolsClient()) File.WriteAllBytes(Path.Combine(qa, "umkd-new.png"), (await client.Page.CaptureScreenshotAsync()).Data);
+                await AutomationController.EvaluateAsync(main, "window.scrollTo(0,0);'top'");
                 Check(await AutomationController.EvaluateAsync(main, "(function(){var links=Array.from(document.querySelectorAll('#l4 a.univer-app-outside-link')),made=links[1];" +
                     "return links.length===3&&links[0].id==='qa-outside'&&links[0].title==='Ссылка на другой сайт: example.org'&&made.href==='https://example.org/book'&&made.textContent==='https://example.org/book'&&" +
                     "made.parentElement.textContent==='Источник: https://example.org/book.'&&getComputedStyle(links[0],'::after').width==='14px'&&!document.querySelector('#l4 a.downLoad.univer-app-outside-link')?'links':JSON.stringify(links.map(function(a){return a.href}))})()") == "links",

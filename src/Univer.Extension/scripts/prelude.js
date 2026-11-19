@@ -15,6 +15,8 @@
     window.__univerOverviewKeep = false;
     // The goal level chosen on the grades page lives only while its page does.
     window.__univerGoalKeep = false;
+    // UMKD course pages mark no files as new: which files a page had last time is not kept in the browser.
+    window.__univerUmkdSeenKeep = false;
     function send(message) {
         if (typeof message !== 'string' || message.length > 262144) return;
         if (!handler) { if (queue.length < 64) queue.push(message); return; }

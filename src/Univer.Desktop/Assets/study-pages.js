@@ -9,9 +9,9 @@
     // A course cell's own text, without the Open button the adapters add to it.
     function label(cell) { return Array.from(cell.childNodes).filter(function (n) { return !n.classList?.contains('univer-app-course-open') && !n.classList?.contains('univer-app-course-tasks'); }).map(function (n) { return n.textContent; }).join('').replace(/\s+/g, ' ').trim(); }
     function text() {
-        return language === 'en' ? {open:'Open', filter:'Find a course', none:'No courses match the search', openCourse:'Open course: ', more:'Show in full', less:'Collapse', outside:'Link to another site: ', save:'Download file', openLink:'Open link', all:'Download all', allLabel:'Download every file in this section', stop:'Stop'} :
-            language === 'kz' ? {open:'Ашу', filter:'Пәнді іздеу', none:'Іздеуге сәйкес пән жоқ', openCourse:'Пәнді ашу: ', more:'Толығымен көрсету', less:'Жию', save:'Файлды жүктеп алу', openLink:'Сілтемені ашу', outside:'Басқа сайтқа сілтеме: ', all:'Барлығын жүктеу', allLabel:'Бөлімнің барлық файлын жүктеу', stop:'Тоқтату'} :
-            {open:'Открыть', save:'Скачать файл', openLink:'Открыть ссылку', filter:'Найти дисциплину', none:'Дисциплины по запросу не найдены', openCourse:'Открыть дисциплину: ', more:'Показать полностью', less:'Свернуть', outside:'Ссылка на другой сайт: ', all:'Скачать все', allLabel:'Скачать все файлы раздела', stop:'Остановить'};
+        return language === 'en' ? {open:'Open', filter:'Find a course', none:'No courses match the search', openCourse:'Open course: ', more:'Show in full', less:'Collapse', outside:'Link to another site: ', save:'Download file', openLink:'Open link', all:'Download all', allLabel:'Download every file in this section', stop:'Stop', fresh:'New', freshHint:'Added since your last visit'} :
+            language === 'kz' ? {open:'Ашу', filter:'Пәнді іздеу', none:'Іздеуге сәйкес пән жоқ', openCourse:'Пәнді ашу: ', more:'Толығымен көрсету', less:'Жию', save:'Файлды жүктеп алу', openLink:'Сілтемені ашу', outside:'Басқа сайтқа сілтеме: ', all:'Барлығын жүктеу', allLabel:'Бөлімнің барлық файлын жүктеу', stop:'Тоқтату', fresh:'Жаңа', freshHint:'Соңғы кіруіңізден кейін қосылды'} :
+            {open:'Открыть', save:'Скачать файл', openLink:'Открыть ссылку', filter:'Найти дисциплину', none:'Дисциплины по запросу не найдены', openCourse:'Открыть дисциплину: ', more:'Показать полностью', less:'Свернуть', outside:'Ссылка на другой сайт: ', all:'Скачать все', allLabel:'Скачать все файлы раздела', stop:'Остановить', fresh:'Новый', freshHint:'Появился после вашего прошлого захода'};
     }
     function mark(node, name) { if (!node.classList.contains(name)) node.classList.add(name); marked.add(node); }
     function role(cell, value) { if (cell.dataset.univerRole !== value) cell.dataset.univerRole = value; roles.add(cell); }
@@ -358,6 +358,73 @@
             if (hinted.has(a) && a.getAttribute('title') !== hint) a.setAttribute('title', hint);
         });
     }
+    /* Files new since the student's last visit to this course page. The first visit only notes what is there; later
+       visits mark the files that were not, and the marks stay until the page is left (the next visit knows them all).
+       Only file ids are kept, per course page, for the account that signed in here (the sign-in form's mark): no mark,
+       nothing is read or written. The browser extension keeps none (__univerUmkdSeenKeep === false). */
+    var SEEN = 'univer.desktop.umkd-seen.v1', SEEN_PAGES = 60, SEEN_FILES = 500, SEEN_SIZE = 200000;
+    var seenKeeps = window.__univerUmkdSeenKeep !== false, baseline, seenWritten = false, seenStored = new Set(), freshMarks = [];
+    function fileId(link) {
+        try {
+            var url = new URL(link.getAttribute('href'), location.href);
+            var found = url.origin === location.origin && url.pathname.match(/^\/student\/umkd\/get\/(\d{1,12})\/(\d{1,12})\/\d{1,6}\/\d{1,6}\/?$/);
+            return found ? found[1] + '/' + found[2] : '';
+        } catch (_) { return ''; }
+    }
+    function seenRecord(who) {
+        try {
+            var raw = localStorage.getItem(SEEN), all = raw && raw.length <= SEEN_SIZE ? JSON.parse(raw) : null;
+            if (all && typeof all === 'object' && all.owner === who && all.pages && typeof all.pages === 'object' && !Array.isArray(all.pages)) return all;
+        } catch (_) { }
+        return {owner:who, pages:{}};
+    }
+    function noteSeen(who, path, ids) {
+        try {
+            var all = seenRecord(who);
+            all.pages[path] = {at:Date.now(), ids:ids.slice(-SEEN_FILES)};
+            Object.keys(all.pages).sort(function (a, b) { return (all.pages[b].at || 0) - (all.pages[a].at || 0); }).slice(SEEN_PAGES).forEach(function (old) { delete all.pages[old]; });
+            var raw = JSON.stringify(all); if (raw.length <= SEEN_SIZE) localStorage.setItem(SEEN, raw);
+        } catch (_) { }
+    }
+    function freshFiles() {
+        if (!coursePage() || !seenKeeps) return;
+        var who = ''; try { who = localStorage.getItem('univer.app.account.v1') || ''; } catch (_) { }
+        if (!who) return;
+        // The course's file table with its headings: an empty one is a fair first look, a page without it (a notice, an error) is not.
+        var tables = Array.from(document.querySelectorAll('#l4 td.tt table.inner')).filter(function (table) {
+            var head = ownRows(table)[0]; return !table.closest('#tools') && head && head.cells.length >= 3 && head.cells[0].tagName === 'TH';
+        });
+        if (!tables.length) return;
+        var rows = [], ids = [];
+        tables.forEach(function (table) { ownRows(table).forEach(function (row) {
+            var link = row.matches('tr.file') && row.querySelector('a.downLoad[href]'), id = link ? fileId(link) : '';
+            if (id) { rows.push({link:link, id:id}); if (ids.indexOf(id) < 0) ids.push(id); }
+        }); });
+        var path = location.pathname.replace(/\/$/, '');
+        // Read once per page: later passes (and Original → reading mode) mark from memory. Files that appear later in the
+        // same visit are new against the same first look and are noted too.
+        if (baseline === undefined) {
+            var page = seenRecord(who).pages[path];
+            baseline = page && Array.isArray(page.ids) ? new Set(page.ids.filter(function (id) { return typeof id === 'string'; })) : null;
+        }
+        if (!seenWritten || ids.some(function (id) { return !seenStored.has(id); })) {
+            var known = baseline ? Array.from(baseline) : []; seenWritten = true;
+            ids.forEach(function (id) { seenStored.add(id); });
+            noteSeen(who, path, known.filter(function (id) { return !seenStored.has(id); }).concat(Array.from(seenStored)));
+        }
+        if (!baseline) return;
+        var t = text();
+        rows.forEach(function (item) {
+            if (baseline.has(item.id)) return;
+            var mark = item.link.nextElementSibling;
+            if (!mark || !mark.classList.contains('univer-app-file-new')) {
+                mark = document.createElement('span'); mark.className = 'univer-app-file-new';
+                item.link.after(mark); freshMarks.push(mark);
+            }
+            if (mark.textContent !== t.fresh) mark.textContent = t.fresh;
+            if (mark.title !== t.freshHint) mark.title = t.freshHint;
+        });
+    }
     // A course's UMKD page: a teacher's link to another site is marked as such, and an address
     // written out as plain text in a material's row becomes such a link. The app opens it only after finding the same
     // address in this page's materials.
@@ -537,6 +604,8 @@
  :root:root:root:root:root:root.univer-mobile #l4 button.univer-app-fold-all::after { display:none; }
 }
 :root.univer-mobile #l4 .univer-app-list-empty { margin:10px 2px 0!important; color:var(--u-muted); font-size:var(--u-fs-meta); }
+/* A file added since the last visit: a quiet tag after its name, outside the link the app reads the file type from. */
+:root.univer-mobile #l4 .univer-app-file-new { display:inline-flex; align-items:center; height:20px; margin:0 0 0 8px; padding:0 8px; box-sizing:border-box; border-radius:6px; background:var(--u-brand-soft); color:var(--u-brand); font-size:12px; font-weight:600; line-height:1; vertical-align:middle; white-space:nowrap; }
 `;
     }
     function apply(lang) {
@@ -544,7 +613,7 @@
         if (document.readyState === 'loading' || !/^\/(student|ssc|my)(\/|$)/i.test(location.pathname)) return;
         enabled = true;
         if (!style || !style.isConnected) { style = document.createElement('style'); style.id = 'univer-pages-style'; style.textContent = css(); (document.head || document.documentElement).appendChild(style); }
-        grades(); notes(); captions(); documents(); crumbs(); periods(); memos(); courses(); outside(); folds();
+        grades(); notes(); captions(); documents(); crumbs(); periods(); memos(); courses(); outside(); folds(); freshFiles();
     }
     function release() {
         if (!enabled && !style) return;
@@ -562,6 +631,7 @@
         memoButtons.forEach(function (record, cell) { record.button.remove(); delete cell.dataset.univerFolded; }); memoButtons.clear();
         links.forEach(function (link) { var parent = link.parentNode; if (parent) { link.replaceWith(...link.childNodes); parent.normalize(); } }); links = [];
         hinted.forEach(function (link) { link.removeAttribute('title'); }); hinted.clear();
+        freshMarks.forEach(function (mark) { mark.remove(); }); freshMarks = [];
         Array.from(slides.keys()).forEach(stopSlide);
         sections.forEach(function (record, head) {
             head.removeEventListener('click', record.toggle); head.removeEventListener('keydown', record.toggle);

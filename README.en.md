@@ -36,7 +36,7 @@ A desktop app for the [Univer KazNU](https://univer.kaznu.kz/) student portal wi
 ### Files
 
 - **"Downloads" (Ctrl+J):** every downloaded file with search and filters, and a built-in viewer for PDF, Word, Excel, PowerPoint, web pages, text and images, without Office.
-- **"Download all"** in a section of the course materials (УМКД): the section's files go to Downloads, into the folder `Univer УМКД\<course>\<section>`.
+- **"Download all"** in a section of the course materials (УМКД): the section's files go to Downloads, into the folder `Univer УМКД\<course>\<section>`. Files that were not on the course page at your last visit are marked New (in the app only).
 
 ![Course materials (УМКД): the "Download all" button on a section with files](https://raw.githubusercontent.com/SSSox/Simple-UniverKazNU-Desktop/main/.github/readme/umkd.png)
 

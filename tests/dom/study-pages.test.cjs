@@ -365,3 +365,60 @@ test('pages other than a UMKD course get no outside-link marks', () => {
   assert.equal(p.d.getElementById('9003').cells[2].childNodes.length, 1);
   apply(p, false); p.close();
 });
+// Files new since the last visit to a course page. Each visit is a new document over the same profile storage.
+const SEEN = 'univer.desktop.umkd-seen.v1';
+const course = rows => shell(panel(row('<td class="ct"><a href="/student/umkd/0/2026/1">УМКД</a> \ <a href="/student/umkd/321/2026/1">Социология</a></td>', 'top') +
+  row('<td class="tt"><div class="inner"><table class="inner"><tr><th></th><th>Название файла</th><th>Описание</th><th>Язык. гр.</th><th>Размер</th><th>Дата загрузки</th><th>Оцените качество материала</th></tr>' +
+    '<tr><th colspan="7">Конспекты лекций</th></tr>' + rows.map(id => fileRow(id, 'Лекция ' + id + '.pdf', '')).join('') + '</table></div></td>')));
+function courseVisit(rows, storage, { mark = 'a1', extension = false, url = 'https://univer.kaznu.kz/student/umkd/321/2026/1' } = {}) {
+  return page(course(rows), url, w => {
+    if (mark) w.localStorage.setItem('univer.app.account.v1', mark);
+    if (storage != null) w.localStorage.setItem(SEEN, storage);
+    if (extension) w.__univerUmkdSeenKeep = false;
+  });
+}
+const fresh = p => Array.from(p.d.querySelectorAll('.univer-app-file-new')).map(n => n.closest('tr').id);
+
+test('UMKD: files added since the last visit are marked until the page is left; the first visit only notes the files', () => {
+  const first = courseVisit([9001, 9002]);
+  apply(first);
+  assert.deepEqual(fresh(first), [], 'the first visit is the baseline');
+  const stored = first.w.localStorage.getItem(SEEN); first.close();
+  assert.deepEqual(JSON.parse(stored).pages['/student/umkd/321/2026/1'].ids, ['9001/321', '9002/321']);
+  assert.ok(!/Лекция|pdf/.test(stored), 'only file ids are kept');
+  const second = courseVisit([9001, 9002, 9003], stored);
+  apply(second); apply(second);
+  assert.deepEqual(fresh(second), ['9003'], 'one mark, also after a second pass');
+  const tag = second.d.querySelector('.univer-app-file-new');
+  assert.equal(tag.textContent, 'Новый'); assert.equal(tag.title, 'Появился после вашего прошлого захода');
+  assert.equal(tag.previousElementSibling.matches('a.downLoad'), true); assert.equal(second.d.getElementById('9003').querySelector('a.downLoad').textContent, 'Лекция 9003.pdf', 'the link text stays the file name');
+  apply(second, true, 'kz'); assert.equal(tag.textContent, 'Жаңа');
+  // Original takes the marks away; reading mode brings back the same ones within this visit.
+  apply(second, false); assert.deepEqual(fresh(second), []);
+  apply(second); assert.deepEqual(fresh(second), ['9003']);
+  const after = second.w.localStorage.getItem(SEEN); second.close();
+  // The next visit knows them all.
+  const third = courseVisit([9001, 9002, 9003], after);
+  apply(third); assert.deepEqual(fresh(third), []); third.close();
+});
+
+test('UMKD: new-file marks belong to the account and course page; without a mark or in the extension nothing is kept', () => {
+  const first = courseVisit([9001]); apply(first); const stored = first.w.localStorage.getItem(SEEN); first.close();
+  // Another account signed in here: its first visit is a baseline again and the old list goes.
+  const other = courseVisit([9001, 9002], stored, { mark: 'b2' }); apply(other);
+  assert.deepEqual(fresh(other), []); assert.equal(JSON.parse(other.w.localStorage.getItem(SEEN)).owner, 'b2'); other.close();
+  // Another course page has its own list.
+  const elsewhere = courseVisit([9001, 9002], stored, { url: 'https://univer.kaznu.kz/student/umkd/322/2026/1' }); apply(elsewhere);
+  assert.deepEqual(fresh(elsewhere), []); elsewhere.close();
+  for (const options of [{ mark: '' }, { extension: true }]) {
+    const p = courseVisit([9001, 9002], options.mark === '' ? null : stored, options); apply(p);
+    assert.deepEqual(fresh(p), []); assert.equal(p.w.localStorage.getItem(SEEN), options.mark === '' ? null : stored, JSON.stringify(options)); p.close();
+  }
+  // A damaged record starts again; a page without the file table (a notice) is no first look.
+  const damaged = courseVisit([9001, 9002], '{"owner":"a1","pages":[1]}'); apply(damaged); assert.deepEqual(fresh(damaged), []); damaged.close();
+  const notice = page(shell(panel(row('<td class="ct">Ознакомьтесь с уведомлением</td>'))), 'https://univer.kaznu.kz/student/umkd/321/2026/1', w => w.localStorage.setItem('univer.app.account.v1', 'a1'));
+  apply(notice); assert.equal(notice.w.localStorage.getItem(SEEN), null); notice.close();
+  // An empty file table is a fair first look: the first file added later is new.
+  const empty = courseVisit([]); apply(empty); const none = empty.w.localStorage.getItem(SEEN); empty.close();
+  const added = courseVisit([9001], none); apply(added); assert.deepEqual(fresh(added), ['9001']); added.close();
+});
