@@ -697,7 +697,7 @@
 :root:root:root:root:root.univer-mobile #l4 .univer-app-goal button[aria-pressed=true] { border-color:var(--u-brand-line)!important; background:var(--u-brand-soft)!important; color:var(--u-ink)!important; font-weight:600!important; }
 :root:root:root:root:root.univer-mobile #l4 .univer-app-goal button:focus-visible { outline:2px solid var(--u-brand)!important; outline-offset:2px; }
 /* What is left to the mark stands out as a soft plate in the band's tint; absences are one line of the course card. */
-:root:root:root:root.univer-mobile #l4 .univer-app-score-next[data-univer-left] { display:inline-block; padding:2px 8px; border-radius:6px; background:var(--univer-band-soft); font-weight:600; }
+:root:root:root:root.univer-mobile #l4 .univer-app-score-next[data-univer-left] { display:inline-block; max-width:100%; box-sizing:border-box; padding:2px 8px; border-radius:6px; background:var(--univer-band-soft); font-weight:600; }
 :root:root:root:root.univer-mobile #l4 p.univer-app-attendance-absences { display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 8px; margin:0!important; padding:10px 16px!important; color:var(--u-muted); font-size:14px!important; }
 :root.univer-mobile #l4 p.univer-app-attendance-absences b { color:var(--u-text); font-weight:600; }
 :root.univer-mobile #l4 p.univer-app-attendance-absences small { font-size:13px; }
@@ -1158,7 +1158,8 @@
 :root:root:root.univer-mobile #l4 .univer-app-score-total [data-univer-band] .univer-app-score-bar { width:72px; height:4px; background:var(--univer-band-line); }
 :root:root:root.univer-mobile #l4 .univer-app-score-total [data-univer-band] .univer-app-score-bar::after { background:var(--univer-band); }
 :root:root:root.univer-mobile #l4 .univer-app-score-total [data-univer-band] .univer-app-score-bar::before { content:''; position:absolute; inset:0; z-index:1; background:linear-gradient(90deg,transparent calc(50% - 1px),var(--u-surface) calc(50% - 1px) 50%,transparent 50% calc(70% - 1px),var(--u-surface) calc(70% - 1px) 70%,transparent 70% calc(90% - 1px),var(--u-surface) calc(90% - 1px) 90%,transparent 90%); }
-:root:root:root.univer-mobile #l4 .univer-app-score-next { display:block; margin-top:3px; color:var(--univer-band-ink); font-size:12px; font-weight:500; line-height:1.3; white-space:nowrap; }
+/* Kazakh and English say what is left in longer words than the column is wide: the note wraps inside its cell. */
+:root:root:root.univer-mobile #l4 .univer-app-score-next { display:block; margin-top:3px; color:var(--univer-band-ink); font-size:12px; font-weight:500; line-height:1.3; white-space:normal; overflow-wrap:break-word; text-align:right; }
 :root:root:root.univer-mobile #l4 p.univer-app-attendance-nothing, :root:root:root.univer-mobile #l4 .univer-app-attendance-summary>.univer-app-type-row, :root:root:root.univer-mobile #l4 p.univer-app-attendance-overall-value { margin:0!important; padding:10px 16px!important; color:var(--u-muted); font-size:14px!important; }
 :root:root:root:root.univer-mobile #l4 button.univer-app-attendance-details-toggle { display:flex!important; align-items:center; width:100%; height:38px!important; min-height:38px!important; margin:0!important; padding:0 16px!important; border:0!important; border-top:1px solid var(--u-line)!important; border-radius:0!important; background:transparent!important; box-shadow:none!important; color:var(--u-brand)!important; font-size:13px!important; font-weight:600!important; outline:none; }
 :root:root:root:root.univer-mobile #l4 button.univer-app-attendance-details-toggle:hover { background:var(--u-brand-soft)!important; }

@@ -41,6 +41,11 @@ namespace Univer.Desktop.UI
             using (var client = main.GetDevToolsClient()) File.WriteAllBytes(Path.Combine(qa, "report-goal.png"), (await client.Page.CaptureScreenshotAsync()).Data);
             await FixesEvalAsync("document.querySelector('.univer-app-score-total').scrollIntoView({block:'center'});'ok'"); await Task.Delay(200);
             using (var client = main.GetDevToolsClient()) File.WriteAllBytes(Path.Combine(qa, "report-goal-total.png"), (await client.Page.CaptureScreenshotAsync()).Data);
+            // Kazakh and English say what is left in longer words: the notes of one totals row neither overlap nor leave the card.
+            const string notes = "(function(){var bad=0,n=0;Array.from(document.querySelectorAll('.univer-app-score-total')).forEach(function(row){var c=row.closest('td').getBoundingClientRect();" +
+                "var b=Array.from(row.querySelectorAll('.univer-app-score-next')).map(function(x){return x.getBoundingClientRect()});n+=b.length;" +
+                "b.forEach(function(x,i){if(x.left<c.left-1||x.right>c.right+1)bad++;b.forEach(function(y,j){if(i<j&&x.left<y.right-1&&y.left<x.right-1&&x.top<y.bottom-1&&y.top<x.bottom-1)bad++})})});" +
+                "return n+':'+bad+':'+(document.querySelector('.univer-app-score-next')||{}).textContent})()";
             await FixesEvalAsync("scrollTo(0,0);'ok'");
             Width = 900; await Task.Delay(300);
             var narrow = await FixesEvalAsync(row); QaTrace("report-goal-narrow " + narrow);
@@ -66,7 +71,20 @@ namespace Univer.Desktop.UI
             var picture = Directory.GetFiles(folder, "*.png").FirstOrDefault();
             Check(picture != null && ReportQaWhole(picture, true), "the picture with a goal is one whole page (" + (picture == null ? "none" : ReportQaSize(picture)) + ")", results);
             if (picture != null) File.Copy(picture, Path.Combine(qa, "report-picture-goal.png"), true);
-            await FixesEvalAsync("(function(){var r=" + ReportQaHost + ".shadowRoot;r.querySelector('.goal-row button[data-goal=none]').click();window.__univerReportV1.close();return 'closed'})()");
+            await FixesEvalAsync("window.__univerReportV1.close();'closed'");
+            // The notes get the Kazakh and the English wording page-common.js writes for the same numbers (a language switch
+            // here would wait for the site's own language); the next render puts the Russian back.
+            foreach (var lang in new[] { "kz", "en" })
+            {
+                var swap = lang == "kz" ? "function(t){var m=t.match(/ещё (\\S+) до (\\d+)/);return m?m[2]+({50:'-ге',70:'-ке',90:'-ға'}[m[2]]||'')+' дейін '+m[1]+' балл':t}" : "function(t){var m=t.match(/ещё (\\S+) до (\\d+)/);return m?m[1].replace(',','.')+(m[1]==='1'?' point':' points')+' to '+m[2]:t}";
+                await FixesEvalAsync("(function(){var f=" + swap + ";document.querySelectorAll('.univer-app-score-next').forEach(function(n){n.textContent=f(n.textContent)});return 'ok'})()"); await Task.Delay(150);
+                var spoken = await FixesEvalAsync(notes); QaTrace("report-goal-" + lang + " " + spoken);
+                await FixesEvalAsync("document.querySelector('.univer-app-score-total').scrollIntoView({block:'center'});'ok'"); await Task.Delay(200);
+                using (var client = main.GetDevToolsClient()) File.WriteAllBytes(Path.Combine(qa, "report-goal-" + lang + ".png"), (await client.Page.CaptureScreenshotAsync()).Data);
+                Check(spoken.Split(':').Length == 3 && spoken.Split(':')[1] == "0" && spoken.Split(':')[0] != "0", "in " + lang + " what is left fits beside the other notes of its row (" + spoken + ")", results);
+                await FixesEvalAsync("document.querySelector('.univer-app-attendance-actions .univer-app-goal button[data-goal=good]').click();document.querySelector('.univer-app-attendance-actions .univer-app-goal button[data-goal=top]').click();'ok'"); await Task.Delay(150);
+            }
+            await FixesEvalAsync("document.querySelector('.univer-app-attendance-actions .univer-app-goal button[data-goal=none]').click();'none'");
             foreach (var record in history.Items.Where(x => x.Path.StartsWith(folder, StringComparison.OrdinalIgnoreCase)).ToList()) ForgetRecord(record.Id);
             foreach (var file in Directory.GetFiles(folder)) File.Delete(file);
             messages.Withdraw("downloadComplete");
