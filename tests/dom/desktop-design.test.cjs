@@ -63,6 +63,23 @@ test('desktop header merges logo, tabs and account into one bar and Original res
   p.close();
 });
 
+test('Ctrl+K opens all sections with the cursor in the search, in any keyboard layout, and only in the reading view', () => {
+  const p = page(shell.replace('CONTENT', '<p id="outside">Новости</p>'), 'https://univer.kaznu.kz/news/student');
+  apply(p);
+  const menu = p.d.querySelector('.univer-app-menu');
+  const press = init => { const e = new p.w.KeyboardEvent('keydown', Object.assign({ code: 'KeyK', key: 'л', ctrlKey: true, bubbles: true, cancelable: true }, init)); p.d.body.dispatchEvent(e); return e.defaultPrevented; };
+  assert.equal(press({ ctrlKey: false }), false); assert.equal(menu.open, false, 'a plain letter types as usual');
+  assert.equal(press({ shiftKey: true }), false); assert.equal(press({ code: 'KeyJ' }), false); assert.equal(menu.open, false);
+  assert.equal(press(), true); assert.equal(menu.open, true);
+  assert.equal(p.d.activeElement, menu.querySelector('input[type=search]'));
+  p.d.getElementById('outside').tabIndex = 0; p.d.getElementById('outside').focus();
+  assert.equal(press(), true); assert.equal(menu.open, true, 'a second press keeps it open');
+  assert.equal(p.d.activeElement, menu.querySelector('input[type=search]'), 'and returns to the search');
+  apply(p, false);
+  assert.equal(press(), false, 'Original keeps the site\'s own keys');
+  p.close();
+});
+
 test('all-sections button opens the real site menu and Escape or an outside click closes it', async () => {
   const p = page(shell.replace('CONTENT', '<p id="outside">Новости</p>'), 'https://univer.kaznu.kz/news/student');
   let opened = 0; p.d.getElementById('schedule').addEventListener('click', e => { e.preventDefault(); opened++; });

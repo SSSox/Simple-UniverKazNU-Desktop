@@ -591,6 +591,14 @@ namespace Univer.Desktop.UI
         protected override void Dispose(bool disposing)
         { if (disposing) { timer.Dispose(); noticeChecking.Dispose(); tips.Dispose(); viewMenu.Dispose(); lifetime.Dispose(); monogramFont?.Dispose(); } base.Dispose(disposing); }
         private Font monogramFont;
+        // Ctrl+K while the keyboard is in the app's own shell (sidebar, toolbar): the page opens «Все разделы» with the
+        // cursor in its search. With the keyboard in the page, the page answers the key itself (univer-layout.js).
+        private void OpenSections()
+        {
+            if (document != null || DownloadsVisible || WebShown || NoticesShown || loading.Visible || main == null || !main.IsBrowserInitialized || !SitePolicy.Trusted(main.Address)) return;
+            main.Focus();
+            QueueAsync(() => AutomationController.EvaluateAsync(main, "(function(){var b=document.querySelector('.univer-app-sections'),m=document.querySelector('.univer-app-menu');if(!b||b.hidden||!m)return 'none';if(!m.open)b.click();var s=m.querySelector('input[type=search]');if(s)s.focus({preventScroll:true});return 'open'})()"));
+        }
         protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
         {
             Motion.KeyboardInput = true;
@@ -616,6 +624,7 @@ namespace Univer.Desktop.UI
             if (keyData == Keys.Escape && document != null) { CloseDocument(); return true; }
             if (keyData == (Keys.Control | Keys.J)) { ShowDownloads(); return true; }
             if (keyData == Keys.F5) { RefreshCurrent(); return true; }
+            if (keyData == (Keys.Control | Keys.K)) { OpenSections(); return true; }
             if (keyData == (Keys.Control | Keys.P)) { PrintPage(); return true; }
             if (keyData == (Keys.Control | Keys.Oemcomma)) { QueueAsync(() => OpenSettingsAsync()); return true; }
             if (keyData == (Keys.Control | Keys.D0) || keyData == (Keys.Control | Keys.NumPad0)) { SetZoom(100); return true; }

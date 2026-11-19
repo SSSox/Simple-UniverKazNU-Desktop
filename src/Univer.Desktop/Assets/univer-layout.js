@@ -551,6 +551,7 @@ html.univer-mobile.univer-app-document body { padding:24px!important; background
         if (university && footer) moveHeader(university, footer);
         var button = bar.querySelector('.univer-app-sections');
         if (button && button.textContent !== text.sections) button.textContent = text.sections;
+        if (button && button.title !== 'Ctrl+K') button.title = 'Ctrl+K';
         if (button) button.hidden = !document.getElementById('tools');
         document.documentElement.classList.add('univer-app-unified');
     }
@@ -587,6 +588,16 @@ html.univer-mobile.univer-app-document body { padding:24px!important; background
                 !popup.contains(event.target) && !event.target.closest?.('.univer-app-sections');
             if (outside) closePopup(popup);
         });
+    }
+    // Ctrl+K opens «Все разделы» with the cursor in its search, from anywhere on the page. The key is read by its place on
+    // the keyboard, so the Russian and Kazakh layouts work too.
+    function menuShortcut(event) {
+        if (!(event.code === 'KeyK' || (!event.code && event.keyCode === 75)) || !(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey || event.repeat) return;
+        var button = document.querySelector('.univer-app-sections');
+        if (!button || button.hidden || !document.querySelector('.univer-app-menu')) return;
+        // A dialog or the grade summary keeps the keyboard: the menu would open behind it.
+        if (Array.prototype.some.call(document.querySelectorAll('#univer-app-report,#simplemodal-container,.univer-app-add-layer,.modal.in,.modal.show,.ui-dialog'), function (node) { return node.getClientRects().length > 0; })) return;
+        event.preventDefault(); toggleMenu(true);
     }
     // This adapter copies itself into same-origin frames (initializeMobile.toString()), where the shared helpers of
     // page-common.js may be missing, so it keeps its own.
@@ -1615,12 +1626,12 @@ html.univer-mobile.univer-app-document body { padding:24px!important; background
             window.addEventListener('scroll', returnToMenuVisibility, {passive:true});
             window.visualViewport?.addEventListener('resize', dialogViewport);
             window.visualViewport?.addEventListener('scroll', dialogViewport);
-            document.addEventListener('click', dismissMenu); document.addEventListener('keydown', dismissMenu);
+            document.addEventListener('click', dismissMenu); document.addEventListener('keydown', dismissMenu); document.addEventListener('keydown', menuShortcut);
         } else if (!value && enabled) {
             enabled = false;
             if (observer) observer.disconnect();
             clearTimeout(styleTimer); styleTimer = 0;
-            document.removeEventListener('click', dismissMenu); document.removeEventListener('keydown', dismissMenu);
+            document.removeEventListener('click', dismissMenu); document.removeEventListener('keydown', dismissMenu); document.removeEventListener('keydown', menuShortcut);
             window.removeEventListener('resize', schedule);
             window.removeEventListener('univer-frame-ready', schedule);
             window.removeEventListener('scroll', returnToMenuVisibility);

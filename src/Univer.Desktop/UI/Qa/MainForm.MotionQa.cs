@@ -147,6 +147,18 @@ namespace Univer.Desktop.UI
                 "home tiles are immediately visible even with animations on", results);
             Check(await AutomationController.EvaluateAsync(main, "(function(){var b=document.querySelector('.univer-app-sections'),m=document.querySelector('.univer-app-menu');b.click();m.querySelector('input').focus();document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}));return !m.open&&document.activeElement===b?'closed':''})()") == "closed",
                 "Escape closes sections immediately and returns keyboard focus", results);
+            // Ctrl+K, as a real key press on the page; Chromium 109 may drop the first key sent to a page.
+            const string sectionsOpen = "(function(){var m=document.querySelector('.univer-app-menu');return m&&m.open&&document.activeElement===m.querySelector('input[type=search]')?'search':''})()";
+            await AutomationController.EvaluateAsync(main, "document.body.focus();'page'"); main.Focus();
+            for (var press = 0; press < 3 && await AutomationController.EvaluateAsync(main, sectionsOpen) != "search"; press++)
+            {
+                var keys = main.GetBrowser().GetHost();
+                keys.SendKeyEvent(new KeyEvent { Type = KeyEventType.RawKeyDown, WindowsKeyCode = (int)System.Windows.Forms.Keys.K, Modifiers = CefEventFlags.ControlDown });
+                keys.SendKeyEvent(new KeyEvent { Type = KeyEventType.KeyUp, WindowsKeyCode = (int)System.Windows.Forms.Keys.K, Modifiers = CefEventFlags.ControlDown });
+                await Task.Delay(250);
+            }
+            Check(await AutomationController.EvaluateAsync(main, sectionsOpen) == "search", "Ctrl+K opens all sections with the cursor in the search", results);
+            await AutomationController.EvaluateAsync(main, "document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}));'closed'");
             using (var client = main.GetDevToolsClient())
             {
                 // Emulate both states explicitly: the user's Windows setting may already request reduced motion.

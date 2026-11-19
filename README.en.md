@@ -148,6 +148,7 @@ With a saved sign-in the app itself confirms only two site dialogs that would ot
 | Next / previous match | F3 or Enter / Shift+F3 or Shift+Enter |
 | Reload the page (forms are never resent) | F5 |
 | Settings | Ctrl+, |
+| All sections with the cursor in the search | Ctrl+K |
 | Print | Ctrl+P |
 | Zoom 100% / in / out | Ctrl+0 / Ctrl+plus / Ctrl+minus, Ctrl+mouse wheel |
 
