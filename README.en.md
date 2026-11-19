@@ -20,13 +20,14 @@ A desktop app for the [Univer KazNU](https://univer.kaznu.kz/) student portal wi
 - **Reading mode for the site:** readable tables and cards, one header instead of three bars, an "All sections" panel with search, pinned links on the home page. "View → Original layout" shows the site as it is.
 - **Site notifications** about questionnaires and tests in the bell on the toolbar; questionnaires you have already answered are not counted.
 - **Ctrl+F search** on site pages and in open files, news with search and filters.
-- Light and dark theme, zoom, printing, running from the notification area (tray).
+- Light and dark theme, zoom, printing, running from the notification area (tray). You can have it start with Windows, straight into the tray without a window (Settings → App; off by default).
 
 ![The "All sections" panel: search, groups of sections and pinning to the home page](https://raw.githubusercontent.com/SSSox/Simple-UniverKazNU-Desktop/main/.github/readme/all-sections.png)
 
 ### Schedule and studies
 
 - **Schedule** with the current and next class, a day filter and a week grid.
+- **Class reminders.** Fifteen minutes before a class starts, the app shows a tray notification with the class and its room. In Settings you can pick 5, 10, 15 or 30 minutes or turn reminders off. They work while the app is running, also from the tray, and come from the copy of this week's schedule that the app keeps when you open the schedule or the Bachelor page, so the site gets no extra request for them. With a PIN set, the notification does not name the class.
 - **Syllabus tasks on the schedule.** Each class shows the topic of its week from the syllabus written for your educational programme, and the week's independent work is listed by course. When your group has seminars in other weeks than the syllabus says, the topics go to the classes in order, and independent work is named under the nearest seminar. Teacher consultations are left out. A topic folds on its own button, and one switch hides them all. Once you have opened the current week's schedule, its independent work also shows on the Bachelor (Бакалавр) page until the week ends.
 - **Grades** by subject, clear assessment pages, all distance-course tasks on one page. The colour of a score shows where it stands against 50, 70 and 90, and the points left to the next mark are written beside it. You can pick a goal (Satisfactory, Good or Excellent), and then each midterm shows the points still missing for that goal. A subject with absences in the journal (the «н» marks) shows how many.
 - **Grade summary** (the «Print and PDF» button on the grades page): every subject on one sheet with a key to the colours, clear enough for parents. The sheet names the chosen goal and the points left to it. Print it, save it to Downloads as PDF or PNG, or copy it as a picture for a messenger. With many subjects the PNG is split into several pictures, each with its own Copy button.

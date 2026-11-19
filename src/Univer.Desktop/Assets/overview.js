@@ -162,6 +162,17 @@
         var dates = (value || '').match(/\d{1,2}\.\d{1,2}\.\d{4}/g) || [];
         return dates.length >= 2 ? dates.map(function (d) { var p = d.split('.'); return new Date(+p[2], +p[1] - 1, +p[0]); }) : null;
     }
+    // The week a schedule page shows, when it is the current one: the site's own dates and every column's classes.
+    function weekOf(doc, now) {
+        var select = doc.getElementById('weekSelect'), table = doc.querySelector('table.schedule'); if (!select || !table) return null;
+        var options = Array.from(select.options), current = options.find(function (o) { return o.selected || o.hasAttribute('selected'); }) || options[0];
+        var range = current && weekRange(current.value + ' ' + current.textContent), start = range ? range[0].getTime() : NaN;
+        // The week ends with the last day the site names: one that starts midweek is not next Monday's.
+        var end = range ? range[range.length - 1].getTime() + 86400000 : NaN;
+        if (!(now.getTime() >= start && now.getTime() < end)) return null;
+        var days = []; for (var column = 1; column < columns(doc); column++) days.push(lessonsOn(doc, column) || []);
+        return {start:start, end:end, days:days};
+    }
     // On a day without classes: the next day with classes later this week, or the first one of the following week.
     // The following week is the site's own week link (the week selector's option address), read like the current one.
     async function nextClasses(doc, now) {
@@ -416,17 +427,12 @@
         var over = function (lessons, at) { return !lessons || !lessons.length || lessons.every(function (l) { return l.end <= at; }); };
         // The week the site showed, by column, with the first classes of the following week once they were read.
         function keepWeek(doc, now, upcoming) {
-            var select = doc.getElementById('weekSelect'), table = doc.querySelector('table.schedule'); if (!select || !table) return;
-            var options = Array.from(select.options), current = options.find(function (o) { return o.selected || o.hasAttribute('selected'); }) || options[0];
-            var range = current && weekRange(current.value + ' ' + current.textContent), start = range ? range[0].getTime() : NaN;
-            // The week ends with the last day the site names: one that starts midweek is not next Monday's.
-            var end = range ? range[range.length - 1].getTime() + 86400000 : NaN;
-            if (!(now.getTime() >= start && now.getTime() < end)) return;
+            var shown = weekOf(doc, now); if (!shown) return;
+            var start = shown.start, end = shown.end;
             var following = upcoming && upcoming.date.getTime() >= end ? {date:upcoming.date.getTime(), lessons:upcoming.lessons} : null, mark = start + '|' + !!following;
             if (doc === keptDoc && mark === keptMark) return;
             if (!following) { var old = saved('schedule', isWeek); if (old && old.start === start) following = old.following || null; }
-            var days = []; for (var column = 1; column < columns(doc); column++) days.push(lessonsOn(doc, column) || []);
-            keptDoc = doc; keptMark = mark; keep('schedule', {start:start, end:end, days:days, following:following}, isWeek);
+            keptDoc = doc; keptMark = mark; keep('schedule', {start:start, end:end, days:shown.days, following:following}, isWeek);
         }
         // This week's classes from the last visit, until the site's page arrives.
         var week = saved('schedule', isWeek), first = new Date();
@@ -487,6 +493,22 @@
             if (['ru', 'kz', 'en'].indexOf(lang) < 0 || !part || !Array.isArray(part.list)) return;
             var list = part.list.map(function (w) { return w && {course:w.course, href:w.href, name:w.name, topic:w.topic, score:w.score}; });
             keep('work', {start:part.start, end:part.end, list:list}, isWork, lang);
+        },
+        // The current week for the Windows app's own copy (MainForm.Schedule.cs), which checks every field again: the schedule
+        // page's table while it shows this week, elsewhere the home page's last reading of it (this account's, any language).
+        // A JSON string, or '' when there is no current week to give.
+        week: function () {
+            try {
+                var now = new Date(), shown = /^\/student\/myschedule\/?$/i.test(location.pathname) ? weekOf(document, now) : null;
+                if (!shown) {
+                    var all = kept(), part = all && all.schedule;
+                    if (part && Number.isFinite(part.at) && isWeek(part) && now.getTime() >= part.start && now.getTime() < part.end) shown = part;
+                }
+                if (!shown) return '';
+                return JSON.stringify({start:shown.start, end:shown.end, days:shown.days.map(function (day) {
+                    return day.map(function (l) { return {start:l.start, end:l.end, name:l.parts.name || l.subject, type:l.parts.type, room:l.parts.room, teacher:l.parts.teacher}; });
+                })});
+            } catch (_) { return ''; }
         },
         // Test hooks: the same readers on a supplied document.
         // A site page read once per visit (GET, same origin), shared with the tab-page helpers.

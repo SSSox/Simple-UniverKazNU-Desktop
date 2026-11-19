@@ -25,7 +25,8 @@ namespace Univer.Desktop.UI
                 using (var form = new SettingsForm(credentials, shown, first, updates, first ? 1f : SidebarZoom))
                 {
                     form.OpenReleasePage = () => External(Updates.ReleasePage(updates.Available));
-                    form.ApplyAsync = (action, next, language, readable) => ApplySettingsAsync(action, next, language, readable, form.Tray, form.Animations, form.SelectedTheme, form.ExternalLinks);
+                    form.StartupState = ReadAutostart();
+                    form.ApplyAsync = (action, next, language, readable) => ApplySettingsAsync(action, next, language, readable, form.Tray, form.Animations, form.SelectedTheme, form.ExternalLinks, form.StartupChanged ? form.Startup : (bool?)null, form.Reminders, form.ReminderLead);
                     form.ClearWebData = ClearWebDataAsync;
                     form.PinSet = () => PinSet; form.SetPin = SetPinAsync; form.ChangePin = ChangePinAsync; form.DisablePin = DisablePinAsync;
                     form.ShowDialog(this);
@@ -37,7 +38,7 @@ namespace Univer.Desktop.UI
             finally { settingsOpen = false; }
             if (installUpdate) ShowUpdate(true);
         }
-        private async Task<bool> ApplySettingsAsync(SettingsAction action, Credentials next, string language, bool readable, bool? tray = null, bool? animations = null, string theme = null, bool? externalLinks = null)
+        private async Task<bool> ApplySettingsAsync(SettingsAction action, Credentials next, string language, bool readable, bool? tray = null, bool? animations = null, string theme = null, bool? externalLinks = null, bool? startup = null, bool? reminders = null, int? reminderLead = null)
         {
             if (commandBusy || closing) return false;
             commandBusy = true; SetCommandEnabled(false);
@@ -50,6 +51,7 @@ namespace Univer.Desktop.UI
                 if (logout) { await EndSessionAsync(true); return !closing; }
                 var change = action == SettingsAction.Manual ? SettingsChange.AppearanceOnly : SettingsDecision.Classify(credentials, next, prefs.AutoLoginPaused || guard.Stopped);
                 var updated = prefs.Clone(); updated.Language = language; updated.Readable = readable; if (tray.HasValue) updated.Tray = tray.Value; if (animations.HasValue) updated.Animations = animations.Value; if (theme != null) updated.Theme = ThemeChoice.Normalize(theme); if (externalLinks.HasValue) updated.ExternalLinks = externalLinks.Value;
+                if (reminders.HasValue) updated.Reminders = reminders.Value; if (reminderLead.HasValue) updated.ReminderLead = ClassReminders.Lead(reminderLead.Value);
                 if (action == SettingsAction.Manual) updated.AutoLoginPaused = true;
                 if (change != SettingsChange.AppearanceOnly)
                 {
@@ -71,8 +73,10 @@ namespace Univer.Desktop.UI
                 else { await storage.SavePreferencesAsync(updated); prefs = updated; }
                 if (closing) return false;
                 storageFailed = false; messages.ClearStorageError();
+                // Windows' own line, written after the preferences: a refused write leaves the rest saved and says so.
+                var startupRefused = startup.HasValue && !ApplyAutostart(startup.Value);
                 if (action == SettingsAction.Manual) { messages.FinishSettings(); SetStatus("manualSignIn"); }
-                else SetStatus("settingsSaved");
+                else SetStatus(startupRefused ? "autostartFailed" : "settingsSaved");
                 Motion.Enabled = prefs.Animations && !selfTest && !accountReview; ApplyTheme(); Localize(); if (languageChanged) automation.LanguageSelected();
                 await ApplyPresentationAsync(); await RefreshDocumentScriptsAsync();
                 return true;
@@ -129,7 +133,7 @@ namespace Univer.Desktop.UI
             var replaced = false;
             try
             {
-                await ClearNoticesAsync();
+                await ClearNoticesAsync(); await ClearScheduleAsync();
                 var manager = context.GetCookieManager(null);
                 await TaskDeadline.AwaitAsync(manager.DeleteCookiesAsync(), TimeSpan.FromSeconds(8), stopping);
                 rotationFaultForQa?.Invoke();

@@ -1,5 +1,6 @@
 using System;
 using System.Drawing;
+using System.Linq;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using Univer.Desktop.Core;
@@ -22,7 +23,7 @@ namespace Univer.Desktop.UI
         private readonly StageView stage = new StageView(StageScene.Welcome);
         private SelectionPlate tabPlate, languagePlate;
         private readonly TextInput login = new TextInput(false), password = new TextInput(true);
-        private readonly Toggle readable = new Toggle(), tray = new Toggle(), animations = new Toggle(), externalLinks = new Toggle();
+        private readonly Toggle readable = new Toggle(), tray = new Toggle(), startup = new Toggle(), reminders = new Toggle(), animations = new Toggle(), externalLinks = new Toggle();
         // Links: where they open, and the in-app browser's data, cleared at once (not on Save) like Logout.
         private readonly SettingsSheet linksSheet = new SettingsSheet();
         private readonly Label webDataTitle = new Label(), webDataHint = new Label();
@@ -55,6 +56,15 @@ namespace Univer.Desktop.UI
         // What the window opened with: Save wakes up only when something differs.
         private readonly string startLanguage, startTheme;
         private readonly bool startReadable, startTray, startAnimations, startExternalLinks;
+        // Start with Windows is Windows' own line, not a preference: it is read when the window opens and given here.
+        private bool startStartup, startupElsewhere;
+        // Reminders before classes: on or off, and how many minutes ahead (a drop-down of ClassReminders.Leads).
+        private readonly SettingsSheet remindSheet = new SettingsSheet();
+        private readonly Label leadTitle = new Label(), leadHint = new Label();
+        private readonly ModernButton leadButton = new ModernButton();
+        private readonly PickMenu leadMenu = new PickMenu("");
+        private int lead;
+        private readonly bool startReminders; private readonly int startLead;
 #if LEGACY_ENGINE
         private readonly LegacyWarningPanel legacyWarning = new LegacyWarningPanel();
 #endif
@@ -78,6 +88,15 @@ namespace Univer.Desktop.UI
         public string Language { get { return LanguageCodes[languageIndex]; } }
         public bool Readable { get { return readable.Checked; } }
         public bool Tray { get { return tray.Checked; } }
+        public bool Startup { get { return startup.Checked; } }
+        public bool Reminders { get { return reminders.Checked; } }
+        public int ReminderLead { get { return lead; } }
+        // Save writes the line when the switch moved, and also when it names another copy of the app.
+        public bool StartupChanged { get { return startup.Checked != startStartup || startup.Checked && startupElsewhere; } }
+        public AutostartState StartupState
+        {
+            set { startupElsewhere = value == AutostartState.Elsewhere; startup.Checked = startStartup = value != AutostartState.Off; startup.Hint = Strings.Get(startupElsewhere ? "startupElsewhere" : "startupOptionHint", Language); UpdateFooter(); }
+        }
         public bool Animations { get { return animations.Checked; } }
         public bool ExternalLinks { get { return externalLinks.Checked; } }
         public Func<Task<bool>> ClearWebData { get; set; }
@@ -103,6 +122,7 @@ namespace Univer.Desktop.UI
             BuildFrame();
             BuildAccount(credentials); BuildView(prefs); BuildApp(prefs);
             startLanguage = Language; startTheme = theme; startReadable = readable.Checked; startTray = tray.Checked; startAnimations = animations.Checked; startExternalLinks = externalLinks.Checked;
+            startReminders = reminders.Checked; startLead = lead;
             Wire();
             AcceptButton = save; if (!firstLaunch) CancelButton = cancel;
             fadeIn = Motion.Enabled && !Motion.KeyboardInput;
@@ -154,7 +174,10 @@ namespace Univer.Desktop.UI
         }
         private void Wire()
         {
-            foreach (var toggle in new[] { readable, tray, animations, externalLinks }) toggle.CheckedChanged += (s, e) => UpdateFooter();
+            foreach (var toggle in new[] { readable, tray, startup, reminders, animations, externalLinks }) toggle.CheckedChanged += (s, e) => UpdateFooter();
+            reminders.CheckedChanged += (s, e) => leadButton.Enabled = reminders.Checked;
+            leadButton.Click += (s, e) => leadMenu.Show(leadButton, ClassReminders.Leads.Select(m => new PickItem { Text = LeadText(m), Value = m, Selected = m == lead }), Theme.DpiScale, zoom, leadButton.Width);
+            leadMenu.Chosen += value => { lead = (int)value; leadButton.Text = leadButton.AccessibleName = LeadText(lead); ArrangeApp(); UpdateFooter(); };
             webDataClear.Click += async (s, e) => await ClearWebDataAsync();
             pinSet.Click += async (s, e) => await PinAsync(SetPin);
             pinChange.Click += async (s, e) => await PinAsync(ChangePin);
@@ -254,16 +277,21 @@ namespace Univer.Desktop.UI
         private void BuildApp(Preferences prefs)
         {
             var wide = Inner - Pad * 2;
-            tray.Checked = prefs.Tray; AddToggle(appSheet, tray, 0, wide);
-            appSheet.SetBounds(TextInput.Ring, 0, Inner, updates != null ? RowHeight * 2 : RowHeight);
-            appSheet.DesignHeight = appSheet.Height; appSheet.Lines = updates != null ? new[] { RowHeight } : new int[0];
-            AddRow(appSheet, updateTitle, updateStatus, RowHeight, wide - 120);
+            tray.Checked = prefs.Tray; AddToggle(appSheet, tray, 0, wide); AddToggle(appSheet, startup, RowHeight, wide);
+            appSheet.SetBounds(TextInput.Ring, 0, Inner, updates != null ? RowHeight * 3 : RowHeight * 2);
+            appSheet.DesignHeight = appSheet.Height; appSheet.Lines = updates != null ? new[] { RowHeight, RowHeight * 2 } : new[] { RowHeight };
+            AddRow(appSheet, updateTitle, updateStatus, RowHeight * 2, wide - 120);
             updateCheck.Look = ButtonLook.Outline; updateInstall.Look = ButtonLook.Primary; updateCheck.Hug = updateInstall.Hug = true; updateCheck.Height = updateInstall.Height = 32;
-            updateSlot.BackColor = Theme.Surface; updateSlot.SetBounds(Inner - Pad - 300, RowHeight + 14, 300, 32);
+            updateSlot.BackColor = Theme.Surface; updateSlot.SetBounds(Inner - Pad - 300, RowHeight * 2 + 14, 300, 32);
             updateCheck.Dock = updateInstall.Dock = DockStyle.Right; updateInstall.Margin = Padding.Empty;
             updateSlot.Controls.Add(updateCheck); updateSlot.Controls.Add(updateGap); updateSlot.Controls.Add(updateInstall);
             appSheet.Controls.Add(updateSlot);
             updateTitle.Visible = updateStatus.Visible = updateSlot.Visible = updates != null;
+            reminders.Checked = prefs.Reminders; lead = ClassReminders.Lead(prefs.ReminderLead); AddToggle(remindSheet, reminders, 0, wide);
+            remindSheet.SetBounds(TextInput.Ring, appSheet.Bottom + 12, Inner, RowHeight * 2); remindSheet.DesignHeight = RowHeight * 2; remindSheet.Lines = new[] { RowHeight };
+            AddRow(remindSheet, leadTitle, leadHint, RowHeight, wide - 132);
+            leadButton.Look = ButtonLook.Outline; leadButton.Enabled = reminders.Checked; AddSlot(remindSheet, RowHeight + 14, 120, leadButton);
+            appPanel.Controls.Add(remindSheet);
             securitySheet.SetBounds(TextInput.Ring, appSheet.Bottom + 12, Inner, RowHeight); securitySheet.DesignHeight = RowHeight; securitySheet.Lines = new int[0];
             AddRow(securitySheet, securityTitle, securityHint, 0, wide - 252);
             pinSlot.BackColor = Theme.Surface; pinSlot.SetBounds(Inner - Pad - 240, 14, 240, 32);
@@ -355,7 +383,7 @@ namespace Univer.Desktop.UI
         {
             if (!laidOut || IsDisposed) return;
             var scale = Px(1); Func<int, int> d = value => (int)Math.Round(value * scale);
-            var top = d(RowHeight); var height = top;
+            var top = d(RowHeight * 2); var height = top;
             if (updates != null)
             {
                 var offered = updates.Available != null;
@@ -369,6 +397,15 @@ namespace Univer.Desktop.UI
                 height = top + row;
             }
             appSheet.Height = height; appSheet.DesignHeight = (int)Math.Round(height / scale); appSheet.Invalidate();
+            // The reminder row's hint may wrap; its button keeps to the right, centred on the row.
+            var leadWords = remindSheet.Width - d(Pad) * 2 - leadButton.HugWidth - d(12);
+            var leadLines = TextRenderer.MeasureText(leadHint.Text, leadHint.Font, new Size(leadWords, int.MaxValue), TextFormatFlags.WordBreak).Height + d(2);
+            leadTitle.SetBounds(d(Pad), d(RowHeight) + d(12), leadWords, d(20));
+            leadHint.SetBounds(d(Pad), leadTitle.Bottom + d(2), leadWords, leadLines);
+            var leadRow = Math.Max(d(RowHeight), leadHint.Bottom - d(RowHeight) + d(12));
+            leadButton.Parent.SetBounds(remindSheet.Width - d(Pad) - leadButton.HugWidth, d(RowHeight) + (leadRow - d(32)) / 2, leadButton.HugWidth, d(32));
+            remindSheet.SetBounds(remindSheet.Left, appSheet.Bottom + d(12), remindSheet.Width, d(RowHeight) + leadRow);
+            remindSheet.DesignHeight = (int)Math.Round(remindSheet.Height / scale); remindSheet.Invalidate();
             // The PIN row: Set when there is none, Change and Turn off when there is one; the line under it may wrap.
             var on = PinOn;
             pinSet.Visible = !on; pinChange.Visible = pinDisable.Visible = pinGap.Visible = on;
@@ -379,7 +416,7 @@ namespace Univer.Desktop.UI
             securityHint.SetBounds(d(Pad), securityTitle.Bottom + d(2), pinWords, pinLines);
             var pinRow = Math.Max(d(RowHeight), securityHint.Bottom + d(12));
             pinSlot.SetBounds(securitySheet.Width - d(Pad) - pinButtons, (pinRow - d(32)) / 2, pinButtons, d(32));
-            securitySheet.SetBounds(securitySheet.Left, appSheet.Bottom + d(12), securitySheet.Width, pinRow);
+            securitySheet.SetBounds(securitySheet.Left, remindSheet.Bottom + d(12), securitySheet.Width, pinRow);
             securitySheet.DesignHeight = (int)Math.Round(pinRow / scale); securitySheet.Invalidate();
             // The data row's hint may wrap (Kazakh, a larger zoom): the row grows and its button stays centred.
             var dataWords = linksSheet.Width - d(Pad) * 2 - webDataClear.HugWidth - d(12);
@@ -470,7 +507,7 @@ namespace Univer.Desktop.UI
         {
             get
             {
-                return SaveKey() != "saveChanges" || Language != startLanguage || theme != startTheme || readable.Checked != startReadable || tray.Checked != startTray || animations.Checked != startAnimations || externalLinks.Checked != startExternalLinks ||
+                return SaveKey() != "saveChanges" || Language != startLanguage || theme != startTheme || readable.Checked != startReadable || tray.Checked != startTray || StartupChanged || reminders.Checked != startReminders || lead != startLead || animations.Checked != startAnimations || externalLinks.Checked != startExternalLinks ||
                     login.Input.Text != (original?.Login ?? "") || password.Input.Text != (original?.Password ?? "");
             }
         }
@@ -481,6 +518,7 @@ namespace Univer.Desktop.UI
             var changed = Changed; Caption(save, SaveKey()); save.Enabled = changed;
             if (!firstLaunch) Caption(cancel, changed ? "cancelChanges" : "closeWindow");
         }
+        private string LeadText(int minutes) { return string.Format(Strings.Get("reminderLead", Language), minutes); }
         private void Caption(ModernButton button, string key) { button.Text = button.AccessibleName = Strings.Get(key, Language); }
         private void UpdateRevealLabel() { password.Reveal.AccessibleName = Strings.Get(password.Input.UseSystemPasswordChar ? "showPassword" : "hidePassword", Language); }
         private void Localize()
@@ -501,6 +539,9 @@ namespace Univer.Desktop.UI
             readable.Text = Strings.Get("reading", lang); readable.Hint = Strings.Get("viewHint", lang);
             animations.Text = Strings.Get("animationsOption", lang); animations.Hint = Strings.Get("animationsOptionHint", lang);
             tray.Text = Strings.Get("trayOption", lang); tray.Hint = Strings.Get("trayOptionHint", lang);
+            reminders.Text = Strings.Get("reminderOption", lang); reminders.Hint = Strings.Get("reminderOptionHint", lang);
+            leadTitle.Text = Strings.Get("reminderLeadTitle", lang); leadHint.Text = Strings.Get("reminderLeadHint", lang); leadButton.Text = leadButton.AccessibleName = LeadText(lead);
+            startup.Text = Strings.Get("startupOption", lang); startup.Hint = Strings.Get(startupElsewhere ? "startupElsewhere" : "startupOptionHint", lang);
             externalLinks.Text = Strings.Get("externalLinksOption", lang); externalLinks.Hint = Strings.Get("externalLinksOptionHint", lang);
             webDataTitle.Text = Strings.Get("webDataTitle", lang); webDataHint.Text = Strings.Get(webDataState.Length > 0 ? webDataState : "webDataHint", lang);
             webDataClear.Text = Strings.Get("webDataClear", lang); webDataClear.AccessibleName = webDataTitle.Text + ": " + webDataClear.Text;

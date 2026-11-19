@@ -1,6 +1,7 @@
 using System;
 using System.Drawing;
 using System.Runtime.InteropServices;
+using System.Threading.Tasks;
 using System.Windows.Forms;
 using Univer.Desktop.Core;
 
@@ -16,6 +17,16 @@ namespace Univer.Desktop.UI
         private Tween trayMotion;
         private int trayMotionGeneration;
         private FormWindowState trayRestoreState = FormWindowState.Normal;
+        // Where "start with Windows" is written: Program gives the user's registry to a normal run; self-test, the review
+        // and the isolated checks keep this in-memory copy, so no check ever changes what starts with Windows.
+        internal IRunKey RunKey = new MemoryRunKey();
+        private bool startHidden;
+        // What a click on the last tray balloon opens: "notices", "schedule", or nothing.
+        private string balloonOpens;
+        // Self-test counts the held-back start instead of opening the first sign-in window.
+        private Func<Task> startPromptsForQa;
+        // Started with Windows (--tray): the window is never painted; the session starts behind the tray icon as usual.
+        internal bool StartHidden { get { return startHidden; } set { startHidden = value && trayIcon != null; if (startHidden) Opacity = 0; } }
         private void BuildTray()
         {
             if (selfTest || accountReview) return;
@@ -23,8 +34,8 @@ namespace Univer.Desktop.UI
             Motion.FadeIn(trayMenu);
             trayIcon = new NotifyIcon { Icon = Icon, Text = Strings.Get("appTitle", prefs.Language), ContextMenuStrip = trayMenu, Visible = true };
             trayIcon.MouseClick += (s, e) => { if (e.Button == MouseButtons.Left) RestoreFromTray(); };
-            trayIcon.BalloonTipClicked += (s, e) => { var notice = noticeBalloon; noticeBalloon = false; RestoreFromTray(); if (notice) ShowNotices(); };
-            trayIcon.BalloonTipClosed += (s, e) => noticeBalloon = false;
+            trayIcon.BalloonTipClicked += (s, e) => { var opens = balloonOpens; balloonOpens = null; RestoreFromTray(); OpenFromBalloon(opens); };
+            trayIcon.BalloonTipClosed += (s, e) => balloonOpens = null;
             LocalizeTray();
         }
         private void LocalizeTray()
@@ -66,7 +77,7 @@ namespace Univer.Desktop.UI
             else { Hide(); TrimHiddenMemory(); }
             if (!trayHintShown)
             {
-                trayHintShown = true; noticeBalloon = false;
+                trayHintShown = true; balloonOpens = null;
                 trayIcon.ShowBalloonTip(5000, Strings.Get("trayBalloonTitle", prefs.Language), Strings.Get("trayBalloon", prefs.Language), ToolTipIcon.Info);
             }
             return true;
@@ -89,6 +100,32 @@ namespace Univer.Desktop.UI
             if (WindowState == FormWindowState.Minimized) WindowState = trayRestoreState;
             Activate(); BringToFront();
             SetForegroundWindow(Handle);
+            // A start into the tray held back the first sign-in window and the update offer until the window was opened
+            // (with a PIN, until it is unlocked).
+            if (startPromptsPending && !LockShown) { startPromptsPending = false; QueueAsync(startPromptsForQa ?? StartPromptsAsync); }
+        }
+        // The start into the tray: shown once without being painted (so Chromium gets its windows), then hidden at once.
+        private void EnterTrayAtStart()
+        {
+            startHidden = false; startPromptsPending = true;
+            trayRestoreState = WindowState == FormWindowState.Minimized ? FormWindowState.Normal : WindowState;
+            Hide();
+        }
+        private string AutostartExe { get { return Application.ExecutablePath; } }
+        private AutostartState ReadAutostart()
+        {
+            try { return Autostart.State(RunKey, AutostartExe); } catch (Exception) { return AutostartState.Off; }
+        }
+        private bool ApplyAutostart(bool on)
+        {
+            try { Autostart.Apply(RunKey, on, AutostartExe); return true; } catch (Exception) { return false; }
+        }
+        private void OpenFromBalloon(string opens)
+        {
+            // Behind the PIN the click only brings the window (and its lock) forward.
+            if (opens == null || LockShown) return;
+            if (opens == "notices") ShowNotices();
+            else if (opens == "schedule") NavigateSection("/student/myschedule/");
         }
         private void ExitApplication() { exitRequested = true; if (!Visible) Show(); Close(); }
         private void DisposeTray()

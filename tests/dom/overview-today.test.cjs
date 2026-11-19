@@ -50,3 +50,32 @@ test('the date over the classes is written in the chosen language', () => {
     try { assert.equal(p.body.querySelector('.univer-app-overview-caption').textContent, caption); } finally { p.close(); }
   }
 });
+
+// The Windows app's own copy of the week (MainForm.Schedule.cs) is read from the schedule page while it shows this week.
+function schedulePage(selected) {
+  const html = '<body><select id="weekSelect">' +
+    '<option value="/student/myschedule/2026/1/10/"' + (selected === 10 ? ' selected' : '') + '>09.11.2026 - 15.11.2026</option>' +
+    '<option value="/student/myschedule/2026/1/11/"' + (selected === 11 ? ' selected' : '') + '>16.11.2026 - 22.11.2026</option></select>' +
+    '<table class="schedule"><tr><th>Время</th><th>Пн</th><th>Вт</th></tr>' +
+    '<tr><td>09:00 - 09:50</td><td><p>Политология(Лекция)</p><p>Синтетический П. П.</p><p>ФФ / Ауд.: 305</p></td><td></td></tr>' +
+    '<tr><td>10:00 - 10:50</td><td></td><td><p>Культурология(Семинар)</p></td></tr></table></body>';
+  const dom = new JSDOM(html, {url: 'https://univer.kaznu.kz/student/myschedule/', runScripts: 'outside-only'});
+  const w = dom.window, RealDate = w.Date;
+  w.Date = class extends RealDate { constructor(...args) { super(...(args.length ? args : [2026, 10, 10, 8, 0])); } static now() { return new RealDate(2026, 10, 10, 8, 0).getTime(); } };
+  w.eval(read('page-common.js')); w.eval(read('overview.js'));
+  return w;
+}
+
+test('the app reads the current week from the schedule page, and nothing for another week', () => {
+  const w = schedulePage(10);
+  try {
+    const week = JSON.parse(w.__univerOverviewV1.week());
+    assert.equal(week.start, new Date(2026, 10, 9).getTime());
+    assert.equal(week.end, new Date(2026, 10, 16).getTime());
+    assert.deepEqual(week.days, [
+      [{start: 540, end: 590, name: 'Политология', type: 'Лекция', room: '305', teacher: 'Синтетический П. П.'}],
+      [{start: 600, end: 650, name: 'Культурология', type: 'Семинар', room: '', teacher: ''}]]);
+  } finally { w.close(); }
+  const other = schedulePage(11);
+  try { assert.equal(other.__univerOverviewV1.week(), ''); } finally { other.close(); }
+});

@@ -65,6 +65,8 @@ namespace Univer.Desktop
                 bool owns;
                 // The elevated original still holds the mutex for a moment while it exits after relaunching this copy.
                 try { owns = mutex.WaitOne(deElevatedRelaunch ? 5000 : 0); } catch (AbandonedMutexException) { owns = true; }
+                // A start with Windows while the app already runs (a second sign-in to Windows) leaves the running window as it is.
+                if (!owns && Autostart.StartsInTray(args)) return 0;
                 if (!owns) { if (!ActivateRunningInstance()) MessageBox.Show(Strings.Get("alreadyRunning", SavedLanguage(data)), "Univer"); return 0; }
                 StartJitProfile(isolated ? Path.Combine(Path.GetTempPath(), "Univer.Desktop.QA") : data);
                 var errorLanguage = "ru";
@@ -130,6 +132,9 @@ namespace Univer.Desktop
                         {
                             // Self-test records the failure itself; users get a recoverable message, never a stack trace.
                             if (!selfTest) Application.ThreadException += (sender, error) => form.ReportUnexpectedError();
+                            // Only a normal run reads and writes the user's start-with-Windows line.
+                            if (!isolated && !accountReview) form.RunKey = new RegistryRunKey();
+                            form.StartHidden = !selfTest && !accountReview && Autostart.StartsInTray(args);
                             Application.Run(form);
                         }
                     }

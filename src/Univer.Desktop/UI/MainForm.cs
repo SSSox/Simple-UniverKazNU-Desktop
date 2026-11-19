@@ -90,6 +90,7 @@ namespace Univer.Desktop.UI
             // Housekeeping of old profiles must never discard successfully loaded settings or credentials.
             if (!storageFailed && !accountReview) { try { storage.CleanOldProfiles(prefs.Profile); if (storage.WebProfileSaved(prefs.WebProfile)) storage.CleanOldWebProfiles(prefs.WebProfile); } catch (Exception) { } }
             Program.Mark("cleaned");
+            LoadScheduleCopy();
             // Automated checks read settled layouts, so they always run without motion.
             Motion.Enabled = prefs.Animations && !selfTest && !accountReview;
             Font = Theme.Font(10.5f); ForeColor = Theme.Ink; BackColor = Theme.Background;
@@ -101,7 +102,7 @@ namespace Univer.Desktop.UI
             if (!selfTest && !accountReview) zoomPercent = appliedZoom = prefs.Zoom;
             zoomSettle.Tick += ZoomSettled;
             Icon = LoadAppIcon() ?? Icon;
-            BuildShell(); Program.Mark("shell"); BuildTray(); BuildShapes(); Program.Mark("shapes"); CreateSession(); Program.Mark("session"); Localize(); HookTheme(); BuildUpdates(); Program.Mark("built");
+            BuildShell(); Program.Mark("shell"); BuildTray(); BuildReminders(); BuildShapes(); Program.Mark("shapes"); CreateSession(); Program.Mark("session"); Localize(); HookTheme(); BuildUpdates(); Program.Mark("built");
             timer.Tick += async (s, e) =>
             {
                 if (rotating || closing || commandBusy) return;
@@ -147,7 +148,7 @@ namespace Univer.Desktop.UI
             {
                 System.Net.NetworkInformation.NetworkChange.NetworkAvailabilityChanged -= NetworkAvailabilityChanged;
                 Microsoft.Win32.SystemEvents.PowerModeChanged -= PowerModeChanged;
-                zoomSettle.Dispose(); curtain?.Dispose(); ctrlWheel.Dispose(); DisposeLock(); DisposeTray(); updates?.Dispose(); downloads?.Dispose(); DisposeWeb(); CloseBrowsers(); context?.Dispose(); Web.SingleSignOn.CleanUp(TimeSpan.Zero);
+                zoomSettle.Dispose(); curtain?.Dispose(); ctrlWheel.Dispose(); DisposeLock(); DisposeReminders(); DisposeTray(); updates?.Dispose(); downloads?.Dispose(); DisposeWeb(); CloseBrowsers(); context?.Dispose(); Web.SingleSignOn.CleanUp(TimeSpan.Zero);
             };
             var restored = false;
             // Restore before the first paint so the window does not jump after appearing.
@@ -172,6 +173,7 @@ namespace Univer.Desktop.UI
                 if (Array.IndexOf(Environment.GetCommandLineArgs(), "--qa-study") >= 0) { QueueAsync(StudyQaAsync); return; }
                 if (Array.IndexOf(Environment.GetCommandLineArgs(), "--qa-zoom") >= 0) { QueueAsync(ZoomFeelQaAsync); return; }
                 if (Array.IndexOf(Environment.GetCommandLineArgs(), "--qa-flash") >= 0) { QueueAsync(FlashQaAsync); return; }
+                if (startHidden) { EnterTrayAtStart(); return; }
                 // Locked at start: the first sign-in window, the notices and the update offer wait for the PIN.
                 if (locked) { startPromptsPending = true; return; }
                 await StartPromptsAsync();
@@ -566,7 +568,7 @@ namespace Univer.Desktop.UI
         // Self-test's own quiet stretch (QA step "idle"); otherwise a self-test page never counts as settled.
         private bool settledForQa;
         // What every tick on a signed-in page does for the app; a quiet page's skipped ticks do it too.
-        private void SignedInWork() { RecoverySucceeded(); ResumeDownload(); NoticeContent(); MaybeOfferPin(); }
+        private void SignedInWork() { RecoverySucceeded(); ResumeDownload(); NoticeContent(); ScheduleContent(); MaybeOfferPin(); }
         // The user pressed something on the shown page or came back to the window: a page that was being asked rarely is
         // asked now, and every second for a while (ProbePace.Active).
         private void PageWoken(ChromiumWebBrowser browser)

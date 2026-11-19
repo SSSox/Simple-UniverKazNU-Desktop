@@ -80,6 +80,8 @@ namespace Univer.Desktop.UI
             if (Searching) search.SetBounds(D(10) - ring, D(10) - ring, width - D(20) + ring * 2, D(40) + ring * 2);
             current = lines.FindIndex(l => l.Item != null && l.Item.Selected); Reveal(current);
         }
+        // The self-test picks an offered line as a click on it would.
+        internal void ChooseForQa(object value) { var at = lines.FindIndex(l => l.Item != null && Equals(l.Item.Value, value)); if (at >= 0) Chosen?.Invoke(lines[at].Item.Value); }
         public void Enter()
         {
             if (Searching) search.Input.Focus(); else Focus();

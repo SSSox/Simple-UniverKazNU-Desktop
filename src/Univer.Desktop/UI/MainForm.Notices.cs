@@ -22,7 +22,7 @@ namespace Univer.Desktop.UI
         // A requested check that never reports back counts as failed.
         private readonly Timer noticeChecking = new Timer { Interval = 20000 };
         private long noticeFetchedAt = long.MinValue, noticeTriedAt = long.MinValue;
-        private bool noticeScanDue = true, noticeBusy, noticeRefreshing, noticeRefreshQueued, noticeFailed, noticesClearPending, noticeBalloon;
+        private bool noticeScanDue = true, noticeBusy, noticeRefreshing, noticeRefreshQueued, noticeFailed, noticesClearPending;
         private string noticeHeading = "";
         private int noticeCount;
         private int trayUnread = -1;
@@ -212,7 +212,7 @@ namespace Univer.Desktop.UI
             if (!Visible || WindowState == FormWindowState.Minimized)
             {
                 if (trayIcon == null) return;
-                noticeBalloon = true;
+                balloonOpens = "notices";
                 trayIcon.ShowBalloonTip(8000, Strings.Get("noticesNew", lang), NoticeAnnouncement(), ToolTipIcon.Info);
                 return;
             }

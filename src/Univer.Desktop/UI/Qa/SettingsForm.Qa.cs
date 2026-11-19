@@ -18,6 +18,25 @@ namespace Univer.Desktop.UI
         internal TextInput PasswordInput { get { return password; } }
         internal void SelectAppearanceForQa() { ShowTab(true); }
         internal void SelectUpdatesForQa() { ShowPanel(appPanel); }
+        internal Toggle StartupForQa { get { return startup; } }
+        internal Toggle RemindersForQa { get { return reminders; } }
+        internal ModernButton LeadForQa { get { return leadButton; } }
+        internal void ChooseLeadForQa(int minutes) { leadButton.PerformClick(); leadMenu.ListForQa.ChooseForQa(minutes); }
+        // The reminder row: its words keep clear of the button, the button shows its whole label inside the sheet, and the
+        // sheet is on the panel.
+        internal bool LeadFitsForQa
+        {
+            get
+            {
+                var flags = TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine;
+                var slot = leadButton.Parent;
+                var hint = TextRenderer.MeasureText(leadHint.Text, leadHint.Font, new Size(leadHint.Width, int.MaxValue), TextFormatFlags.WordBreak);
+                return slot.Left >= leadHint.Right && slot.Right <= remindSheet.Width && slot.Bottom <= remindSheet.Height && hint.Height <= leadHint.Height &&
+                    TextRenderer.MeasureText(leadTitle.Text, leadTitle.Font, Size.Empty, flags).Width <= leadTitle.Width &&
+                    TextRenderer.MeasureText(leadButton.Text, leadButton.Font, Size.Empty, flags).Width <= leadButton.Width - Px(8) &&
+                    remindSheet.Bottom <= securitySheet.Top && reminders.FitsForQa;
+            }
+        }
         internal void ChangeForQa() { animations.Checked = !animations.Checked; }
         internal ModernButton WebDataClearForQa { get { return webDataClear; } }
         internal string WebDataHintForQa { get { return webDataHint.Text; } }
@@ -50,6 +69,8 @@ namespace Univer.Desktop.UI
         }
         internal bool AboutFitsForQa()
         {
+            // The app tab scrolls once its sheets are taller than the window; the note is read where scrolling brings it.
+            content.ScrollControlIntoView(about);
             var shown = content.RectangleToClient(about.RectangleToScreen(about.ClientRectangle));
             var text = TextRenderer.MeasureText(about.Text, about.Font, new Size(about.Width, int.MaxValue), TextFormatFlags.WordBreak);
             return about.Visible && shown.Top >= 0 && shown.Bottom <= content.ClientSize.Height && text.Height <= about.Height && about.Text.Contains(AppInfo.Version + " (" + AppInfo.Flavor + ", Chromium ");
@@ -61,7 +82,7 @@ namespace Univer.Desktop.UI
             var labels = new[] { logoutTitle, logoutHint, languageLabel, languageHint, themeLabel, privacy };
             var words = labels.Where(l => TextRenderer.MeasureText(l.Text, l.Font, Size.Empty, flags).Width > l.Width).Select(l => l.Text);
             var buttons = languages.Concat(themes).Where(b => TextRenderer.MeasureText(b.Text, b.Font, Size.Empty, flags).Width > b.Width - Px(8)).Select(b => b.Text);
-            var toggles = new[] { readable, tray, animations }.Where(t => !t.FitsForQa).Select(t => t.Text);
+            var toggles = new[] { readable, tray, startup, reminders, animations }.Where(t => !t.FitsForQa).Select(t => t.Text);
             return words.Concat(buttons).Concat(toggles).ToArray();
         }
     }

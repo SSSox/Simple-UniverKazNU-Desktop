@@ -30,6 +30,8 @@ namespace Univer.Desktop.UI
                 var steps = new List<KeyValuePair<string, Func<Task>>>
                 {
                     QaStep("settings", () => SettingsQaAsync(qa, results)),
+                    QaStep("autostart", () => AutostartQaAsync(qa, results)),
+                    QaStep("reminders", () => RemindersQaAsync(qa, results)),
                     QaStep("shell", () => ShellQaAsync(qa, results)),
                     QaStep("document", () => DocumentQaAsync(qa, results)),
                     QaStep("presentation", () => PresentationQaAsync(qa, results)),
@@ -46,6 +48,7 @@ namespace Univer.Desktop.UI
                     QaStep("speed", () => SpeedQaAsync(results)),
                     QaStep("idle", () => IdleQaAsync(results)),
                     QaStep("kept", () => KeptQaAsync(qa, results)),
+                    QaStep("schedule-copy", () => ScheduleCopyQaAsync(results)),
                     QaStep("product", () => ProductQaAsync(qa, results)),
                     QaStep("theme", () => ThemeQaAsync(qa, results)),
                     QaStep("notices", () => NoticesQaAsync(qa, results)),
@@ -342,7 +345,9 @@ namespace Univer.Desktop.UI
             var warningDismissed = prefs.LegacyWarningDismissed;
 #endif
             await context.GetCookieManager(null).SetCookieAsync(SitePolicy.Origin, new CefSharp.Cookie { Name = "qa_cookie", Value = Guid.NewGuid().ToString("N"), Path = "/", Secure = true });
+            var copy = Path.Combine(storage.Root, ScheduleFile.Name); File.WriteAllText(copy, "{}"); scheduleWeek = new ScheduleWeek { Classes = new List<ScheduleClass>() };
             await EndSessionAsync(false);
+            Check(!File.Exists(copy) && scheduleWeek == null, "logout removes the app's copy of the week", results);
             Check(messages.Current?.Action != MessageAction.Settings, "a logout puts no banner over the sign-in page", results);
             Check(prefs.AutoLoginPaused && storage.LoadPreferences().AutoLoginPaused, "logout durably pauses automation", results);
             Check(!prefs.SessionClearPending && !storage.LoadPreferences().SessionClearPending, "a finished logout leaves no session for the next start to clear", results);

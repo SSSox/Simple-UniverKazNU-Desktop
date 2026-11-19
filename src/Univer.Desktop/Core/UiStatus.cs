@@ -111,7 +111,7 @@ namespace Univer.Desktop.Core
             if (key == "saving") return new UiMessage(key, MessageTone.Working, MessageAction.None, 95);
             if (key == "settingsSaved") return new UiMessage(key, MessageTone.Success, MessageAction.None, 50, true);
             if (key == "lockOn" || key == "lockChanged" || key == "lockOff") return new UiMessage(key, MessageTone.Success, MessageAction.None, 50, true);
-            if (key == "lockFailed") return new UiMessage(key, MessageTone.Warning, MessageAction.None, 70, true);
+            if (key == "lockFailed" || key == "autostartFailed") return new UiMessage(key, MessageTone.Warning, MessageAction.None, 70, true);
             // The account ended after ten wrong PINs (or an unreadable PIN): sign in again from Settings.
             if (key == "lockWiped" || key == "lockUnavailable") return new UiMessage(key, MessageTone.Warning, MessageAction.Settings, 88, true);
             var working = key == "signingIn" || key == "confirming";
@@ -136,7 +136,7 @@ namespace Univer.Desktop.Core
             if (key == "pinFailed") return "pins";
             if (key == "noticesNew") return "notices";
             if (key == "manualSignIn" || key == "credentialsUnreadable" || key == "sessionReset") return "account";
-            if (key == "saving" || key == "settingsSaved" || key == "lockOn" || key == "lockChanged" || key == "lockOff" || key == "lockFailed") return "settings";
+            if (key == "saving" || key == "settingsSaved" || key == "lockOn" || key == "lockChanged" || key == "lockOff" || key == "lockFailed" || key == "autostartFailed") return "settings";
             if (key == "lockWiped" || key == "lockUnavailable") return "account";
             return "automation";
         }

@@ -326,5 +326,17 @@ begin
   Result := AppUpdate and CanLaunch;
 end;
 
+// Settings' "Start with Windows" writes one line naming this copy's Univer.Desktop.exe. Uninstalling removes that line,
+// and leaves it when it names another copy (a portable folder, the other edition).
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+var
+  Line: String;
+begin
+  if CurUninstallStep <> usUninstall then exit;
+  if RegQueryStringValue(HKCU, 'Software\Microsoft\Windows\CurrentVersion\Run', 'Univer.Desktop', Line) and
+     (Pos(Lowercase('"' + ExpandConstant('{app}') + '\Univer.Desktop.exe"'), Lowercase(Trim(Line))) = 1) then
+    RegDeleteValue(HKCU, 'Software\Microsoft\Windows\CurrentVersion\Run', 'Univer.Desktop');
+end;
+
 // No UninstallDelete section: only installer-owned files are removed.
 // The separate localappdata\Univer.Desktop account directory is never owned by setup.

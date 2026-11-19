@@ -60,12 +60,15 @@ namespace Univer.Desktop.Core
         public string WebProfile { get; set; } = Guid.NewGuid().ToString("N");
         // The one-time suggestion to protect the app with a PIN has been shown.
         public bool PinOffered { get; set; }
+        // A tray reminder before each class of the kept week (Core/ClassReminders.cs), this many minutes ahead.
+        public bool Reminders { get; set; } = true;
+        public int ReminderLead { get; set; } = ClassReminders.DefaultLead;
         public Preferences Clone()
         {
             return new Preferences { Language = Language, AutoLoginPaused = AutoLoginPaused, SessionClearPending = SessionClearPending, Readable = Readable, Sidebar = Sidebar,
                 Profile = Profile, Zoom = Zoom, Window = Window, Tray = Tray, Animations = Animations, LegacyWarningDismissed = LegacyWarningDismissed, Theme = Theme,
                 UpdateVersion = UpdateVersion, UpdateSkipped = UpdateSkipped, UpdateChecked = UpdateChecked,
-                ExternalLinks = ExternalLinks, WebProfile = WebProfile, PinOffered = PinOffered,
+                ExternalLinks = ExternalLinks, WebProfile = WebProfile, PinOffered = PinOffered, Reminders = Reminders, ReminderLead = ReminderLead,
                 Pins = (Pins ?? new List<PinnedLink>()).Select(p => p?.Clone()).ToList(), TileOrder = (TileOrder ?? new List<string>()).ToList(), HiddenTiles = (HiddenTiles ?? new List<string>()).ToList() };
         }
     }
@@ -155,6 +158,9 @@ namespace Univer.Desktop.Core
             preferences.AutoLoginPaused = true; preferences.SessionClearPending = false;
             if (!save) return true;
             try { File.Delete(Path.Combine(root, "notices.json")); }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+            try { ScheduleFile.Remove(root); }
             catch (IOException) { }
             catch (UnauthorizedAccessException) { }
             // A failed write leaves the mark on disk, and the next start finishes the change again.
@@ -263,6 +269,10 @@ namespace Univer.Desktop.Core
                 else AtomicFile.Write(path, Encoding.UTF8.GetBytes(json.Serialize(snapshot)));
             }));
         }
+        // The app's copy of this week's classes (Core/ScheduleCopy.cs); another account's, damaged or missing is none.
+        public ScheduleWeek LoadSchedule(string account) { return ScheduleFile.Read(root, account); }
+        public Task SaveScheduleAsync(ScheduleWeek week) { return writes.RunAsync(() => Task.Run(() => ScheduleFile.Write(root, week))); }
+        public Task RemoveScheduleAsync() { return writes.RunAsync(() => Task.Run(() => ScheduleFile.Remove(root))); }
         public Task CleanOldProfilesAsync(string active) { return writes.RunAsync(() => Task.Run(() => CleanOldProfiles(active))); }
         public string BrowserRoot { get { return Path.Combine(root, browserFlavor == BrowserProfileFlavor.Modern ? "Browser-Modern" : "Browser"); } }
         public string ProfilePath(string profile)
