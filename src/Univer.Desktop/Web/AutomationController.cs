@@ -17,7 +17,6 @@ namespace Univer.Desktop.Web
         // Limits on the automation clock, in milliseconds.
         private const long OutcomeLimit = 25000, FormLimit = 45000, LanguageWindow = 60000, LanguagePause = 5000;
         private const int LanguageAttempts = 3;
-        private const string ProbeScript = "window.__univerAutomationV1 ? JSON.stringify(window.__univerAutomationV1.probe()) : 'bootstrap'";
         private readonly JavaScriptSerializer json = new JavaScriptSerializer();
         // Page scripts in load order, read once per process and reused by every session and registration.
         private static readonly Lazy<string> Bundle = new Lazy<string>(() => Scripts("paint-gate.js", "page-common.js", "univer-automation.js", "news.js", "study-links.js", "study-pages.js", "course-tasks.js", "syllabus-tasks.js", "attendance.js", "grade-report.js", "overview.js", "shortcuts.js", "notices.js", "page-polish.js", "univer-layout.js", "theme.js", "kit.js", "back-to-top.js", "desktop.js"));
@@ -54,11 +53,15 @@ namespace Univer.Desktop.Web
             // Parsed: the view is applied and the app is told at once, so the page is uncovered now and not at the next poll.
             // The page's own clock times the bundle and the view (QA step "speed" reads __univerTimingV1); it is bound before any
             // page script runs, so a replaced performance.now is never called.
-            return "(function(__univerNative){'use strict';var __now=performance.now.bind(performance),__start=__now(),__bundle=0,__view=0;\n" + bundle + "\n__bundle=__now()-__start;" + TimingScript + ConfigurePaint(active) + Early(prefs) +
+            return "(function(__univerNative){'use strict';var __now=performance.now.bind(performance),__start=__now(),__bundle=0,__view=0;\n" + bundle + "\n__bundle=__now()-__start;" + TimingScript + WakeScript + ConfigurePaint(active) + Early(prefs) +
                 "document.addEventListener('DOMContentLoaded',function(){var at=__now();try{" + ApplyView(prefs, viewer) + "}finally{__view=__now()-at;if(__univerNative)__univerNative('univer-dom');}},{once:true});\n})(" +
                 NativeChannel.Script(MessageKey) + ");";
         }
-        private const string TimingScript = "try{Object.defineProperty(window,'__univerTimingV1',{value:Object.freeze({get bundle(){return __bundle},get view(){return __view}})});}catch(_){}";
+        private const string TimingScript = "try{Object.defineProperty(window,'__univerTimingV1',{value:Object.freeze({get bundle(){return __bundle},get view(){return __view},wakes:!!__univerNative})});}catch(_){}";
+        // The user's own presses in any frame, at most one message a second: a quiet page is asked rarely (ProbePace) until
+        // one comes. Strict like the rest of the closure, and it calls only the bound clock and the sender.
+        private const string WakeScript = "if(__univerNative)(function(){var last=-1e9,wake=function(e){if(!e.isTrusted)return;var at=__now();if(at-last<1000)return;last=at;__univerNative('univer-wake');};" +
+            "window.addEventListener('pointerdown',wake,true);window.addEventListener('keydown',wake,true);})();";
         // Only the app's scripts inside the closure above hold this run's key (NativeChannel).
         public readonly string MessageKey = NativeChannel.NewKey();
         public string Unwrap(string message) { return NativeChannel.Unwrap(MessageKey, message); }
@@ -75,7 +78,7 @@ namespace Univer.Desktop.Web
         }
         // The app's dark theme, for the reading layout; Original layout ignores it.
         public bool Dark { get; set; }
-        public void Navigating() { generation++; began = clock.ElapsedMilliseconds; guard.Navigated(); ticks.Drop(); navigation.Raise(); }
+        public void Navigating() { generation++; Quiet = SignedInQuiet = false; began = clock.ElapsedMilliseconds; guard.Navigated(); ticks.Drop(); navigation.Raise(); }
         // A tick's read sent while the page is being replaced (before or after the navigation began) can stay unanswered
         // until CEF's three-second deadline, and the next page waited under the cover behind it (18 Nov 2026: about every
         // second run of QA step "speed"). Reads stop waiting when a navigation begins and when the new document has parsed:
@@ -86,21 +89,22 @@ namespace Univer.Desktop.Web
         { return TaskDeadline.UntilAsync(EvaluateAsync(browser, script), navigation.Next, null); }
         public void Retry()
         {
-            generation++; guard.Retry(); pendingAgreement = null; failedAgreement = false; stopStatus = null;
+            generation++; Quiet = SignedInQuiet = false; guard.Retry(); pendingAgreement = null; failedAgreement = false; stopStatus = null;
             failedNotice = null; noticeTimer.Reset(); agreementTimer.Reset(); switches.Clear();
         }
         // An automatic reload: this page's failures and confirmation reservations are forgotten, every attempt budget stays.
         public void Recover()
         {
-            generation++; pendingAgreement = null; failedAgreement = false;
+            generation++; Quiet = SignedInQuiet = false; pendingAgreement = null; failedAgreement = false;
             failedNotice = null; noticeTimer.Reset(); agreementTimer.Reset();
             guard.Notices.Forget(); guard.Agreements.Forget();
         }
         // The page the site replaced by its login form, reopened once after the automatic sign-in; null forgets it.
         public void ResumeAfterLogin(string url) { resumeUrl = url; resumePending = false; }
-        public void LanguageSelected() { generation++; switches.Clear(); switchUntil = clock.ElapsedMilliseconds + LanguagePause; }
+        public void LanguageSelected() { generation++; Quiet = SignedInQuiet = false; switches.Clear(); switchUntil = clock.ElapsedMilliseconds + LanguagePause; }
         public void AjaxOutcome(string kind, string challenge, bool success)
         {
+            Quiet = SignedInQuiet = false;
             if (kind == "reauth") guard.ReauthResult(challenge, success);
             else if (kind == "agreement" && pendingAgreement != null && pendingAgreement == challenge)
             { pendingAgreement = null; failedAgreement = !success; }
@@ -121,55 +125,99 @@ namespace Univer.Desktop.Web
         }
         private async Task OneTickAsync(Tick tick)
         {
-            var epoch = generation;
-            try { await StepAsync(tick.Browser, tick.Credentials, tick.Prefs, tick.Viewer, epoch); }
-            catch (Exception) { if (epoch == generation && !tick.Browser.IsDisposed) status("scriptWaiting"); }
+            var epoch = generation; Probe after = null; var revealed = false;
+            Quiet = SignedInQuiet = calm = calmSignedIn = acted = false; probedAt = clock.ElapsedMilliseconds; Ticks++;
+            try { after = await StepAsync(tick.Browser, tick.Credentials, tick.Prefs, tick.Viewer, epoch); }
+            catch (Exception) { acted = true; if (epoch == generation && !tick.Browser.IsDisposed) status("scriptWaiting"); }
             finally
             {
-                try { await RevealAsync(tick.Browser, tick.Credentials, tick.Prefs, tick.Viewer, epoch); }
+                // The step's second probe serves the reveal unless the step changed the page after it.
+                try { revealed = await RevealAsync(tick.Browser, tick.Credentials, tick.Prefs, tick.Viewer, epoch, acted ? null : after); }
                 catch (Exception) { /* Native deadline exposes a recoverable error instead of an endless cover. */ }
+                if (epoch == generation && calm && revealed && !acted) { Quiet = true; SignedInQuiet = calmSignedIn; }
             }
         }
-        // Probes the page, applies the view, then takes at most one sign-in, language, notice or agreement action.
-        private async Task StepAsync(ChromiumWebBrowser browser, Credentials credentials, Preferences prefs, bool viewer, int epoch)
+        // A quiet page: shown, prepared and waiting for nothing the app would do. Its changes come as events (the paint gate's
+        // known form, the user's presses, a navigation), so MainForm asks it rarely (ProbePace) and keeps its own service work.
+        // SignedInQuiet: the last tick also ended at SignedInContent.
+        public bool Quiet { get; private set; }
+        public bool SignedInQuiet { get; private set; }
+        // Ticks run so far, for self-test.
+        public int Ticks { get; private set; }
+        private bool calm, calmSignedIn, acted;
+        private long probedAt, inputAt = -ProbePace.Active;
+        public bool RecentInput { get { return clock.ElapsedMilliseconds - inputAt < ProbePace.Active; } }
+        // The user pressed something on the page or came back to the window. forget: self-test starts a quiet stretch.
+        public void Woken(bool forget = false) { inputAt = forget ? -ProbePace.Active : clock.ElapsedMilliseconds; }
+        public bool ProbeDue(bool shown) { var now = clock.ElapsedMilliseconds; return !Quiet || ProbePace.Due(shown, now - inputAt, now - probedAt); }
+        // The paint gate's sign-in state and the view; each step stays isolated so a failing layout cannot hide the viewer's
+        // legacy Back.
+        private string ViewScript(Preferences prefs, bool viewer, bool active)
+        { return "try{" + ConfigurePaint(active && !guard.Blocked && !guard.CoverSuspended) + "}catch(_){}try{" + ApplyView(prefs, viewer) + "}catch(_){}"; }
+        // One round trip for a tick's reads: the probe the step decides on, the view, then the probe the reveal decides on.
+        // wakes: this document has the app's sender, so it reports presses and known forms itself.
+        private string StepScript(Preferences prefs, bool viewer, bool active)
         {
-            var raw = await ReadAsync(browser, ProbeScript);
-            // A page the document script missed gets the bundle without a sender: by now page scripts ran and may have
-            // planted a binding of their own, so the key never goes there. Sign-in still works through this probe.
-            if (raw == "bootstrap") raw = await ReadAsync(browser, "(function(__univerNative){'use strict';\n" + bundle + "\n})(null);\nJSON.stringify(window.__univerAutomationV1.probe())");
-            if (epoch != generation || raw == null || !SitePolicy.Trusted(browser.Address)) return;
-            var p = new Probe(json.Deserialize<Dictionary<string, object>>(raw));
-            if (!p.Bool("trusted")) return;
+            return "(function(){var a=window.__univerAutomationV1;if(!a)return 'bootstrap';var p=a.probe();if(!p.trusted)return JSON.stringify({probe:p});" + ViewScript(prefs, viewer, active) +
+                "return JSON.stringify({probe:p,applied:window.__univerDesktop&&window.__univerDesktop.close?'close':'ok',after:a.probe(),wakes:!!(window.__univerTimingV1&&window.__univerTimingV1.wakes===true)})})()";
+        }
+        // Probes the page, applies the view, then takes at most one sign-in, language, notice or agreement action. Returns
+        // the probe taken after the view, or null when the reveal must read the page itself.
+        private async Task<Probe> StepAsync(ChromiumWebBrowser browser, Credentials credentials, Preferences prefs, bool viewer, int epoch)
+        {
             // A password still sealed under the PIN is a wait: no sign-in is tried (and counted) until the PIN opens it.
             var active = Credentials.SignInActive(credentials, prefs);
-            // One round trip; each step stays isolated so a failing layout cannot hide the viewer's legacy Back.
-            var applied = await ReadAsync(browser, "try{" + ConfigurePaint(active && !guard.Blocked && !guard.CoverSuspended) + "}catch(_){}try{" + ApplyView(prefs, viewer) + "}catch(_){}" +
-                "window.__univerDesktop.close ? 'close' : 'ok'");
+            var raw = await ReadAsync(browser, StepScript(prefs, viewer, active));
+            Probe p, after = null; string applied; var wakes = false;
+            if (raw == "bootstrap")
+            {
+                // A page the document script missed gets the bundle without a sender: by now page scripts ran and may have
+                // planted a binding of their own, so the key never goes there. Sign-in still works through this probe.
+                raw = await ReadAsync(browser, "(function(__univerNative){'use strict';\n" + bundle + "\n})(null);\nJSON.stringify(window.__univerAutomationV1.probe())");
+                if (epoch != generation || raw == null || !SitePolicy.Trusted(browser.Address)) return null;
+                p = new Probe(json.Deserialize<Dictionary<string, object>>(raw));
+                if (!p.Bool("trusted")) return null;
+                applied = await ReadAsync(browser, ViewScript(prefs, viewer, active) + "window.__univerDesktop.close ? 'close' : 'ok'");
+            }
+            else
+            {
+                if (epoch != generation || raw == null || !SitePolicy.Trusted(browser.Address)) return null;
+                var answer = new Probe(json.Deserialize<Dictionary<string, object>>(raw));
+                p = answer.Part("probe");
+                if (p == null || !p.Bool("trusted")) return null;
+                applied = answer.Str("applied"); after = answer.Part("after"); wakes = answer.Bool("wakes");
+            }
             // Poll legacy history.back/go without exposing a privileged native bridge.
-            if (viewer && applied == "close") { closeViewer(); return; }
-            if (epoch != generation || !p.Bool("ready")) return;
+            if (viewer && applied == "close") { closeViewer(); return null; }
+            if (epoch != generation || !p.Bool("ready")) return after;
             var now = clock.ElapsedMilliseconds; var doc = p.Str("document");
-            if (active && await PendingSignInAsync(browser, credentials, p, doc, now, viewer)) return;
-            if (await LanguageAsync(browser, prefs, p, now)) return;
-            if (!active) return;
-            if (p.Bool("loginPage")) { await LoginAsync(browser, credentials, p, doc, now); return; }
+            if (active && await PendingSignInAsync(browser, credentials, p, doc, now, viewer)) return after;
+            if (await LanguageAsync(browser, prefs, p, now)) return after;
+            // Calm only where the document reports its own changes, the cover is the app's to lift and the language is the
+            // chosen one (or the site kept its own after every attempt).
+            var language = p.Str("language");
+            var settled = wakes && !guard.CoverSuspended && (language.Length == 0 || language == prefs.Language || switches.Count >= LanguageAttempts);
+            if (!active) { calm = settled; return after; }
+            if (p.Bool("loginPage")) { await LoginAsync(browser, credentials, p, doc, now); return after; }
             if (guard.LoginDocument != null && p.Bool("hasContent")) { guard.Authenticated(); resumePending = resumeUrl != null; status("ready"); }
-            if (await NoticeAsync(browser, p, doc, now, epoch)) return;
+            if (await NoticeAsync(browser, p, doc, now, epoch)) return after;
             await AgreementAsync(browser, p, doc, now);
             if (!p.Bool("notice") && !p.Bool("agreement"))
             {
                 status("ready");
-                if (!p.Bool("hasContent") || guard.LoginDocument != null || guard.ReauthChallenge != null) return;
+                if (!p.Bool("hasContent") || guard.LoginDocument != null || guard.ReauthChallenge != null) return after;
                 // The read notice and agreement come first; then the page the ended session was asked for.
                 var resume = resumeUrl;
                 if (resumePending && !viewer)
                 {
                     resumeUrl = null; resumePending = false;
                     // The new generation keeps this page covered until the reopened one is prepared.
-                    if (!SitePolicy.SamePage(resume, browser.Address) && SitePolicy.Resumable(resume)) { generation++; browser.Load(resume); return; }
+                    if (!SitePolicy.SamePage(resume, browser.Address) && SitePolicy.Resumable(resume)) { generation++; browser.Load(resume); return null; }
                 }
                 SignedInContent?.Invoke();
+                calm = calmSignedIn = settled;
             }
+            return after;
         }
         // Signing in again needs no user: a newer document of the site continues, and a reload brings one.
         private void Restore(bool reload) { status("sessionRestoring"); if (reload) RecoveryNeeded?.Invoke(); }
@@ -286,25 +334,31 @@ namespace Univer.Desktop.Web
         }
         // Reveals the prepared page once it no longer waits for a sign-in, language switch or agreement; a failure is
         // revealed too, so the page is never left under the loading cover.
-        private async Task RevealAsync(ChromiumWebBrowser browser, Credentials credentials, Preferences prefs, bool viewer, int epoch)
+        // known: the probe the step took after the view. True when the page is uncovered.
+        private async Task<bool> RevealAsync(ChromiumWebBrowser browser, Credentials credentials, Preferences prefs, bool viewer, int epoch, Probe known)
         {
-            if (epoch != generation || browser.IsDisposed || !SitePolicy.Trusted(browser.Address)) return;
-            var latest = await ReadAsync(browser, "window.__univerAutomationV1 ? JSON.stringify(window.__univerAutomationV1.probe()) : null");
-            if (latest == null || epoch != generation) return;
-            var value = new Probe(json.Deserialize<Dictionary<string, object>>(latest));
+            if (epoch != generation || browser.IsDisposed || !SitePolicy.Trusted(browser.Address)) return false;
+            var value = known;
+            if (value == null)
+            {
+                var latest = await ReadAsync(browser, "window.__univerAutomationV1 ? JSON.stringify(window.__univerAutomationV1.probe()) : null");
+                if (latest == null || epoch != generation) return false;
+                value = new Probe(json.Deserialize<Dictionary<string, object>>(latest));
+            }
             var active = Credentials.SignInActive(credentials, prefs);
             var failed = guard.Blocked || guard.CoverSuspended || failedAgreement || (failedNotice != null && failedNotice == value.Str("noticeEpisode"));
             var languagePending = !value.Bool("hasPendingForm") && value.Str("language").Length > 0 && value.Str("language") != prefs.Language && switches.Count < LanguageAttempts;
             // Reveal at DOMContentLoaded: images and late resources keep loading under the adapted page. After an automatic
             // sign-in the page in between stays covered until the page that was asked for reopens.
             var hold = !value.Bool("domReady") || (!failed && (languagePending || (active && (value.Bool("hasPendingForm") || guard.ReauthChallenge != null || pendingAgreement != null || (resumePending && !viewer)))));
-            if (hold) { presentation(browser, true); return; }
+            if (hold) { presentation(browser, true); return false; }
             var result = await ReadAsync(browser, "window.__univerPaintV1.complete(" + Js(failed) + "," + Js(prefs.Readable) + "," + Js(viewer) + "," + Quote(prefs.Language) + ")");
-            if (epoch == generation && result == "paint-ready") presentation(browser, false);
+            if (epoch != generation || result != "paint-ready") return false;
+            presentation(browser, false); return true;
         }
         public async Task<string> CallAsync(ChromiumWebBrowser browser, string method, params string[] args)
         {
-            var quoted = Array.ConvertAll(args, Quote);
+            var quoted = Array.ConvertAll(args, Quote); acted = true;
             return await EvaluateAsync(browser, "window.__univerAutomationV1." + method + "(" + string.Join(",", quoted) + ")");
         }
         private string Quote(string value) { return json.Serialize(value).Replace("\u2028", "\\u2028").Replace("\u2029", "\\u2029"); }
@@ -334,6 +388,7 @@ namespace Univer.Desktop.Web
             public Probe(Dictionary<string, object> values) { this.values = values ?? new Dictionary<string, object>(); }
             public string Str(string key) { object value; return values.TryGetValue(key, out value) ? value as string ?? "" : ""; }
             public bool Bool(string key) { object value; return values.TryGetValue(key, out value) && value is bool && (bool)value; }
+            public Probe Part(string key) { object value; var part = values.TryGetValue(key, out value) ? value as Dictionary<string, object> : null; return part == null ? null : new Probe(part); }
             public int Int(string key) { object value; return values.TryGetValue(key, out value) ? Convert.ToInt32(value) : 0; }
         }
     }

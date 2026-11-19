@@ -43,7 +43,8 @@ test('the bundle runs strict in both entry points, and the late bootstrap never 
   const entries = controller.match(/"\(function\(__univerNative\)\{[^"]*"/g) || [];
   assert.equal(entries.length, 2, 'document script and bootstrap fallback');
   entries.forEach(entry => assert.ok(entry.includes("'use strict'"), entry));
-  assert.match(controller, /raw == "bootstrap"[^\n]*\}\)\(null\);/);
+  // The fallback is the branch right under the check (a comment and one call), and its sender is null.
+  assert.match(controller, /raw == "bootstrap"\)\s*\{(?:\s*\/\/[^\n]*)*\s*raw = [^\n]*\}\)\(null\);/);
   // Every bundle asset is strict from its first statement, so no frame between a page getter and the sender is sloppy.
   const sloppy = fs.readdirSync('src/Univer.Desktop/Assets').filter(f => f.endsWith('.js'))
     .filter(f => !/^\s*(?:\/\/[^\n]*\n|\/\*[\s\S]*?\*\/\s*)*\s*\(function\s*\w*\s*\([^)]*\)\s*\{\s*'use strict'/.test(fs.readFileSync('src/Univer.Desktop/Assets/' + f, 'utf8')));

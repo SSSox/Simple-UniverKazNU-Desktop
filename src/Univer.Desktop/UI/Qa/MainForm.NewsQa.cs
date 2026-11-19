@@ -75,7 +75,9 @@ namespace Univer.Desktop.UI
             await AutomationController.EvaluateAsync(main, "document.querySelector('[data-univer-results] .univer-app-news-toggle').click();window.__univerDesktop.apply(false,false,'ru');'original'");
             Check(await AutomationController.EvaluateAsync(main, "!document.querySelector('.univer-app-news-body,.univer-app-news-toggle')&&document.getElementById('qa-news-tail')===window.qaNewsTail?'restored':''") == "restored", "Original unwraps news and preserves the original article link", results);
             Width = 1360;
-            await AutomationController.EvaluateAsync(main, "sessionStorage.removeItem('univer.desktop.news-filter.v1');'cleared'");
+            // The page's own reset empties the filter it keeps in memory: a tick that reaches this page before the next one
+            // loads puts it back into the reading view, and a filter still in memory would be saved again.
+            await AutomationController.EvaluateAsync(main, "window.__univerDesktop.apply(true,false,'ru');document.querySelector('.univer-app-news-reset').click();sessionStorage.removeItem('univer.desktop.news-filter.v1');'cleared'");
             var many = NewsQaPage(NewsQaRow("08", "Синтетическая новость"), true);
             var fetch = "<script>sessionStorage.removeItem('univer.desktop.news-page-count.v1');window.fetch=async function(path){var p=+path.split('/').pop(),body=" + json.Serialize(many) + ";body=body.replace('Страница 1','Страница '+p).replace('/my/news/2','/my/news/'+(p+1));if(p>=20)body=body.replace(/<a href='[^']+'>2<\\/a>/,'');return {status:200,url:new URL(path,location.origin).href,headers:{get:function(){return null}},text:async function(){return body;}}};</script>";
             main.LoadHtml(heading + fetch + many, SitePolicy.Origin + "/news/student"); await WaitQaPresentationAsync();

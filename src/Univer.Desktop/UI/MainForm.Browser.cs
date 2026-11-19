@@ -92,7 +92,7 @@ namespace Univer.Desktop.UI
             context = new RequestContext(new RequestContextSettings { CachePath = storage.ProfilePath(prefs.Profile), PersistSessionCookies = true });
             guard = new SessionGuard();
             automation = new AutomationController(guard, key => { if (epoch == sessionEpoch) SetStatus(key); }, CloseDocument, SetPresentation);
-            automation.SignedInContent = () => { if (epoch == sessionEpoch) { RecoverySucceeded(); ResumeDownload(); NoticeContent(); MaybeOfferPin(); } };
+            automation.SignedInContent = () => { if (epoch == sessionEpoch) SignedInWork(); };
             automation.RecoveryNeeded = () => { if (epoch == sessionEpoch) PageNeedsRecovery(); };
             automation.Dark = Theme.Dark;
             resumeDownload = null;
@@ -275,6 +275,8 @@ namespace Univer.Desktop.UI
             // The site window keeps reading its sections while a printed document is shown over it.
             if (value != null && value.StartsWith(Notices.MessagePrefix, StringComparison.Ordinal)) { ReceiveNoticeMessage(browser, viewer, value, trusted, mainFrame); return; }
             if (!trusted || value == null || Active != browser) return;
+            // A press in any frame of the shown page.
+            if (value == "univer-wake") { PageWoken(browser); return; }
             if (value == "univer-busy") { SetPresentation(browser, true); QueueAsync(() => automation.TickAsync(browser, credentials, prefs, viewer)); return; }
             // The main document has parsed: one tick now uncovers it (or signs in) without waiting for the 200 ms poll.
             if (value == "univer-dom") { if (mainFrame) { automation.DocumentParsed(); QueueAsync(() => automation.TickAsync(browser, credentials, prefs, viewer)); } return; }

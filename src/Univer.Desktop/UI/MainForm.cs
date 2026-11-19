@@ -124,10 +124,12 @@ namespace Univer.Desktop.UI
                     finally { recoveringPresentation = false; }
                     return;
                 }
-                await automation.TickAsync(Active, credentials, prefs, document != null);
+                // A quiet page is asked rarely (ProbePace); what the tick does for the app itself goes on every second.
+                if (PageSettled && !automation.ProbeDue(Visible && WindowState != FormWindowState.Minimized)) { if (automation.SignedInQuiet) SignedInWork(); }
+                else await automation.TickAsync(Active, credentials, prefs, document != null);
                 UpdateHistoryButtons(); UpdatePollingRate();
             };
-            Resize += (s, e) => UpdatePollingRate(); VisibleChanged += (s, e) => UpdatePollingRate(); Activated += (s, e) => { EnterUpdates(); if (DownloadsVisible) QueueAsync(PruneDownloadsAsync); };
+            Resize += (s, e) => UpdatePollingRate(); VisibleChanged += (s, e) => UpdatePollingRate(); Activated += (s, e) => { EnterUpdates(); PageWoken(Active); if (DownloadsVisible) QueueAsync(PruneDownloadsAsync); };
             FormClosing += (s, e) =>
             {
                 // Chromium 109 may post a delayed WM_CLOSE while a child browser is disposed.
@@ -556,10 +558,23 @@ namespace Univer.Desktop.UI
             // Serialized behind any pending settings write; a failure only loses the window position.
             try { storage.SavePreferencesAsync(snapshot).Wait(TimeSpan.FromSeconds(2)); } catch (Exception) { }
         }
-        // Each poll is several round trips into Chromium. While nobody can see the window (tray or minimized), and once a shown
-        // page has settled, sign-in, notices and agreements keep running at a calmer 1 s pace; their deadlines and attempt
-        // budgets use real time. A navigation goes back to the fast pace at once.
-        private bool PageSettled { get { return !selfTest && !accountReview && !loading.Visible && document == null && guard.ReauthChallenge == null && DateTime.UtcNow - presentationBegan > TimeSpan.FromSeconds(10); } }
+        // Each poll is round trips into Chromium. While nobody can see the window (tray or minimized), and once a shown page
+        // has settled, the timer runs at a calmer 1 s pace; deadlines and attempt budgets use real time. A navigation goes
+        // back to the fast pace at once. A settled page that is also quiet (AutomationController.Quiet) is asked more rarely
+        // still (ProbePace), while the timer keeps doing the app's own work.
+        private bool PageSettled { get { return (settledForQa || !selfTest && !accountReview && DateTime.UtcNow - presentationBegan > TimeSpan.FromSeconds(10)) && !loading.Visible && document == null && guard.ReauthChallenge == null; } }
+        // Self-test's own quiet stretch (QA step "idle"); otherwise a self-test page never counts as settled.
+        private bool settledForQa;
+        // What every tick on a signed-in page does for the app; a quiet page's skipped ticks do it too.
+        private void SignedInWork() { RecoverySucceeded(); ResumeDownload(); NoticeContent(); MaybeOfferPin(); }
+        // The user pressed something on the shown page or came back to the window: a page that was being asked rarely is
+        // asked now, and every second for a while (ProbePace.Active).
+        private void PageWoken(ChromiumWebBrowser browser)
+        {
+            if (automation == null || browser == null || browser != Active) return;
+            var rested = !automation.RecentInput; automation.Woken();
+            if (rested && timer.Enabled && !closing && !rotating && !commandBusy && !error) QueueAsync(() => automation.TickAsync(browser, credentials, prefs, document != null));
+        }
         private void UpdatePollingRate()
         {
             var interval = Visible && WindowState != FormWindowState.Minimized && !PageSettled ? 200 : 1000;
