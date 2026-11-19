@@ -22,6 +22,55 @@ namespace Univer.Desktop.UI
                     "function k(a,b){var x=L(a),y=L(b);return (Math.max(x,y)+.05)/(Math.min(x,y)+.05)}var c=Array.from(document.querySelectorAll('.univer-app-attendance-overview .univer-app-overview-score'));" +
                     "return c.map(function(n){var bg=getComputedStyle(n).backgroundColor;return n.dataset.univerBand+':'+Math.round(L(bg)*1000)+':'+k(getComputedStyle(n.querySelector('.univer-app-overview-score-value')).color,bg).toFixed(1)+':'+k(getComputedStyle(n.querySelector('.univer-app-overview-score-label')).color,bg).toFixed(1)}).join('|')})()";
         private const string ReportQaHost = "document.getElementById('univer-app-report')";
+        // The goal level and the absences, on the page (both themes, wide and narrow) and on the sheet and its picture.
+        // The goal is set back to none at the end: the long journal below is checked without one.
+        private async Task ReportQaGoalAsync(string qa, string folder, List<string> results)
+        {
+            var absences = await FixesEvalAsync("(function(){var a=document.querySelectorAll('.univer-app-attendance-absences');return a.length+'|'+(a[0]?a[0].textContent:'')})()");
+            QaTrace("report-absences " + absences);
+            Check(absences == "1|Пропуски2", "a course card counts the journal's «н» marks, a course without one shows none (" + absences + ")", results);
+            await FixesEvalAsync("document.querySelector('.univer-app-attendance-actions .univer-app-goal button[data-goal=top]').click();'goal'"); await Task.Delay(300);
+            // The goal's buttons and the summary's button share the filter row: none overlaps another or runs out of the window.
+            const string row = "(function(){var b=Array.from(document.querySelectorAll('.univer-app-attendance-filter-row button')).filter(function(n){return n.offsetWidth}).map(function(n){return n.getBoundingClientRect()});" +
+                "var clash=b.some(function(x,i){return b.some(function(y,j){return i<j&&x.left<y.right-1&&y.left<x.right-1&&x.top<y.bottom-1&&y.top<x.bottom-1})});" +
+                "var out=b.some(function(x){return x.right>innerWidth||x.left<0});var n=document.querySelector('.univer-app-score-total [data-univer-left]');var g=document.querySelector('.univer-app-goal button[aria-pressed=true]');" +
+                "return b.length+'|'+clash+'|'+out+'|'+(document.documentElement.scrollWidth<=innerWidth+2)+'|'+(n?n.textContent+'|'+getComputedStyle(n).backgroundColor:'none')+'|'+(g?g.textContent+':'+Math.round(g.getBoundingClientRect().height):'')})()";
+            var wide = await FixesEvalAsync(row); QaTrace("report-goal-wide " + wide);
+            Check(wide.StartsWith("9|false|false|true|ещё 27 до 90|rgb(", StringComparison.Ordinal) && wide.EndsWith("|Отлично:40", StringComparison.Ordinal), "the goal switch sits beside the summary button and the totals count to it, highlighted (" + wide + ")", results);
+            await FixesEvalAsync("scrollTo(0,0);'ok'"); await Task.Delay(150);
+            using (var client = main.GetDevToolsClient()) File.WriteAllBytes(Path.Combine(qa, "report-goal.png"), (await client.Page.CaptureScreenshotAsync()).Data);
+            await FixesEvalAsync("document.querySelector('.univer-app-score-total').scrollIntoView({block:'center'});'ok'"); await Task.Delay(200);
+            using (var client = main.GetDevToolsClient()) File.WriteAllBytes(Path.Combine(qa, "report-goal-total.png"), (await client.Page.CaptureScreenshotAsync()).Data);
+            await FixesEvalAsync("scrollTo(0,0);'ok'");
+            Width = 900; await Task.Delay(300);
+            var narrow = await FixesEvalAsync(row); QaTrace("report-goal-narrow " + narrow);
+            Check(narrow.StartsWith("9|false|false|true|", StringComparison.Ordinal), "in a narrow window the goal switch wraps without covering anything (" + narrow + ")", results);
+            using (var client = main.GetDevToolsClient()) File.WriteAllBytes(Path.Combine(qa, "report-goal-narrow.png"), (await client.Page.CaptureScreenshotAsync()).Data);
+            Width = 1360; await Task.Delay(200);
+            prefs.Theme = ThemeChoice.Dark; ApplyTheme(); await RefreshDocumentScriptsAsync(); await ApplyPresentationAsync(); await Task.Delay(700);
+            const string plate = "(function(){function L(c){var m=c.match(/\\d+(\\.\\d+)?/g).map(Number).slice(0,3).map(function(v){v/=255;return v<=.04045?v/12.92:Math.pow((v+.055)/1.055,2.4)});return .2126*m[0]+.7152*m[1]+.0722*m[2]}" +
+                "return Array.from(document.querySelectorAll('.univer-app-score-total [data-univer-left]')).map(function(n){var s=getComputedStyle(n),x=L(s.color),y=L(s.backgroundColor);return ((Math.max(x,y)+.05)/(Math.min(x,y)+.05)).toFixed(1)+':'+Math.round(y*1000)}).join('|')})()";
+            var dark = await FixesEvalAsync(plate); QaTrace("report-goal-dark " + dark);
+            var darkParts = dark.Split('|').Select(x => x.Split(':')).Where(x => x.Length == 2).ToList();
+            Check(darkParts.Count > 0 && darkParts.All(x => double.Parse(x[0], System.Globalization.CultureInfo.InvariantCulture) >= 4.5 && double.Parse(x[1], System.Globalization.CultureInfo.InvariantCulture) < 60), "in the dark theme the «left» plate is dark and keeps 4.5:1 (" + dark + ")", results);
+            await FixesEvalAsync("document.querySelector('.univer-app-score-total').scrollIntoView({block:'center'});'ok'"); await Task.Delay(200);
+            using (var client = main.GetDevToolsClient()) File.WriteAllBytes(Path.Combine(qa, "report-goal-dark.png"), (await client.Page.CaptureScreenshotAsync()).Data);
+            prefs.Theme = ThemeChoice.Light; ApplyTheme(); await RefreshDocumentScriptsAsync(); await ApplyPresentationAsync(); await Task.Delay(500);
+            await FixesEvalAsync("scrollTo(0,0);document.querySelector('.univer-app-attendance-report').click();'open'"); await Task.Delay(300);
+            var sheet = await FixesEvalAsync("(function(){var h=" + ReportQaHost + ",r=h.shadowRoot,a=r.querySelector('.aim'),g=r.querySelector('.goal-row');h.setAttribute('data-mode','capture');var off=getComputedStyle(g).display;h.removeAttribute('data-mode');" +
+                "return (a?a.textContent:'')+'|'+r.querySelectorAll('.note .left').length+'|'+off+'|'+r.querySelectorAll('.missed').length+'|'+(r.querySelector('.goal-row button[aria-pressed=true]')||{}).textContent})()");
+            QaTrace("report-goal-sheet " + sheet);
+            Check(sheet.StartsWith("Цель: «Отлично» — от 90 баллов.", StringComparison.Ordinal) && sheet.EndsWith("|5|none|1|Отлично", StringComparison.Ordinal), "the sheet names the goal, highlights what is left, counts absences and keeps its switch off the picture (" + sheet + ")", results);
+            using (var client = main.GetDevToolsClient()) File.WriteAllBytes(Path.Combine(qa, "report-goal-sheet.png"), (await client.Page.CaptureScreenshotAsync()).Data);
+            await ReportAsync(main, GradeReport.Png);
+            var picture = Directory.GetFiles(folder, "*.png").FirstOrDefault();
+            Check(picture != null && ReportQaWhole(picture, true), "the picture with a goal is one whole page (" + (picture == null ? "none" : ReportQaSize(picture)) + ")", results);
+            if (picture != null) File.Copy(picture, Path.Combine(qa, "report-picture-goal.png"), true);
+            await FixesEvalAsync("(function(){var r=" + ReportQaHost + ".shadowRoot;r.querySelector('.goal-row button[data-goal=none]').click();window.__univerReportV1.close();return 'closed'})()");
+            foreach (var record in history.Items.Where(x => x.Path.StartsWith(folder, StringComparison.OrdinalIgnoreCase)).ToList()) ForgetRecord(record.Id);
+            foreach (var file in Directory.GetFiles(folder)) File.Delete(file);
+            messages.Withdraw("downloadComplete");
+        }
         private async Task ReportQaAsync(string qa, List<string> results)
         {
             while (!preparedBrowsers.Contains(main)) await Task.Delay(50);
@@ -32,7 +81,9 @@ namespace Univer.Desktop.UI
             {
                 await RestoreQaWindowAsync();
                 prefs.Language = "ru"; prefs.Readable = true; await RefreshDocumentScriptsAsync();
-                var body = ReportQaJournal + PolishCourse("История Казахстана", "63", "12") + PolishCourse("Иностранный язык", "91", "45") + PolishCourse("Философия", "74", "50") + "</table>";
+                // The first course has two «н» in its journal: its card counts them.
+                var absent = PolishCourse("История Казахстана", "63", "12").Replace("<td>2</td><td>3</td><td></td>", "<td>н</td><td>3</td><td>н</td>");
+                var body = ReportQaJournal + absent + PolishCourse("Иностранный язык", "91", "45") + PolishCourse("Философия", "74", "50") + "</table>";
                 SetPresentation(main, true); main.LoadHtml(PolishShell(body, false), SitePolicy.Origin + "/student/attendance/full/"); await WaitQaPresentationAsync(); await ApplyPresentationAsync(); await Task.Delay(500);
                 await FixesEvalAsync("window.__univerMotion=false;'still'");
                 // Bands on the page: each chip's band and its tint, low and good apart, and the words in its tooltip (the summary
@@ -79,6 +130,7 @@ namespace Univer.Desktop.UI
                 foreach (var record in history.Items.Where(x => x.Path.StartsWith(folder, StringComparison.OrdinalIgnoreCase)).ToList()) ForgetRecord(record.Id);
                 foreach (var file in Directory.GetFiles(folder)) File.Delete(file);
                 messages.Withdraw("downloadComplete");
+                await ReportQaGoalAsync(qa, folder, results);
                 // A long journal for the summary: fourteen courses, two pictures.
                 body = ReportQaJournal + PolishCourse("История Казахстана", "63", "12") + PolishCourse("Иностранный язык", "91", "45") + PolishCourse("Философия", "74", "50") +
                     string.Concat(Enumerable.Range(1, 11).Select(i => PolishCourse("Предмет " + i, (40 + i * 5).ToString(), (30 + i * 4).ToString()))) + "</table>";

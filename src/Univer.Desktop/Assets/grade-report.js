@@ -102,7 +102,7 @@
         '.note{font-size:13px;line-height:1.35}.note b{display:block;color:var(--ink,#16283b);font-weight:600}.note span{color:#3d4f61}' +
         // What is left to the mark is what a parent looks for first: a soft plate in the band's own tint.
         '.note .left{display:inline-block;margin-top:3px;padding:2px 8px;border-radius:6px;background:var(--soft,#eef2f6);color:var(--ink,#16283b);font-weight:600;white-space:nowrap}' +
-        '.aim{margin:10px 0 0;font-size:13.5px}.aim b{font-weight:600}' +
+        '.aim{margin:14px 0 0;font-size:13.5px}.aim b{font-weight:600}.row+.row{margin-top:6px}' +
         '.missed{margin:6px 0 0;color:#3d4f61;font-size:13px}.missed b{margin-left:6px;color:#16283b;font-weight:600}' +
         '.none{margin:0;color:#5b6b7c}' +
         '.source{margin:18px 0 0;padding-top:12px;border-top:1px solid #e3e8ee;color:#5b6b7c;font-size:12px}' +
@@ -110,7 +110,8 @@
         ':host([data-mode=capture]) .scrim{position:absolute;left:0;top:0;right:auto;bottom:auto;display:block;padding:0;background:none;animation:none}' +
         ':host([data-mode=capture]) .dialog{display:block;width:auto;max-height:none;overflow:visible;border-radius:0;background:none;box-shadow:none;animation:none}' +
         ':host([data-mode=capture]) .bar,:host([data-mode=capture]) .status,:host([data-mode=capture]) .goal-row{display:none}' +
-        ':host([data-mode=capture]) .scroll{overflow:visible;padding:0}:host([data-mode=capture]) .sheet{margin:0;box-shadow:none;zoom:1!important}' +
+        // White under the sheets: at a zoom the sheet's fractional height lets the clip take one more row, which showed the page.
+        ':host([data-mode=capture]) .scroll{overflow:visible;padding:0;background:#fff}:host([data-mode=capture]) .sheet{margin:0;box-shadow:none;zoom:1!important}' +
         ':host([data-mode=capture]) .page-bar{display:none}' +
         '@media (prefers-reduced-motion:reduce){.scrim,.dialog{animation:none}}' +
         ':host(.still) .scrim,:host(.still) .dialog{animation:none}' +
@@ -337,7 +338,7 @@
     }
     function close(quiet) {
         if (!host) return;
-        idle(); window.removeEventListener('resize', fit); document.removeEventListener('keydown', key, true);
+        waiting = null; idle(); window.removeEventListener('resize', fit); document.removeEventListener('keydown', key, true);
         host.remove(); host = shadow = scroller = status = goalRow = waiting = null; sheets = []; buttons = {}; kept = null;
         document.documentElement.removeAttribute(MARK);
         var style = document.getElementById(ID + '-page'); if (style) style.remove();

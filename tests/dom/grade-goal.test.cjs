@@ -133,5 +133,6 @@ test('a goal chosen in the sheet keeps the focus on its button, and waits while 
 test('a class of no known type (a lab) still counts its absences in the course total',()=>{
  const p=page(fixture().replace(`<tr><td class="ct" id="total-a">`,lesson('a3','лабораторная',['н','4'],'5')+`<tr><td class="ct" id="total-a">`));
  assert.equal(card(p,'course-a').querySelector('.univer-app-attendance-absences b').textContent,'4');
+ assert.equal(card(p,'course-a').querySelector('.univer-app-attendance-absences small').textContent,'лекции 2, семинары 1, другие 1','the parts add up');
  p.close();
 });

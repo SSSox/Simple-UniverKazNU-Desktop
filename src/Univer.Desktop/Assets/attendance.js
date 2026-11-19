@@ -35,7 +35,7 @@
         list.forEach(item=>box.appendChild(common.scoreChip(item,language,true)));
         return box;
     }
-    function absenceText() { return language==='en'?{label:'Absences',lecture:'lectures',seminar:'seminars',sro:'independent work'}:language==='kz'?{label:'Қатыспаған сабақтар',lecture:'дәріс',seminar:'семинар',sro:'СӨЖ'}:{label:'Пропуски',lecture:'лекции',seminar:'семинары',sro:'СРО'}; }
+    function absenceText() { return language==='en'?{label:'Absences',lecture:'lectures',seminar:'seminars',sro:'independent work',other:'other'}:language==='kz'?{label:'Қатыспаған сабақтар',lecture:'дәріс',seminar:'семинар',sro:'СӨЖ',other:'басқа'}:{label:'Пропуски',lecture:'лекции',seminar:'семинары',sro:'СРО',other:'другие'}; }
     // Absences are the journal's own «н» marks in a class's date cells; anything else in a cell is not counted.
     function absences(table) {
         var count=0;
@@ -260,6 +260,8 @@
         if (gone.length||(selected==='all'&&missed(group))) {
             var lost=document.createElement('p'), words=absenceText(), sum=selected==='all'?missed(group):gone.reduce((n,item)=>n+item.count,0); lost.className='univer-app-attendance-absences';
             var lostLabel=document.createElement('span'); lostLabel.textContent=words.label; var lostValue=document.createElement('b'); lostValue.textContent=String(sum); lost.append(lostLabel,lostValue);
+            // Classes of no known type (labs) are in the total; the breakdown names them too, so its parts add up.
+            var rest=sum-gone.reduce((n,item)=>n+item.count,0); if (rest>0&&gone.length) gone.push({type:'other',count:rest});
             if (gone.length>1) { var parts=document.createElement('small'); parts.textContent=gone.map(item=>words[item.type]+' '+item.count).join(', '); lost.appendChild(parts); }
             box.appendChild(lost);
         }
