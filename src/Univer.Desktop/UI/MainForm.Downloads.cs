@@ -47,7 +47,7 @@ namespace Univer.Desktop.UI
             // is painted first, the page is built and painted beneath it, and the cover then steps aside.
             var reveal = opening && !selfTest && !accountReview;
             if (reveal) { pageCover.Visible = true; pageCover.BringToFront(); pageCover.Refresh(); }
-            downloadsView.Visible = true; downloadsView.BringToFront();
+            downloadsView.Visible = true; downloadsView.BringToFront(); UpdateOffline();
             if (reveal) pageCover.BringToFront();
             if (preview != null) downloadsView.Preview(preview); else downloadsView.ClosePreview();
             UpdateLocation(); UpdateHistoryButtons(); ArrangeToolbar();
@@ -64,6 +64,7 @@ namespace Univer.Desktop.UI
             ++coverGeneration; pageCover.Visible = false;
             downloadsView.ClosePreview(); downloadsView.Visible = false; downloadsView.ReleaseViewer();
             if (loading.Visible) loading.BringToFront();
+            UpdateOffline();
             UpdateLocation(); UpdateHistoryButtons(); ArrangeToolbar();
         }
         private void ForgetRecord(string id)

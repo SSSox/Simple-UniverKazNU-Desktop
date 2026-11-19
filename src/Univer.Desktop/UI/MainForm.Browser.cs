@@ -59,7 +59,7 @@ namespace Univer.Desktop.UI
             var wasBusy = loading.Visible;
             if (busy && !wasBusy) presentationBegan = DateTime.UtcNow;
             var reveal = ++revealGeneration;
-            if (busy) { var shown = !loading.Visible; loading.Visible = true; if (!DownloadsVisible) loading.BringToFront(); if (shown && loading.IsHandleCreated) loading.Refresh(); return; }
+            if (busy) { var shown = !loading.Visible; loading.Visible = true; if (!DownloadsVisible) { loading.BringToFront(); if (OfflineShown) offlineView.BringToFront(); } if (shown && loading.IsHandleCreated) loading.Refresh(); return; }
             if (!wasBusy) return;
             if (Program.FirstReveal == 0) Program.FirstReveal = Program.Clock.ElapsedMilliseconds;
             if (selfTest || accountReview) { loading.Visible = false; ScheduleShape(browser); QueueAsync(UpdateSiteTitleAsync); return; }
@@ -171,6 +171,7 @@ namespace Univer.Desktop.UI
                     var certificate = failureCode.StartsWith("Cert", StringComparison.Ordinal);
                     SetStatus(certificate ? "certificateError" : "networkError");
                     if (!certificate) ScheduleRecovery();
+                    SetUnreachable(!certificate && browser == main);
                 });
             };
             browser.FrameLoadEnd += (s, e) =>
@@ -186,6 +187,8 @@ namespace Univer.Desktop.UI
                     // A late error event from an earlier load must not outlive a trusted page that has since loaded successfully;
                     // CEF reports its own error pages with a chrome-error URL, which is not trusted.
                     if (error && code >= 200 && code < 400 && SitePolicy.Trusted(e.Url)) error = false;
+                    // The site answered (even with an error page of its own): the kept week gives way to it.
+                    if (browser == main && code >= 200 && SitePolicy.Trusted(e.Url)) SetUnreachable(false);
                     // Without automatic sign-in nothing else marks a recovered page as working again.
                     if (code >= 200 && code < 400 && SitePolicy.Trusted(e.Url) && (credentials == null || !credentials.Usable() || prefs.AutoLoginPaused)) RecoverySucceeded();
                     if (code >= 400)
@@ -269,6 +272,7 @@ namespace Univer.Desktop.UI
             var afterFlag = languageHop; if (!viewer) languageHop = SitePolicy.Language(url) != null;
             awaitingCommit = browser; awaitingSince = DateTime.UtcNow; if (viewer || !KeepsPlaceholder(url, afterFlag)) ShowRoute(route);
             error = false; messages.BeginNavigation(); automation.Navigating(); presentationBegan = DateTime.UtcNow; SetPresentation(browser, true); RenderFeedback(); UpdatePollingRate();
+            if (browser == main) OfflineNavigation();
         }
         private void ReceivePageMessage(ChromiumWebBrowser browser, bool viewer, string value, bool trusted, bool mainFrame)
         {
@@ -301,7 +305,7 @@ namespace Univer.Desktop.UI
             HideDownloads(); automation.Navigating();
             if (document != null) { document.Load(url); return; }
             sourceGet = lastGet; sourceMethod = lastMethod; siteTitle = siteSection = "";
-            main.Visible = false; document = CreateBrowser(url, true); canvas.Controls.Add(document); document.BringToFront();
+            main.Visible = false; document = CreateBrowser(url, true); canvas.Controls.Add(document); document.BringToFront(); UpdateOffline();
             presentationBegan = DateTime.UtcNow; ShowRoute("document"); SetPresentation(document, true);
             messages.BeginNavigation(); Localize();
         }
@@ -319,6 +323,7 @@ namespace Univer.Desktop.UI
             SetPresentation(main, false, true);
             lastGet = sourceGet; lastMethod = sourceMethod; siteTitle = siteSection = "";
             error = false; messages.Update("ready"); Localize(); UpdateHistoryButtons(); QueueAsync(UpdateSiteTitleAsync);
+            UpdateOffline();
         }
         // Opens a viewer link in main like the same click there; the link back to the source page only closes the viewer.
         private void LeaveDocument(string url)

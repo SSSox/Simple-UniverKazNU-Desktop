@@ -57,7 +57,7 @@ namespace Univer.Desktop.UI
         // holds is removed on the next signed-in page; Storage.FinishSessionClear removes it at the next start too.
         private async Task ClearScheduleAsync()
         {
-            scheduleWeek = null; scheduleReadAt = long.MinValue; scheduleReadAddress = null;
+            scheduleWeek = null; scheduleReadAt = long.MinValue; scheduleReadAddress = null; UpdateOffline();
             try { await storage.RemoveScheduleAsync(); scheduleClearPending = false; }
             catch (Exception) { scheduleClearPending = true; }
         }

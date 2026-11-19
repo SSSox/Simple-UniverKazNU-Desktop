@@ -102,7 +102,7 @@ namespace Univer.Desktop.UI
             if (!selfTest && !accountReview) zoomPercent = appliedZoom = prefs.Zoom;
             zoomSettle.Tick += ZoomSettled;
             Icon = LoadAppIcon() ?? Icon;
-            BuildShell(); Program.Mark("shell"); BuildTray(); BuildReminders(); BuildShapes(); Program.Mark("shapes"); CreateSession(); Program.Mark("session"); Localize(); HookTheme(); BuildUpdates(); Program.Mark("built");
+            BuildShell(); Program.Mark("shell"); BuildTray(); BuildReminders(); BuildOffline(); BuildShapes(); Program.Mark("shapes"); CreateSession(); Program.Mark("session"); Localize(); HookTheme(); BuildUpdates(); Program.Mark("built");
             timer.Tick += async (s, e) =>
             {
                 if (rotating || closing || commandBusy) return;
@@ -173,6 +173,7 @@ namespace Univer.Desktop.UI
                 if (Array.IndexOf(Environment.GetCommandLineArgs(), "--qa-study") >= 0) { QueueAsync(StudyQaAsync); return; }
                 if (Array.IndexOf(Environment.GetCommandLineArgs(), "--qa-zoom") >= 0) { QueueAsync(ZoomFeelQaAsync); return; }
                 if (Array.IndexOf(Environment.GetCommandLineArgs(), "--qa-flash") >= 0) { QueueAsync(FlashQaAsync); return; }
+                if (Array.IndexOf(Environment.GetCommandLineArgs(), "--qa-offline") >= 0) { QueueAsync(OfflineRunQaAsync); return; }
                 if (startHidden) { EnterTrayAtStart(); return; }
                 // Locked at start: the first sign-in window, the notices and the update offer wait for the PIN.
                 if (locked) { startPromptsPending = true; return; }
@@ -457,6 +458,7 @@ namespace Univer.Desktop.UI
         private void Localize()
         {
             var lang = prefs.Language;
+            UpdateOffline();
             var title = Strings.Get("appTitle", lang);
 #if LEGACY_ENGINE
             title += " · Legacy";

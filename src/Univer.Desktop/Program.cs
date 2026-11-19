@@ -57,7 +57,7 @@ namespace Univer.Desktop
                 { File.WriteAllText(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "self-test.failed"), error.Exception.GetType().Name + "\n" + error.Exception.StackTrace); Application.ExitThread(); };
             }
             // The manual keyboard and study-page checks run visibly but, like self-test, in a fresh profile with no saved sign-in.
-            var isolated = selfTest || Array.IndexOf(args, "--qa-keys") >= 0 || Array.IndexOf(args, "--qa-study") >= 0 || Array.IndexOf(args, "--qa-zoom") >= 0 || Array.IndexOf(args, "--qa-flash") >= 0;
+            var isolated = selfTest || Array.IndexOf(args, "--qa-keys") >= 0 || Array.IndexOf(args, "--qa-study") >= 0 || Array.IndexOf(args, "--qa-zoom") >= 0 || Array.IndexOf(args, "--qa-flash") >= 0 || Array.IndexOf(args, "--qa-offline") >= 0;
             var data = isolated ? Path.Combine(Path.GetTempPath(), "Univer.Desktop.QA", Guid.NewGuid().ToString("N")) :
                 Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Univer.Desktop");
             using (var mutex = new Mutex(false, "Local\\Univer.Desktop." + (isolated ? Guid.NewGuid().ToString("N") : Environment.UserName)))
@@ -101,6 +101,17 @@ namespace Univer.Desktop
                     settings.Locale = startLanguage == "en" ? "en-GB" : "ru";
                     settings.AcceptLanguageList = "en-US,en";
                     settings.CefCommandLineArgs.Add("disable-component-update", "1");
+                    // Chromium reloads a page that failed to load by itself (after 1 s, then 5 s, 30 s...) and reports neither that
+                    // reload nor its failure: the page then stayed under the loading placeholder with no banner until the app's own
+                    // retry. The app's recovery (RunRecovery, with its banner and the network-return check) is the one that reloads.
+                    settings.CefCommandLineArgs.Add("disable-auto-reload", "1");
+                    // --qa-offline (isolated): Chromium has no way out (a closed loopback port as its proxy) and the new profile
+                    // already holds a synthetic saved week, so the start reads it from disk as a real one does.
+                    if (Array.IndexOf(args, "--qa-offline") >= 0)
+                    {
+                        settings.CefCommandLineArgs.Add("proxy-server", "127.0.0.1:9");
+                        ScheduleFile.Write(storage.Root, UI.MainForm.OfflineWeekForQa(DateTime.Now, ""));
+                    }
                     // Before a page paints, and while a resized view catches up, Chromium shows this colour.
                     // Its default is black, which flashed as dark blocks between pages; this matches the shell.
                     settings.BackgroundColor = UI.Theme.Dark ? Cef.ColorSetARGB(255, UI.Theme.Background.R, UI.Theme.Background.G, UI.Theme.Background.B) : Cef.ColorSetARGB(255, 243, 246, 249);

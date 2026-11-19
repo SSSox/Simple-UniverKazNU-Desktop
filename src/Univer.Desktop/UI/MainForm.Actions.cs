@@ -426,7 +426,7 @@ namespace Univer.Desktop.UI
             var chrome = SidebarZoom;
             UiZoom.ApplyFonts(sidebar, chrome); UiZoom.ApplyFonts(toolbar, chrome); ArrangeShell(); sidebar.Invalidate();
             feedback.SetZoom(chrome); toast.SetZoom(chrome); findBar.SetZoom(chrome); noticesPanel.SetZoom(chrome);
-            downloadsView?.SetZoom(chromeZoom); ArrangeToolbar(); RenderNotices(); PlaceFind();
+            downloadsView?.SetZoom(chromeZoom); offlineView?.SetZoom(chromeZoom); ArrangeToolbar(); RenderNotices(); PlaceFind();
         }
         private void Back()
         {
@@ -483,6 +483,7 @@ namespace Univer.Desktop.UI
             if (commandBusy || settingsOpen || rotating || Active == null || Active.IsDisposed) return;
             recoverAt = null; recoveries++; recoveredAt = DateTime.UtcNow;
             error = false; messages.Retry(); automation.Recover(); RenderFeedback();
+            recoveryLoading = Active == main;
             Active.Load(RetryTarget());
         }
         private void RecoverySucceeded() { recoveries = 0; recoverAt = null; }
