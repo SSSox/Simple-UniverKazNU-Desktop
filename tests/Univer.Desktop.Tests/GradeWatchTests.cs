@@ -64,6 +64,32 @@ namespace Univer.Desktop.Tests
             Assert.Null(GradeSheet.Load(Sheet(Page()).Serialize(), ""));
         }
 
+        // Heading names of the site's Kazakh and English pages as study-pages.js knows them; the live pages were not read.
+        [Theory]
+        [InlineData("Пән", "Кредит", "АБ1", "АБ2", "Емт*", "Жалпы балл")]
+        [InlineData("Discipline", "Credits", "MT1", "MT2", "Exam*", "Total score")]
+        [InlineData("Дисциплина", "Кред.", "РА1", "БК", "Экз.", "Балл")]
+        public void TheSitesOtherLanguagesNameTheirScoreColumnsToo(string course, string credits, string first, string second, string exam, string total)
+        {
+            var head = "<tr><th>" + course + "</th><th>" + credits + "</th><th>" + first + "</th><th>" + second + "</th><th>" + exam + "</th><th>" + total + "</th><th>GPA</th><th>Letter</th><th>Meaning</th></tr>";
+            var before = Sheet(Page(head: head));
+            var now = Sheet(Page(Row("Иностранный язык", "5", "99", "71", "0", "52", "1.33", "D+", "удовл.") + Row("Алгоритмы", "5", "98", "96", "92", "94", "4", "A", "отл."), head));
+            var change = Assert.Single(GradeSheet.Changes(before, now));
+            Assert.Equal(new[] { second + " 71", total + " 52" }, change.Cells);
+            Assert.False(GradeSheet.Score(credits) || GradeSheet.Score("GPA") || GradeSheet.Score("Letter") || GradeSheet.Score("Meaning"));
+        }
+
+        [Fact]
+        public void BigMenuTablesAndManyLayoutTablesDoNotHideTheGrades()
+        {
+            var menu = "<table>" + string.Concat(Enumerable.Repeat("<tr><td>пункт</td></tr>", HtmlTables.MaxRows + 10)) + "</table>" +
+                "<table><tr>" + string.Concat(Enumerable.Repeat("<td>x</td>", HtmlTables.MaxCells + 5)) + "</tr></table>" +
+                string.Concat(Enumerable.Repeat("<table><tr><td>a</td></tr></table>", 200));
+            var sheet = Sheet(Page().Replace("<body>", "<body>" + menu));
+            Assert.NotNull(sheet);
+            Assert.Equal(new[] { "Иностранный язык", "Алгоритмы" }, sheet.Rows.Select(r => r.Course));
+        }
+
         [Fact]
         public void AChangedScoreIsNewsAndTheOtherColumnsAreNot()
         {

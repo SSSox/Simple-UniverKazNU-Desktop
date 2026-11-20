@@ -57,7 +57,9 @@ namespace Univer.Desktop.Core
             return null;
         }
         // Scores are the control columns, the exam and the total; credits, GPA, the letter and its word follow from them.
-        private static readonly Regex ScoreHeading = new Regex(@"^(?:(?:РК|RK|АБ|МБ|ПА|PA|ИК|IC)\s*\d?\*?|Сумма|Sum|Total|Жиыны|Барлығы|Қорытынды|Итог|Экзамен|Емтихан|Exam)\*?$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+        // The names cover the ones study-pages.js knows in the three languages of the site; a total may have a second word
+        // («Жалпы балл», «Total score»).
+        private static readonly Regex ScoreHeading = new Regex(@"^(?:(?:РК|RK|РА|RA|АБ|МБ|БК|ПА|PA|ИК|IC|MT|RC|FC|Mid(?:term)?|Экз(?:амен)?|Емт(?:ихан)?|Exam)\.?\s*\d?\s*\*?|(?:Сумма|Sum|Total|Score|Балл|Жалпы|Жиыны|Барлығы|Қорытынды|Итог)[\p{L} .]*\*?)$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
         internal static bool Score(string heading) { return ScoreHeading.IsMatch(heading ?? ""); }
         internal static string Fold(string text)
         {
@@ -174,14 +176,15 @@ namespace Univer.Desktop.Core
 
     // A tolerant, bounded reading of HTML tables: rows of cells with their text, whether a cell is a heading and its column
     // span. No scripts, styles or comments are read as text; nested tables are tables of their own. The work stops at the
-    // limits (the answer's size, tags, tables, rows a table, cells a row) instead of going as far as the page says.
+    // answer's size, the number of tags and a time budget instead of going as far as the page says; a table with more
+    // rows or cells than the limits is left out.
     internal sealed class HtmlCell
     {
         public bool Heading; public int Span = 1; public string Text = "";
     }
     internal static class HtmlTables
     {
-        internal const int MaxLength = 2000000, MaxTags = 60000, MaxTables = 64, MaxRows = 400, MaxCells = 64;
+        internal const int MaxLength = 2000000, MaxTags = 60000, MaxRows = 400, MaxCells = 64;
         // The whole reading of one page: the regex timeout bounds a single match only, and many unclosed «<!--» or «<script»
         // would each scan to the end of the page.
         internal static readonly TimeSpan Budget = TimeSpan.FromSeconds(1);
@@ -197,6 +200,10 @@ namespace Univer.Desktop.Core
         {
             var done = new List<List<List<HtmlCell>>>();
             var open = new Stack<List<List<HtmlCell>>>();
+            // A table past MaxRows or MaxCells is dropped, not the page, and tables are not counted: the site's layout and
+            // menu tables around the grades table must not hide it. The tags limit bounds the whole reading.
+            var dropped = new HashSet<List<List<HtmlCell>>>();
+            Action<List<List<HtmlCell>>> keep = finished => { if (!dropped.Contains(finished)) done.Add(finished); };
             HtmlCell cell = null; var text = new StringBuilder(); var tags = 0; var at = 0;
             var clock = System.Diagnostics.Stopwatch.StartNew();
             Action closeCell = () => { if (cell != null) { cell.Text = GradeSheet.Fold(WebUtility.HtmlDecode(text.ToString())); cell = null; } text.Clear(); };
@@ -211,27 +218,28 @@ namespace Univer.Desktop.Core
                 if (name == "table")
                 {
                     closeCell();
-                    if (!closing) { if (open.Count + done.Count >= MaxTables) return null; open.Push(new List<List<HtmlCell>>()); }
-                    else if (open.Count > 0) done.Add(open.Pop());
+                    if (!closing) open.Push(new List<List<HtmlCell>>());
+                    else if (open.Count > 0) keep(open.Pop());
                     continue;
                 }
                 if (open.Count == 0) continue;
                 var table = open.Peek();
-                if (name == "tr") { closeCell(); if (!closing) { if (table.Count >= MaxRows) return null; table.Add(new List<HtmlCell>()); } continue; }
+                if (dropped.Contains(table)) continue;
+                if (name == "tr") { closeCell(); if (!closing) { if (table.Count >= MaxRows) { dropped.Add(table); table.Clear(); continue; } table.Add(new List<HtmlCell>()); } continue; }
                 if (name == "td" || name == "th")
                 {
                     closeCell();
                     if (closing) continue;
                     if (table.Count == 0) table.Add(new List<HtmlCell>());
                     var row = table[table.Count - 1];
-                    if (row.Count >= MaxCells) return null;
+                    if (row.Count >= MaxCells) { dropped.Add(table); table.Clear(); continue; }
                     var span = ColSpan.Match(m.Groups[4].Value); int count;
                     cell = new HtmlCell { Heading = name == "th", Span = span.Success && int.TryParse(span.Groups[1].Value, out count) && count > 1 ? Math.Min(count, MaxCells) : 1 };
                     row.Add(cell);
                 }
             }
             closeCell();
-            while (open.Count > 0) done.Add(open.Pop());
+            while (open.Count > 0) keep(open.Pop());
             return done;
         }
     }
