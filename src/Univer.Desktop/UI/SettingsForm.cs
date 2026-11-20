@@ -29,6 +29,11 @@ namespace Univer.Desktop.UI
         private readonly Label webDataTitle = new Label(), webDataHint = new Label();
         private readonly ModernButton webDataClear = new ModernButton();
         private string webDataState = "";
+        // The diagnostics file for a fault report, written at once (not on Save) to Downloads.
+        private readonly SettingsSheet diagSheet = new SettingsSheet();
+        private readonly Label diagTitle = new Label(), diagHint = new Label();
+        private readonly ModernButton diagSave = new ModernButton();
+        private string diagSaved; private bool diagFailed, diagBusy;
         // Sign-in protection: the app PIN is set, changed or turned off at once, each in its own window.
         private readonly SettingsSheet securitySheet = new SettingsSheet();
         private readonly Label securityTitle = new Label(), securityHint = new Label();
@@ -109,6 +114,8 @@ namespace Univer.Desktop.UI
         public bool Animations { get { return animations.Checked; } }
         public bool ExternalLinks { get { return externalLinks.Checked; } }
         public Func<Task<bool>> ClearWebData { get; set; }
+        // Writes the diagnostics file and returns its name, or null when it could not be written.
+        public Func<Task<string>> SaveDiagnostics { get; set; }
         // Given after the window is built: the row is read again then.
         public Func<bool> PinSet { get { return pinSetState; } set { pinSetState = value; securityHint.Text = Strings.Get(PinOn ? "securityOn" : "securityOff", Language); ArrangeApp(); } }
         private Func<bool> pinSetState;
@@ -191,6 +198,7 @@ namespace Univer.Desktop.UI
             intervalButton.Click += (s, e) => intervalMenu.Show(intervalButton, GradeNotice.Intervals.Select(m => new PickItem { Text = IntervalText(m), Value = m, Selected = m == interval }), Theme.DpiScale, zoom, intervalButton.Width);
             intervalMenu.Chosen += value => { interval = (int)value; NameChoices(); ArrangeApp(); UpdateFooter(); };
             webDataClear.Click += async (s, e) => await ClearWebDataAsync();
+            diagSave.Click += async (s, e) => await SaveDiagnosticsFileAsync();
             pinSet.Click += async (s, e) => await PinAsync(SetPin);
             pinChange.Click += async (s, e) => await PinAsync(ChangePin);
             pinDisable.Click += async (s, e) => await PinAsync(DisablePin);
@@ -322,6 +330,10 @@ namespace Univer.Desktop.UI
             webDataClear.Look = ButtonLook.Outline; AddSlot(linksSheet, RowHeight + 14, 120, webDataClear);
             webDataClear.Visible = webDataTitle.Visible = webDataHint.Visible = true;
             appPanel.Controls.Add(linksSheet);
+            diagSheet.SetBounds(TextInput.Ring, appSheet.Bottom + 12, Inner, RowHeight); diagSheet.DesignHeight = RowHeight; diagSheet.Lines = new int[0];
+            AddRow(diagSheet, diagTitle, diagHint, 0, wide - 132);
+            diagSave.Look = ButtonLook.Outline; AddSlot(diagSheet, 14, 120, diagSave);
+            appPanel.Controls.Add(diagSheet);
             about.SetBounds(TextInput.Ring, appSheet.Bottom + 12, Inner, 54); about.ForeColor = Theme.Muted; about.Font = Theme.Font(Theme.Meta); about.UseMnemonic = false;
             appPanel.Height = about.Bottom; appPanel.Controls.Add(appSheet); appPanel.Controls.Add(about);
             updateCheck.Click += async (s, e) => await updates.CheckAsync();
@@ -437,8 +449,17 @@ namespace Univer.Desktop.UI
             webDataClear.Parent.SetBounds(linksSheet.Width - d(Pad) - webDataClear.HugWidth, d(RowHeight) + (dataRow - d(32)) / 2, webDataClear.HugWidth, d(32));
             linksSheet.SetBounds(linksSheet.Left, securitySheet.Bottom + d(12), linksSheet.Width, d(RowHeight) + dataRow);
             linksSheet.DesignHeight = (int)Math.Round(linksSheet.Height / scale); linksSheet.Invalidate();
+            // The diagnostics row: its line may wrap, or say where the file went; the button stays centred.
+            var diagWords = diagSheet.Width - d(Pad) * 2 - diagSave.HugWidth - d(12);
+            var diagLines = TextRenderer.MeasureText(diagHint.Text, diagHint.Font, new Size(diagWords, int.MaxValue), TextFormatFlags.WordBreak).Height + d(2);
+            diagTitle.SetBounds(d(Pad), d(12), diagWords, d(20));
+            diagHint.SetBounds(d(Pad), diagTitle.Bottom + d(2), diagWords, diagLines);
+            var diagRow = Math.Max(d(RowHeight), diagHint.Bottom + d(12));
+            diagSave.Parent.SetBounds(diagSheet.Width - d(Pad) - diagSave.HugWidth, (diagRow - d(32)) / 2, diagSave.HugWidth, d(32));
+            diagSheet.SetBounds(diagSheet.Left, linksSheet.Bottom + d(12), diagSheet.Width, diagRow);
+            diagSheet.DesignHeight = (int)Math.Round(diagRow / scale); diagSheet.Invalidate();
             var note = TextRenderer.MeasureText(about.Text, about.Font, new Size(about.Width, int.MaxValue), TextFormatFlags.WordBreak).Height + d(2);
-            about.SetBounds(about.Left, linksSheet.Bottom + d(12), about.Width, note);
+            about.SetBounds(about.Left, diagSheet.Bottom + d(12), about.Width, note);
             appPanel.Height = about.Bottom;
         }
         // A switch over a choice (reminders, new grades): the choice's hint may wrap (Kazakh, a larger zoom); its button keeps
@@ -480,6 +501,23 @@ namespace Univer.Desktop.UI
             webDataState = cleared ? "webDataCleared" : "webDataFailed";
             webDataHint.Text = Strings.Get(webDataState, Language); webDataHint.ForeColor = cleared ? Theme.Success : Theme.Danger;
             webDataHint.AccessibleName = webDataHint.Text; ArrangeApp();
+        }
+        private async Task SaveDiagnosticsFileAsync()
+        {
+            if (busy || diagBusy || SaveDiagnostics == null) return;
+            diagBusy = true; diagSave.Enabled = false; diagSave.Busy = true;
+            string name;
+            try { name = await SaveDiagnostics(); }
+            catch (Exception) { name = null; }
+            finally { diagBusy = false; }
+            if (IsDisposed) return;
+            diagSave.Busy = false; diagSave.Enabled = true;
+            diagSaved = name; diagFailed = name == null; ShowDiagState(); ArrangeApp();
+        }
+        private void ShowDiagState()
+        {
+            diagHint.Text = diagFailed ? Strings.Get("diagnosticsFailed", Language) : diagSaved != null ? string.Format(Strings.Get("diagnosticsSaved", Language), diagSaved) : Strings.Get("diagnosticsHint", Language);
+            diagHint.ForeColor = diagFailed ? Theme.Danger : diagSaved != null ? Theme.Success : Theme.Muted; diagHint.AccessibleName = diagHint.Text;
         }
         private async Task CommitAsync(SettingsAction action)
         {
@@ -578,6 +616,8 @@ namespace Univer.Desktop.UI
             externalLinks.Text = Strings.Get("externalLinksOption", lang); externalLinks.Hint = Strings.Get("externalLinksOptionHint", lang);
             webDataTitle.Text = Strings.Get("webDataTitle", lang); webDataHint.Text = Strings.Get(webDataState.Length > 0 ? webDataState : "webDataHint", lang);
             webDataClear.Text = Strings.Get("webDataClear", lang); webDataClear.AccessibleName = webDataTitle.Text + ": " + webDataClear.Text;
+            diagTitle.Text = Strings.Get("diagnosticsTitle", lang); ShowDiagState();
+            diagSave.Text = Strings.Get("diagnosticsSave", lang); diagSave.AccessibleName = diagTitle.Text + ": " + diagSave.Text;
             securityTitle.Text = Strings.Get("securityTitle", lang); securityHint.Text = Strings.Get(PinOn ? "securityOn" : "securityOff", lang);
             pinSet.Text = Strings.Get("securitySet", lang); pinChange.Text = Strings.Get("securityChange", lang); pinDisable.Text = Strings.Get("securityDisable", lang);
             foreach (var button in new[] { pinSet, pinChange, pinDisable }) button.AccessibleName = securityTitle.Text + ": " + button.Text;

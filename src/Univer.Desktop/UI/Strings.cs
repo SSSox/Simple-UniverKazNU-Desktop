@@ -319,6 +319,11 @@ namespace Univer.Desktop.UI
             { "webDataClear", new[] { "Очистить", "Тазарту", "Clear" } },
             { "webDataCleared", new[] { "Очищено: входы на других сайтах удалены", "Тазартылды: басқа сайттарға кірулер өшірілді", "Cleared: other sites' sign-ins are removed" } },
             { "webDataFailed", new[] { "Не удалось очистить. Попробуйте ещё раз", "Тазарту мүмкін болмады. Қайталап көріңіз", "Could not clear. Please try again" } },
+            { "diagnosticsTitle", new[] { "Файл для сообщения об ошибке", "Қате туралы хабарламаға файл", "File for a fault report" } },
+            { "diagnosticsHint", new[] { "Версия, система, настройки и последние ошибки. Без логина, пароля и данных кабинета", "Нұсқа, жүйе, баптаулар және соңғы қателер. Логин, құпиясөз және кабинет деректерінсіз", "Version, system, settings and recent errors. No login, password or account data" } },
+            { "diagnosticsSave", new[] { "Сохранить", "Сақтау", "Save" } },
+            { "diagnosticsSaved", new[] { "Сохранён в «Загрузки»: {0}", "«Жүктеулер» бумасына сақталды: {0}", "Saved to Downloads: {0}" } },
+            { "diagnosticsFailed", new[] { "Не удалось сохранить файл", "Файлды сақтау мүмкін болмады", "Could not save the file" } },
             // The app PIN, worded as in the Android app.
             { "lockUnlockTitle", new[] { "Введите PIN-код", "PIN-кодты енгізіңіз", "Enter your PIN" } },
             { "lockUnlockHint", new[] { "Чтобы открыть приложение", "Қолданбаны ашу үшін", "To open the app" } },

@@ -141,6 +141,10 @@ If settings are missing, damaged or temporarily unreadable, the saved password r
 
 With a saved sign-in the app itself confirms only two site dialogs that would otherwise block the portal: the read notice after sign-in and the additional agreement dialog with the "прочитал договор" (I have read the contract) checkbox. In both cases it ticks the checkbox and presses the site's own button. The app submits no other forms and confirms nothing else. Details: [SECURITY.en.md](SECURITY.en.md).
 
+## Reporting a fault
+
+In Settings → App → File for a fault report, the Save button puts a text file in your Downloads folder and opens the folder. The file holds the app and Chromium versions, the Windows version, the screen and window size, the settings (on or off, numbers), the address of the open page without its parameters and numbers, and the last errors of this run. It has no login, password, cookies, page text, grades or other portal data, and the Windows user name, computer name, e-mail addresses, long numbers and tokens are replaced with markers. The app never sends this file anywhere: attach it to your report yourself.
+
 ## Keyboard shortcuts
 
 | Action | Keys |

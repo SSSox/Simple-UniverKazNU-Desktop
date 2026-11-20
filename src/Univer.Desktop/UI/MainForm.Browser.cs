@@ -166,7 +166,7 @@ namespace Univer.Desktop.UI
                 if (e.Frame.IsMain && e.ErrorCode != CefErrorCode.Aborted) current(() =>
                 {
                     if (Active != browser) return;
-                    error = true; SetPresentation(browser, false, true); failureCode = e.ErrorCode.ToString();
+                    error = true; SetPresentation(browser, false, true); failureCode = e.ErrorCode.ToString(); NoteEvent("load failed " + failureCode + " " + e.FailedUrl);
                     // A certificate error stays with the user; a lost connection reloads by itself.
                     var certificate = failureCode.StartsWith("Cert", StringComparison.Ordinal);
                     SetStatus(certificate ? "certificateError" : "networkError");

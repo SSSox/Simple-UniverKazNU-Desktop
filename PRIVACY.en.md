@@ -45,6 +45,7 @@ Everything is stored locally only, in your Windows account profile:
 | Start-up profile | `%LOCALAPPDATA%\Univer.Desktop\startup-*.jit` | Names of the program's own methods that .NET compiles at start, so the next start is faster. No page or account data |
 | Downloaded files | Your Downloads folder | The files you downloaded |
 | Grade summary | Your Downloads folder or the clipboard | Your subjects and scores as PDF or PNG; made only when you press Save PDF, Save PNG or Copy picture in the summary yourself |
+| File for a fault report | Your Downloads folder | The app and Windows versions, screen size, settings, the address of the open page without its parameters and numbers, and the last errors of this run; no login, password, cookies or portal data, and the Windows user name, computer name, e-mail addresses, long numbers and tokens are replaced with markers. Made only when you press Save in Settings → App yourself, and never sent anywhere. The events themselves are kept only in memory while the app runs |
 
 There is no personal data in the program folder (installed or portable). The installer puts only `installation-id.txt` there, with the variant name (for example `Univer.Desktop.modern.x64`), so that an update lands in the same folder.
 

@@ -27,7 +27,7 @@ namespace Univer.Desktop.UI
                     form.OpenReleasePage = () => External(Updates.ReleasePage(updates.Available));
                     form.StartupState = ReadAutostart();
                     form.ApplyAsync = (action, next, language, readable) => ApplySettingsAsync(action, next, language, readable, form.Tray, form.Animations, form.SelectedTheme, form.ExternalLinks, form.StartupChanged ? form.Startup : (bool?)null, form.Reminders, form.ReminderLead, form.Grades, form.GradeInterval);
-                    form.ClearWebData = ClearWebDataAsync;
+                    form.ClearWebData = ClearWebDataAsync; form.SaveDiagnostics = SaveDiagnosticsAsync;
                     form.PinSet = () => PinSet; form.SetPin = SetPinAsync; form.ChangePin = ChangePinAsync; form.DisablePin = DisablePinAsync;
                     form.ShowDialog(this);
                     // Closing first launch with X also means manual login, never implicit credential saving.

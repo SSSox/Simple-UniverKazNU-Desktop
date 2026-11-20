@@ -411,7 +411,7 @@ namespace Univer.Desktop.UI
         }
         private void SetStatus(string key)
         {
-            if (closing) return; messages.Update(key); RenderFeedback();
+            if (closing) return; NoteStatus(key); messages.Update(key); RenderFeedback();
         }
         private void RenderFeedback()
         {

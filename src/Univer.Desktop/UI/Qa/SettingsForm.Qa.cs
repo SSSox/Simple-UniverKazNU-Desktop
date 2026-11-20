@@ -40,6 +40,21 @@ namespace Univer.Desktop.UI
         internal void ChangeForQa() { animations.Checked = !animations.Checked; }
         internal ModernButton WebDataClearForQa { get { return webDataClear; } }
         internal string WebDataHintForQa { get { return webDataHint.Text; } }
+        internal ModernButton DiagnosticsForQa { get { return diagSave; } }
+        internal string DiagnosticsHintForQa { get { return diagHint.Text; } }
+        // The diagnostics row sits between the links sheet and the note about the app, its words clear of its button.
+        internal bool DiagnosticsFitsForQa
+        {
+            get
+            {
+                var flags = TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine; var slot = diagSave.Parent;
+                var lines = TextRenderer.MeasureText(diagHint.Text, diagHint.Font, new Size(diagHint.Width, int.MaxValue), TextFormatFlags.WordBreak);
+                return slot.Left >= diagHint.Right && slot.Right <= diagSheet.Width && slot.Bottom <= diagSheet.Height && lines.Height <= diagHint.Height &&
+                    TextRenderer.MeasureText(diagTitle.Text, diagTitle.Font, Size.Empty, flags).Width <= diagTitle.Width &&
+                    TextRenderer.MeasureText(diagSave.Text, diagSave.Font, Size.Empty, flags).Width <= diagSave.Width - Px(8) &&
+                    diagSheet.Top >= linksSheet.Bottom && diagSheet.Bottom <= about.Top;
+            }
+        }
         internal string SecurityHintForQa { get { return securityHint.Text; } }
         internal ModernButton LanguageForQa(int index) { return languages[index]; }
         internal ModernButton DarkThemeForQa { get { return themes[2]; } }

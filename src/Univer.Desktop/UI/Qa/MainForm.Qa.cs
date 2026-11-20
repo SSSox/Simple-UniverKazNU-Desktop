@@ -51,6 +51,7 @@ namespace Univer.Desktop.UI
                     QaStep("schedule-copy", () => ScheduleCopyQaAsync(results)),
                     QaStep("offline", () => OfflineQaAsync(qa, results)),
                     QaStep("grades", () => GradesQaAsync(qa, results)),
+                    QaStep("diagnostics", () => DiagnosticsQaAsync(qa, results)),
                     QaStep("product", () => ProductQaAsync(qa, results)),
                     QaStep("theme", () => ThemeQaAsync(qa, results)),
                     QaStep("notices", () => NoticesQaAsync(qa, results)),
