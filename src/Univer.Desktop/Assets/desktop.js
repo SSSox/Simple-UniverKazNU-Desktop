@@ -456,7 +456,7 @@
 :root.univer-mobile .univer-app-quick a:hover { border-color:var(--u-brand-line)!important; background:var(--u-brand-soft)!important; }
 
 /* Buttons that the adapter adds, and the site's own content buttons. */
-:root.univer-mobile #l4 :is(input[type=button],input[type=submit],button):not(.univer-app-days button):not(.univer-app-schedule-modes button) { border-radius:8px!important; font-weight:500; }
+:root.univer-mobile #l4 :is(input[type=button],input[type=submit],button):not(.univer-app-days button):not(.univer-app-schedule-modes button):not(.univer-app-schedule-export button) { border-radius:8px!important; font-weight:500; }
 :root.univer-mobile .univer-app-course-open, :root.univer-mobile .univer-app-catalog-download { display:inline-flex!important; align-items:center; justify-content:center; gap:6px; width:auto!important; min-width:96px; min-height:34px!important; margin:0!important; padding:6px 14px!important; border:0!important; border-radius:8px!important; background:var(--u-brand)!important; color:#fff!important; font-size:var(--u-fs-body)!important; font-weight:500!important; cursor:pointer; }
 :root.univer-mobile .univer-app-course-open:hover, :root.univer-mobile .univer-app-catalog-download:hover { background:var(--u-brand-strong)!important; }
 :root.univer-mobile .univer-app-catalog-download::before { content:''; width:14px; height:14px; background:currentColor; -webkit-mask:${icons.download} center/contain no-repeat; }
@@ -515,6 +515,14 @@
 :root.univer-mobile .univer-app-schedule-modes { display:flex; gap:2px; margin:4px 0 12px; padding:3px; width:max-content; max-width:100%; border:1px solid var(--u-line); border-radius:10px; background:#e9eef4; }
 :root.univer-mobile #l4 .univer-app-schedule-modes button { min-height:34px!important; padding:6px 16px!important; border:0!important; border-radius:8px!important; background:transparent!important; color:var(--u-muted)!important; font-size:14px!important; font-weight:500!important; }
 :root.univer-mobile #l4 .univer-app-schedule-modes button[aria-pressed=true] { background:#fff!important; color:var(--u-ink)!important; box-shadow:0 1px 3px rgba(16,40,70,.12); }
+:root.univer-mobile .univer-app-schedule-bar { display:flex; flex-wrap:wrap; align-items:center; gap:8px 12px; margin:4px 0 12px; }
+:root.univer-mobile .univer-app-schedule-bar>.univer-app-schedule-modes { margin:0; }
+:root.univer-mobile .univer-app-schedule-export { display:flex; flex-wrap:wrap; gap:6px; margin-left:auto; }
+:root:root:root:root:root.univer-mobile #l4 .univer-app-schedule-export button { width:auto!important; height:var(--u-control)!important; min-height:var(--u-control)!important; margin:0!important; padding:0 14px!important; border:1px solid var(--u-line)!important; border-radius:8px!important; background:var(--u-surface)!important; box-shadow:none!important; color:var(--u-text)!important; font-size:13px!important; font-weight:500!important; cursor:pointer; }
+:root:root:root:root:root.univer-mobile #l4 .univer-app-schedule-export button:hover { border-color:var(--u-brand-line)!important; background:var(--u-brand-soft)!important; }
+:root:root:root:root:root.univer-mobile #l4 .univer-app-schedule-export button:focus-visible { outline:2px solid var(--u-brand)!important; outline-offset:2px; }
+:root:root:root:root:root.univer-mobile #l4 .univer-app-schedule-export button[aria-busy=true] { opacity:.55; cursor:progress; pointer-events:none; }
+:root.univer-mobile .univer-app-schedule-bar { grid-column:1/-1; }
 :root.univer-mobile .univer-app-days { display:flex!important; flex-wrap:wrap; gap:6px; margin:4px 0 16px!important; }
 :root.univer-mobile #l4 .univer-app-days button { display:inline-flex; align-items:center; gap:8px; min-height:36px!important; padding:6px 12px!important; border:1px solid var(--u-line)!important; border-radius:6px!important; background:#fff!important; color:var(--u-ink)!important; font-size:14px!important; font-weight:500!important; }
 :root.univer-mobile #l4 .univer-app-days button:hover { border-color:var(--u-brand-line)!important; background:var(--u-brand-soft)!important; }
@@ -919,7 +927,7 @@
 /* Titles: the same family, one weight up. */
 :root.univer-mobile #l4 table.mt>tbody>tr.top>:is(.ct,.tt), :root.univer-mobile #l4 td.center>table.mt>tbody>tr:first-child>td.ct:not(.message):not(:has(.univer-app-back-link)), :root.univer-mobile #l4 :is(h1,h2), :root.univer-mobile #l4 .ct>a.univer-app-page-link:only-child, :root.univer-mobile #l4 .univer-app-breadcrumb>a.univer-app-page-link:last-of-type, :root.univer-mobile.univer-app-schedule-page #l4 .ct.univer-app-schedule-title>a:first-child, :root.univer-mobile #l4 td.ct.univer-app-back-crumb :is(a:not(.univer-app-back-link),span:not(.univer-app-back-row),b), :root.univer-mobile #l4 .univer-app-task-name, :root.univer-mobile #l4 .univer-app-course-name, :root.univer-mobile #l4 .univer-app-course-title>.univer-app-attendance-course { font-weight:600!important; font-size:18px!important; line-height:1.3!important; color:var(--u-ink)!important; text-decoration:none!important; }
 /* Buttons: the kit's height, weight and press. */
-:root.univer-mobile #l4 :is(input[type=button],input[type=submit],button):not(.univer-app-days button):not(.univer-app-schedule-modes button):not(.univer-app-attendance-filters button) { min-height:28px; border-radius:6px!important; font-size:13px!important; font-weight:500; transition:transform 180ms var(--u-ease-out),background-color 160ms ease,color 160ms ease,box-shadow 160ms ease; }
+:root.univer-mobile #l4 :is(input[type=button],input[type=submit],button):not(.univer-app-days button):not(.univer-app-schedule-modes button):not(.univer-app-attendance-filters button):not(.univer-app-schedule-export button) { min-height:28px; border-radius:6px!important; font-size:13px!important; font-weight:500; transition:transform 180ms var(--u-ease-out),background-color 160ms ease,color 160ms ease,box-shadow 160ms ease; }
 :root.univer-mobile:not(.univer-app-keyboard) #l4 :is(input[type=button],input[type=submit],button):active { transform:scale(.97); }
 /* Fields: a hairline at rest; focus lights the edge and a soft ring without moving the text. */
 :root.univer-mobile #l4 :is(input[type=text],input[type=search],input[type=password],input[type=date],select,textarea) { min-height:34px; box-sizing:border-box; border:1px solid var(--u-line-strong)!important; border-radius:8px!important; background-color:#fff; font-size:13px!important; transition:box-shadow .2s ease,border-color .2s ease; }

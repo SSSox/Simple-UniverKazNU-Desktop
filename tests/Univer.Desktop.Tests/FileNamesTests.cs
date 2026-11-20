@@ -142,6 +142,7 @@ namespace Univer.Desktop.Tests
         [Theory]
         [InlineData("test.pdf", true)]
         [InlineData("test.docx", true)]
+        [InlineData("test.ics", true)]
         [InlineData("test.exe", false)]
         [InlineData("test.cmd", false)]
         [InlineData("test.html", false)]

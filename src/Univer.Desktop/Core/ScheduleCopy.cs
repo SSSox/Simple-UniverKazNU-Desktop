@@ -39,11 +39,20 @@ namespace Univer.Desktop.Core
             Dictionary<string, object> json;
             try { json = new JavaScriptSerializer().DeserializeObject(raw) as Dictionary<string, object>; }
             catch (Exception) { return null; }
+            var week = FromJson(json, now, account);
+            if (week == null || now < week.Start || now >= week.End) return null;
+            return week;
+        }
+        // One week of the page's reading, by the same field rules; any week, the caller decides which ones it takes
+        // (the kept copy only the current one, an export the shown week and its neighbour). A week the site starts or ends
+        // midweek (the semester's first days) has columns with no date of its own; their classes are dropped, or, when
+        // `outside` is given, put there at that weekday of the week's Monday-to-Sunday (Monday), outside the week's dates.
+        internal static ScheduleWeek FromJson(Dictionary<string, object> json, DateTime savedAt, string account, List<ScheduleClass> outside = null)
+        {
             double startMs, endMs;
             if (json == null || !Number(json, "start", out startMs) || !Number(json, "end", out endMs)) return null;
             var start = FromEpoch(startMs); var end = FromEpoch(endMs);
             if (start == null || end == null || end <= start || end.Value - start.Value > TimeSpan.FromDays(7).Add(TimeSpan.FromHours(2))) return null;
-            if (now < start || now >= end) return null;
             object daysValue; var days = json.TryGetValue("days", out daysValue) ? daysValue as IList : null;
             if (days == null || days.Count > 7) return null;
             var classes = new List<ScheduleClass>();
@@ -63,12 +72,20 @@ namespace Univer.Desktop.Core
                     if (from != Math.Floor(from) || to != Math.Floor(to) || from < 0 || to > 1440 || to <= from) return null;
                     string name, type, room, teacher;
                     if (!Text(lesson, "name", out name) || name.Length == 0 || !Text(lesson, "type", out type) || !Text(lesson, "room", out room) || !Text(lesson, "teacher", out teacher)) return null;
-                    if (date == null) continue;
-                    classes.Add(new ScheduleClass { Start = date.Value.AddMinutes(from), End = date.Value.AddMinutes(to), Name = name, Type = type, Room = room, Teacher = teacher });
-                    if (classes.Count > MaxClasses) return null;
+                    if (date == null && outside == null) continue;
+                    var day = date ?? Monday(start.Value).AddDays(column);
+                    (date == null ? outside : classes).Add(new ScheduleClass { Start = day.AddMinutes(from), End = day.AddMinutes(to), Name = name, Type = type, Room = room, Teacher = teacher });
+                    if (classes.Count + (outside == null ? 0 : outside.Count) > MaxClasses) return null;
                 }
             }
-            return new ScheduleWeek { Start = start.Value, End = end.Value, SavedAt = now, Account = account ?? "", Classes = classes.OrderBy(c => c.Start).ThenBy(c => c.Name, StringComparer.Ordinal).ToList() };
+            return new ScheduleWeek { Start = start.Value, End = end.Value, SavedAt = savedAt, Account = account ?? "", Classes = classes.OrderBy(c => c.Start).ThenBy(c => c.Name, StringComparer.Ordinal).ToList() };
+        }
+        // The Monday the week's columns count from: the Monday on or before its first day, the next day for a week the site
+        // starts on a Sunday (its Monday column is that next day, as above).
+        internal static DateTime Monday(DateTime start)
+        {
+            var date = start.Date;
+            return date.DayOfWeek == DayOfWeek.Sunday ? date.AddDays(1) : date.AddDays(-(((int)date.DayOfWeek + 6) % 7));
         }
         // The same week and the same classes: nothing to write.
         internal bool SameAs(ScheduleWeek other)
@@ -124,7 +141,7 @@ namespace Univer.Desktop.Core
         {
             return DateTime.TryParseExact(value, "yyyy-MM-ddTHH:mm:ss", CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out result);
         }
-        private static bool Number(Dictionary<string, object> json, string key, out double value)
+        internal static bool Number(Dictionary<string, object> json, string key, out double value)
         {
             value = 0; object raw;
             if (!json.TryGetValue(key, out raw) || raw == null || raw is string || raw is bool) return false;
@@ -146,7 +163,7 @@ namespace Univer.Desktop.Core
             value = folded.ToString();
             return true;
         }
-        private static DateTime? FromEpoch(double ms)
+        internal static DateTime? FromEpoch(double ms)
         {
             if (ms < 0 || ms > 253402300799000d) return null;
             return new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc).AddMilliseconds(ms).ToLocalTime();

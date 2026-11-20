@@ -160,9 +160,12 @@ namespace Univer.Desktop.UI
                 return true;
             }
         }
-        private sealed class WeekSheet : IDisposable
+        // One week laid out as day cards: the offline screen's sheet, and (SetExport) one column of the schedule picture.
+        internal sealed class WeekSheet : IDisposable
         {
             private ScheduleWeek week; private DateTime now; private string lang = "ru";
+            // The picture's column: its heading, and a note in place of the days (a week that could not be read).
+            private string exportHeading, exportNote;
             private float scale = 1;
             private Font titleFont, bodyFont, strongFont, metaFont;
             private readonly List<Action<Graphics>> paint = new List<Action<Graphics>>();
@@ -172,7 +175,10 @@ namespace Univer.Desktop.UI
             internal bool Fits = true;
             internal Size Size { get; private set; }
             internal bool Same(ScheduleWeek other, string language) { return other == week && language == lang; }
-            internal void Set(ScheduleWeek value, DateTime at, string language) { week = value; now = at; lang = language; }
+            internal void Set(ScheduleWeek value, DateTime at, string language) { week = value; now = at; lang = language; exportHeading = exportNote = null; }
+            // A week of the schedule picture: no saved time, no offline notes, no today or past marks; null week with a note
+            // for a week that could not be read.
+            internal void SetExport(ScheduleWeek value, string heading, string note, string language) { week = value; now = DateTime.MinValue; lang = language; exportHeading = heading; exportNote = note; }
             private int D(float value) { return (int)Math.Round(value * scale); }
             private void Fonts(float value)
             {
@@ -190,6 +196,7 @@ namespace Univer.Desktop.UI
             {
                 Fonts(value); scale = value; paint.Clear(); TitleBoxes.Clear(); TodayTop = -1; DayCount = 0; Fits = true;
                 var words = new StringBuilder();
+                if (exportHeading != null) { ArrangeExport(width, words); return; }
                 Title = Strings.Get("offlineTitle", lang);
                 var column = Math.Min(D(720), Math.Max(D(200), width - D(48)));
                 var left = Math.Max(D(16), (width - column) / 2);
@@ -219,6 +226,27 @@ namespace Univer.Desktop.UI
                         if (today) TodayTop = y;
                         y = Card(day.Key, day.Value, today, past, left, y, column, words) + D(12);
                     }
+                }
+                y += D(16);
+                Words = words.ToString().Trim();
+                Size = new Size(width, y);
+            }
+            private void ArrangeExport(int width, StringBuilder words)
+            {
+                Title = exportHeading;
+                var column = Math.Max(D(160), width - D(48)); var left = D(24);
+                var y = Write(Title, titleFont, () => Theme.Ink, left, D(28), column) + D(4);
+                words.AppendLine(Title);
+                // The dates under a heading that names the week by number (an unnumbered week's heading is its dates).
+                var range = week != null ? OfflineWeek.Range(week, lang) : "";
+                if (range.Length > 0 && range != Title) { y = Write(range, bodyFont, () => Theme.Muted, left, y, column) + D(4); words.AppendLine(range); }
+                var note = exportNote ?? (OfflineWeek.Shows(week) ? null : Strings.Get("exportEmpty", lang));
+                if (note != null) { y = Write(note, bodyFont, () => Theme.Ink, left, y + D(12), column) + D(4); words.AppendLine(note); }
+                y += D(16);
+                foreach (var day in OfflineWeek.ByDay(week))
+                {
+                    DayCount++;
+                    y = Card(day.Key, day.Value, false, false, left, y, column, words) + D(12);
                 }
                 y += D(16);
                 Words = words.ToString().Trim();

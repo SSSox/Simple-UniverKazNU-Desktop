@@ -50,6 +50,7 @@ test('the page deadline: a page whose scripts never finish is uncovered 1.5 s af
  assert.equal(p.w.__univerReportPictures,false,'the grade summary hides PNG and Copy picture');
  assert.equal(p.w.__univerOverviewKeep,false,'the home panels keep nothing in the browser');
  assert.equal(p.w.__univerUmkdSeenKeep,false,'UMKD pages keep no list of files seen');
+ assert.equal(p.w.__univerScheduleExport,false,'the schedule export buttons are the apps own');
  time.tick(1400);assert.equal(root.style.opacity,'0','still within the deadline');
  time.tick(200);assert.equal(root.style.opacity,'');assert.equal(root.style.pointerEvents,'');
  p.close();

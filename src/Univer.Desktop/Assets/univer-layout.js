@@ -407,7 +407,7 @@ html.univer-mobile #l4 .univer-app-content-columns>tbody,
 html.univer-mobile #l4 .univer-app-content-columns>tbody>tr,
 html.univer-mobile #l4 .univer-app-content-columns>tbody>tr>td { display:block!important; width:100%!important; min-width:0!important; box-sizing:border-box; padding:0!important; }
 html.univer-mobile #l4 .univer-app-content-columns>tbody>tr>td+td { margin-top:16px; }
-html.univer-mobile #l4 :is(input[type=button],input[type=submit],button):not(.univer-app-course-open):not(.univer-app-catalog-download):not(.univer-app-sort-toggle):not(.univer-app-days button):not(.univer-app-schedule-modes button):not(.univer-app-news-tools button):not(.univer-app-news-jump button):not(.univer-app-attendance-overview-name):not(.univer-app-attendance-details-toggle):not(.univer-app-week-step):not([class^=univer-app-syl-]):not(.univer-app-fold-all):not(.univer-app-goal button) { padding:9px 16px!important; border:1px solid #1b5fa6; border-radius:6px; background:#1b5fa6; color:white; cursor:pointer; }
+html.univer-mobile #l4 :is(input[type=button],input[type=submit],button):not(.univer-app-course-open):not(.univer-app-catalog-download):not(.univer-app-sort-toggle):not(.univer-app-days button):not(.univer-app-schedule-modes button):not(.univer-app-news-tools button):not(.univer-app-news-jump button):not(.univer-app-attendance-overview-name):not(.univer-app-attendance-details-toggle):not(.univer-app-week-step):not([class^=univer-app-syl-]):not(.univer-app-fold-all):not(.univer-app-goal button):not(.univer-app-schedule-export button) { padding:9px 16px!important; border:1px solid #1b5fa6; border-radius:6px; background:#1b5fa6; color:white; cursor:pointer; }
 html.univer-mobile #l4 :is(input[type=button],input[type=submit],button):disabled { opacity:.55; cursor:default; }
 html.univer-mobile .univer-app-data th { padding:10px!important; color:#16283b!important; background:#e9f1fb!important; font-weight:500; }
 html.univer-mobile .univer-app-empty-result { height:auto!important; min-height:64px!important; max-height:none!important; overflow:auto!important; }
@@ -885,7 +885,23 @@ html.univer-mobile.univer-app-document body { padding:24px!important; background
             modes.setAttribute('role','group'); modes.setAttribute('aria-label', modesLabel[2]);
             var dayMode = document.createElement('button'), gridMode = document.createElement('button');
             dayMode.type = gridMode.type = 'button'; dayMode.textContent = modesLabel[0]; gridMode.textContent = modesLabel[1];
-            modes.append(dayMode, gridMode); view.appendChild(modes);
+            modes.append(dayMode, gridMode);
+            // The app's export buttons share the mode switch's row, at its right (the extension has none: the switch alone).
+            if (window.__univerScheduleExport === false) view.appendChild(modes);
+            else {
+                var exportText = selectedLanguage === 'en' ? ['To calendar', 'As picture', 'Download this and the neighbouring week until the end of the semester for a calendar (.ics)', 'Save this and the neighbouring week as a picture (PNG)', 'Export schedule']
+                    : selectedLanguage === 'kz' ? ['Күнтізбеге', 'Сурет ретінде', 'Осы және көрші аптаның кестесін семестр соңына дейін күнтізбеге жүктеу (.ics)', 'Осы және көрші аптаны сурет ретінде сақтау (PNG)', 'Кестені экспорттау']
+                    : ['В календарь', 'Картинкой', 'Скачать расписание этой и соседней недели до конца семестра для календаря (.ics)', 'Сохранить эту и соседнюю неделю картинкой (PNG)', 'Экспорт расписания'];
+                var exportGroup = document.createElement('div'); exportGroup.className = 'univer-app-schedule-export';
+                exportGroup.setAttribute('role', 'group'); exportGroup.setAttribute('aria-label', exportText[4]);
+                ['ics', 'png'].forEach(function (kind, k) {
+                    var b = document.createElement('button'); b.type = 'button'; b.dataset.univerExport = kind;
+                    b.textContent = exportText[k]; b.title = exportText[k + 2];
+                    exportGroup.appendChild(b);
+                });
+                var bar = document.createElement('div'); bar.className = 'univer-app-schedule-bar';
+                bar.append(modes, exportGroup); view.appendChild(bar);
+            }
             var tabs = document.createElement('div'); tabs.className = 'univer-app-days';
             tabs.setAttribute('aria-label', selectedLanguage === 'en' ? 'Day of week' : selectedLanguage === 'kz' ? 'Апта күні' : 'День недели');
             view.appendChild(tabs); var sections = [], buttons = [];

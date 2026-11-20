@@ -100,6 +100,9 @@ namespace Univer.Desktop.Core
             if (key == "reportCopied") return new UiMessage(key, MessageTone.Success, MessageAction.None, 52, true);
             if (key == "reportFailed") return new UiMessage(key, MessageTone.Warning, MessageAction.None, 70, true);
             if (key == "reportCopyFailed") return new UiMessage(key, MessageTone.Warning, MessageAction.None, 70, true);
+            // The schedule export: a file without the neighbouring week is saved but told as a warning, with the downloads list.
+            if (key == "schedulePart") return new UiMessage(key, MessageTone.Warning, MessageAction.Downloads, 70, true);
+            if (key == "scheduleFailed") return new UiMessage(key, MessageTone.Warning, MessageAction.None, 70, true);
             if (key == "signOnOpening") return new UiMessage(key, MessageTone.Working, MessageAction.None, 58);
             if (key == "signOnOpened") return new UiMessage(key, MessageTone.Success, MessageAction.None, 52, true);
             if (key == "signOnLogin" || key == "signOnFailed") return new UiMessage(key, MessageTone.Warning, MessageAction.None, 68, true);

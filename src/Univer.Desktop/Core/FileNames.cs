@@ -269,7 +269,7 @@ namespace Univer.Desktop.Core
             return Regex.IsMatch(text, @"^(<!doctype\s+html|<html\b|<head\b|<body\b|<meta\b|<table\b|<\?xml[^>]*>\s*<html\b)", RegexOptions.IgnoreCase);
         }
         public static bool CanOpen(string path)
-        { return Regex.IsMatch(Path.GetExtension(path ?? ""), @"^\.(pdf|docx?|xlsx?|pptx?|rtf|txt|csv|png|jpe?g|gif|odt|ods|odp)$", RegexOptions.IgnoreCase); }
+        { return Regex.IsMatch(Path.GetExtension(path ?? ""), @"^\.(pdf|docx?|xlsx?|pptx?|rtf|txt|csv|png|jpe?g|gif|odt|ods|odp|ics)$", RegexOptions.IgnoreCase); }
         public static bool LoginHtml(byte[] bytes, int count)
         {
             var text = Encoding.UTF8.GetString(bytes, 0, count).TrimStart('\uFEFF', ' ', '\r', '\n', '\t');

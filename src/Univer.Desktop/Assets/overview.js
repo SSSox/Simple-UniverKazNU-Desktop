@@ -480,6 +480,90 @@
         anchor.after(box.box);
         listed(box, 'requests', '/ssc/StatementList', isRequests, requests, renderRequests);
     }
+    /* The schedule page's export buttons (univer-layout.js draws them, the app builds the file). Only the student's own press
+       counts. The page reads the shown week and its neighbour, keeps them as one JSON string and tells the app, which fetches
+       the string with exportData(); a neighbour that cannot be read is named in `missing` and the app says so. */
+    var exportBusy = false, exportJson = '', exportTimer = 0, exportToken = 0;
+    var EXPORT_VALUE = /^\/student\/myschedule\/\d{4}\/[12]\/\d{1,2}\.\d{1,2}\.\d{4}\/\d{1,2}\.\d{1,2}\.\d{4}\/?$/;
+    function exportButtons(on) {
+        exportBusy = on;
+        Array.prototype.forEach.call(document.querySelectorAll('.univer-app-schedule-export button[data-univer-export]'), function (b) {
+            // Busy, not disabled: a disabled button would drop the keyboard focus of the student who pressed it.
+            if (on) { b.setAttribute('aria-busy', 'true'); b.setAttribute('aria-disabled', 'true'); } else { b.removeAttribute('aria-busy'); b.removeAttribute('aria-disabled'); }
+        });
+    }
+    function exportDone() { exportToken++; exportJson = ''; clearTimeout(exportTimer); exportButtons(false); }
+    // The site's number of the week from its option ("7 неделя …"), else its place in the list.
+    function weekNumber(option, index) {
+        var label = clean(option).replace(/\d{1,2}\.\d{1,2}\.\d{4}/g, ' '), found = parseInt((label.match(/\d{1,2}/) || [''])[0], 10);
+        return found >= 1 && found <= 40 ? {number: found, labelled: true} : {number: index + 1, labelled: false};
+    }
+    function dayAfter(date) { return new Date(date.getFullYear(), date.getMonth(), date.getDate() + 1).getTime(); }
+    // The schedule page, its semester tab or a week's own address (the app checks the same, SitePolicy.SchedulePage).
+    function schedulePage(path) { return /^\/student\/myschedule(?:\/\d{4}\/[12](?:\/\d{1,2}\.\d{1,2}\.\d{4}\/\d{1,2}\.\d{1,2}\.\d{4})?)?\/?$/.test(path); }
+    function weekDays(doc) { var days = []; for (var column = 1; column < columns(doc); column++) days.push(lessonsOn(doc, column) || []); return days; }
+    function exportLessons(days) {
+        return days.map(function (day) {
+            return day.map(function (l) { return {start: l.start, end: l.end, name: l.parts.name || l.subject, type: l.parts.type || '', room: l.parts.room || '', teacher: l.parts.teacher || ''}; });
+        });
+    }
+    // The neighbour week by GET: the address must be the site's own week address, nothing may redirect, and the page that
+    // answers must name the week that was asked for.
+    async function readWeek(option, range) {
+        var value = option.value, url = new URL(value, location.origin);
+        if (!EXPORT_VALUE.test(value) || url.origin !== location.origin) throw new Error('Address');
+        var abort = new AbortController(), timeout = setTimeout(function () { abort.abort(); }, 15000);
+        try {
+            var response = await fetch(url.href, {credentials: 'same-origin', cache: 'no-store', redirect: 'error', signal: abort.signal});
+            var final = new URL(response.url, location.origin);
+            if (response.status !== 200 || final.origin !== location.origin || final.pathname !== url.pathname) throw new Error('Unavailable');
+            var html = await response.text(); if (html.length > 4 * 1024 * 1024) throw new Error('Oversized');
+            var doc = new DOMParser().parseFromString(html, 'text/html');
+            if (doc.querySelector('#login_frm') || !doc.querySelector('table.schedule')) throw new Error('Unread');
+            var select = doc.getElementById('weekSelect'), chosen = select && Array.from(select.options).find(function (o) { return o.hasAttribute('selected'); });
+            var got = chosen && weekRange(chosen.value + ' ' + chosen.textContent);
+            if (!got || got[0].getTime() !== range[0].getTime() || got[got.length - 1].getTime() !== range[range.length - 1].getTime()) throw new Error('Other week');
+            return weekDays(doc);
+        } finally { clearTimeout(timeout); }
+    }
+    async function prepare(kind, token) {
+        var select = document.getElementById('weekSelect'), options = select ? Array.from(select.options) : [];
+        var shown = options[select ? select.selectedIndex : -1], range = shown && weekRange(shown.value + ' ' + shown.textContent);
+        var term = shown && /^\/student\/myschedule\/(\d{4})\/([12])\//.exec(shown.value);
+        if (!range || !term || !document.querySelector('table.schedule')) throw new Error('No week');
+        var ranges = options.map(function (o) { return weekRange(o.value + ' ' + o.textContent); });
+        var start = range[0].getTime(), end = dayAfter(range[range.length - 1]), latest = end;
+        ranges.forEach(function (r) { if (r) latest = Math.max(latest, dayAfter(r[r.length - 1])); });
+        // The other week of the site's two-week cycle is the one right after the shown week, else the one right before it;
+        // a week after a gap may be of the same parity, so it is not taken.
+        var after = -1, before = -1;
+        ranges.forEach(function (r, i) {
+            if (!r || i === select.selectedIndex) return;
+            if (r[0].getTime() === end && after < 0) after = i;
+            if (dayAfter(r[r.length - 1]) === start && before < 0) before = i;
+        });
+        var other = after >= 0 ? after : before, weeks = [], missing = [];
+        var mine = weekNumber(shown, select.selectedIndex);
+        weeks.push({number: mine.number, labelled: mine.labelled, start: start, end: end, days: exportLessons(weekDays(document))});
+        if (other >= 0) {
+            var o = ranges[other], number = weekNumber(options[other], other);
+            try {
+                var days = await readWeek(options[other], o);
+                weeks.push({number: number.number, labelled: number.labelled, start: o[0].getTime(), end: dayAfter(o[o.length - 1]), days: exportLessons(days)});
+            } catch (_) { missing.push(number.number); }
+        }
+        if (token !== exportToken) return;
+        exportJson = JSON.stringify({term: term[1] + '/' + term[2], until: latest, weeks: weeks, missing: missing});
+        __univerNative('univer-schedule:' + kind);
+    }
+    document.addEventListener('click', function (event) {
+        var button = event.isTrusted && event.target && event.target.closest ? event.target.closest('.univer-app-schedule-export button[data-univer-export]') : null;
+        if (!button || exportBusy || !schedulePage(location.pathname) || typeof __univerNative !== 'function') return;
+        var kind = button.getAttribute('data-univer-export'); if (kind !== 'ics' && kind !== 'png') return;
+        exportToken++; var token = exportToken; exportJson = ''; exportButtons(true);
+        clearTimeout(exportTimer); exportTimer = setTimeout(function () { exportToken++; exportJson = ''; exportButtons(false); }, 60000);
+        prepare(kind, token).catch(function () { if (token === exportToken) exportDone(); });
+    }, true);
     window.__univerOverviewV1 = {
         apply: function (lang) {
             if (lang !== language) { language = lang || 'ru'; if (active) this.release(); }
@@ -510,6 +594,9 @@
                 })});
             } catch (_) { return ''; }
         },
+        // The week export the student pressed: the prepared JSON string once, then empty. exported() ends the busy state.
+        exportData: function () { var data = exportJson; exportJson = ''; return data; },
+        exported: function () { exportDone(); },
         // Test hooks: the same readers on a supplied document.
         // A site page read once per visit (GET, same origin), shared with the tab-page helpers.
         page: function (url) { return once(url, url); },

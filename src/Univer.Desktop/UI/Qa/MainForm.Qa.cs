@@ -49,6 +49,7 @@ namespace Univer.Desktop.UI
                     QaStep("idle", () => IdleQaAsync(results)),
                     QaStep("kept", () => KeptQaAsync(qa, results)),
                     QaStep("schedule-copy", () => ScheduleCopyQaAsync(results)),
+                    QaStep("schedule-export", () => ScheduleExportQaAsync(qa, results)),
                     QaStep("offline", () => OfflineQaAsync(qa, results)),
                     QaStep("grades", () => GradesQaAsync(qa, results)),
                     QaStep("diagnostics", () => DiagnosticsQaAsync(qa, results)),

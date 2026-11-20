@@ -297,6 +297,7 @@ namespace Univer.Desktop.UI
             // gesture, BrowserHandlers) changes it.
             if (mainFrame && !viewer && value.StartsWith(Shortcuts.MessagePrefix, StringComparison.Ordinal)) QueueAsync(() => PinAsync(browser, value.Substring(Shortcuts.MessagePrefix.Length)));
             if (mainFrame && !viewer && value.StartsWith(DownloadBatch.MessagePrefix, StringComparison.Ordinal)) QueueAsync(() => DownloadSectionAsync(browser, value.Substring(DownloadBatch.MessagePrefix.Length)));
+            if (mainFrame && !viewer && value.StartsWith(ScheduleExport.MessagePrefix, StringComparison.Ordinal)) { var kind = ScheduleExport.Kind(value.Substring(ScheduleExport.MessagePrefix.Length)); QueueAsync(() => ScheduleExportAsync(browser, kind)); }
             if (mainFrame && !viewer && value.StartsWith(GradeReport.MessagePrefix, StringComparison.Ordinal)) { var report = value.Substring(GradeReport.MessagePrefix.Length); QueueAsync(() => ReportAsync(browser, GradeReport.Action(report), GradeReport.Page(report))); }
         }
         private void OpenDocument(string url)
