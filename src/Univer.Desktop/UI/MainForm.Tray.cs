@@ -21,7 +21,7 @@ namespace Univer.Desktop.UI
         // and the isolated checks keep this in-memory copy, so no check ever changes what starts with Windows.
         internal IRunKey RunKey = new MemoryRunKey();
         private bool startHidden;
-        // What a click on the last tray balloon opens: "notices", "schedule", or nothing.
+        // What a click on the last tray balloon opens: "notices", "schedule", "grades", or nothing.
         private string balloonOpens;
         // Self-test counts the held-back start instead of opening the first sign-in window.
         private Func<Task> startPromptsForQa;
@@ -126,6 +126,7 @@ namespace Univer.Desktop.UI
             if (opens == null || LockShown) return;
             if (opens == "notices") ShowNotices();
             else if (opens == "schedule") NavigateSection("/student/myschedule/");
+            else if (opens == "grades") NavigateSection("/student/attestation/");
         }
         private void ExitApplication() { exitRequested = true; if (!Visible) Show(); Close(); }
         private void DisposeTray()

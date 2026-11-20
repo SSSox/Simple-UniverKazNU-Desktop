@@ -22,20 +22,20 @@ namespace Univer.Desktop.UI
         internal Toggle RemindersForQa { get { return reminders; } }
         internal ModernButton LeadForQa { get { return leadButton; } }
         internal void ChooseLeadForQa(int minutes) { leadButton.PerformClick(); leadMenu.ListForQa.ChooseForQa(minutes); }
-        // The reminder row: its words keep clear of the button, the button shows its whole label inside the sheet, and the
-        // sheet is on the panel.
-        internal bool LeadFitsForQa
+        internal Toggle GradesForQa { get { return grades; } }
+        internal ModernButton IntervalForQa { get { return intervalButton; } }
+        internal void ChooseIntervalForQa(int minutes) { intervalButton.PerformClick(); intervalMenu.ListForQa.ChooseForQa(minutes); }
+        internal bool LeadFitsForQa { get { return ChoiceFits(remindSheet, reminders, leadTitle, leadHint, leadButton) && remindSheet.Bottom <= gradeSheet.Top; } }
+        internal bool IntervalFitsForQa { get { return ChoiceFits(gradeSheet, grades, intervalTitle, intervalHint, intervalButton) && gradeSheet.Bottom <= securitySheet.Top; } }
+        // A switch over a choice: its words keep clear of the button, the button shows its whole label inside the sheet.
+        private bool ChoiceFits(Control sheet, Toggle toggle, Label title, Label hint, ModernButton button)
         {
-            get
-            {
-                var flags = TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine;
-                var slot = leadButton.Parent;
-                var hint = TextRenderer.MeasureText(leadHint.Text, leadHint.Font, new Size(leadHint.Width, int.MaxValue), TextFormatFlags.WordBreak);
-                return slot.Left >= leadHint.Right && slot.Right <= remindSheet.Width && slot.Bottom <= remindSheet.Height && hint.Height <= leadHint.Height &&
-                    TextRenderer.MeasureText(leadTitle.Text, leadTitle.Font, Size.Empty, flags).Width <= leadTitle.Width &&
-                    TextRenderer.MeasureText(leadButton.Text, leadButton.Font, Size.Empty, flags).Width <= leadButton.Width - Px(8) &&
-                    remindSheet.Bottom <= securitySheet.Top && reminders.FitsForQa;
-            }
+            var flags = TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine;
+            var slot = button.Parent;
+            var lines = TextRenderer.MeasureText(hint.Text, hint.Font, new Size(hint.Width, int.MaxValue), TextFormatFlags.WordBreak);
+            return slot.Left >= hint.Right && slot.Right <= sheet.Width && slot.Bottom <= sheet.Height && lines.Height <= hint.Height &&
+                TextRenderer.MeasureText(title.Text, title.Font, Size.Empty, flags).Width <= title.Width &&
+                TextRenderer.MeasureText(button.Text, button.Font, Size.Empty, flags).Width <= button.Width - Px(8) && toggle.FitsForQa;
         }
         internal void ChangeForQa() { animations.Checked = !animations.Checked; }
         internal ModernButton WebDataClearForQa { get { return webDataClear; } }
@@ -82,7 +82,7 @@ namespace Univer.Desktop.UI
             var labels = new[] { logoutTitle, logoutHint, languageLabel, languageHint, themeLabel, privacy };
             var words = labels.Where(l => TextRenderer.MeasureText(l.Text, l.Font, Size.Empty, flags).Width > l.Width).Select(l => l.Text);
             var buttons = languages.Concat(themes).Where(b => TextRenderer.MeasureText(b.Text, b.Font, Size.Empty, flags).Width > b.Width - Px(8)).Select(b => b.Text);
-            var toggles = new[] { readable, tray, startup, reminders, animations }.Where(t => !t.FitsForQa).Select(t => t.Text);
+            var toggles = new[] { readable, tray, startup, reminders, grades, animations }.Where(t => !t.FitsForQa).Select(t => t.Text);
             return words.Concat(buttons).Concat(toggles).ToArray();
         }
     }

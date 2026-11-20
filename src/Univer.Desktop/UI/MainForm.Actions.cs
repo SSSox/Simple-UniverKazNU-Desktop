@@ -26,7 +26,7 @@ namespace Univer.Desktop.UI
                 {
                     form.OpenReleasePage = () => External(Updates.ReleasePage(updates.Available));
                     form.StartupState = ReadAutostart();
-                    form.ApplyAsync = (action, next, language, readable) => ApplySettingsAsync(action, next, language, readable, form.Tray, form.Animations, form.SelectedTheme, form.ExternalLinks, form.StartupChanged ? form.Startup : (bool?)null, form.Reminders, form.ReminderLead);
+                    form.ApplyAsync = (action, next, language, readable) => ApplySettingsAsync(action, next, language, readable, form.Tray, form.Animations, form.SelectedTheme, form.ExternalLinks, form.StartupChanged ? form.Startup : (bool?)null, form.Reminders, form.ReminderLead, form.Grades, form.GradeInterval);
                     form.ClearWebData = ClearWebDataAsync;
                     form.PinSet = () => PinSet; form.SetPin = SetPinAsync; form.ChangePin = ChangePinAsync; form.DisablePin = DisablePinAsync;
                     form.ShowDialog(this);
@@ -38,11 +38,11 @@ namespace Univer.Desktop.UI
             finally { settingsOpen = false; }
             if (installUpdate) ShowUpdate(true);
         }
-        private async Task<bool> ApplySettingsAsync(SettingsAction action, Credentials next, string language, bool readable, bool? tray = null, bool? animations = null, string theme = null, bool? externalLinks = null, bool? startup = null, bool? reminders = null, int? reminderLead = null)
+        private async Task<bool> ApplySettingsAsync(SettingsAction action, Credentials next, string language, bool readable, bool? tray = null, bool? animations = null, string theme = null, bool? externalLinks = null, bool? startup = null, bool? reminders = null, int? reminderLead = null, bool? grades = null, int? gradeInterval = null)
         {
             if (commandBusy || closing) return false;
             commandBusy = true; SetCommandEnabled(false);
-            var languageChanged = prefs.Language != language; var rotated = false;
+            var languageChanged = prefs.Language != language; var rotated = false; var gradesWere = prefs.Grades;
             var logout = action == SettingsAction.Remove;
             // Settings' own button says it is working; a logout puts no banner over the window (the owner's request).
             if (!logout) SetStatus("saving");
@@ -52,6 +52,7 @@ namespace Univer.Desktop.UI
                 var change = action == SettingsAction.Manual ? SettingsChange.AppearanceOnly : SettingsDecision.Classify(credentials, next, prefs.AutoLoginPaused || guard.Stopped);
                 var updated = prefs.Clone(); updated.Language = language; updated.Readable = readable; if (tray.HasValue) updated.Tray = tray.Value; if (animations.HasValue) updated.Animations = animations.Value; if (theme != null) updated.Theme = ThemeChoice.Normalize(theme); if (externalLinks.HasValue) updated.ExternalLinks = externalLinks.Value;
                 if (reminders.HasValue) updated.Reminders = reminders.Value; if (reminderLead.HasValue) updated.ReminderLead = ClassReminders.Lead(reminderLead.Value);
+                if (grades.HasValue) updated.Grades = grades.Value; if (gradeInterval.HasValue) updated.GradeInterval = GradeNotice.Interval(gradeInterval.Value);
                 if (action == SettingsAction.Manual) updated.AutoLoginPaused = true;
                 if (change != SettingsChange.AppearanceOnly)
                 {
@@ -72,7 +73,7 @@ namespace Univer.Desktop.UI
                 }
                 else { await storage.SavePreferencesAsync(updated); prefs = updated; }
                 if (closing) return false;
-                storageFailed = false; messages.ClearStorageError();
+                storageFailed = false; messages.ClearStorageError(); GradesChanged(gradesWere);
                 // Windows' own line, written after the preferences: a refused write leaves the rest saved and says so.
                 var startupRefused = startup.HasValue && !ApplyAutostart(startup.Value);
                 if (action == SettingsAction.Manual) { messages.FinishSettings(); SetStatus("manualSignIn"); }
@@ -133,7 +134,7 @@ namespace Univer.Desktop.UI
             var replaced = false;
             try
             {
-                await ClearNoticesAsync(); await ClearScheduleAsync();
+                await ClearNoticesAsync(); await ClearScheduleAsync(); await ClearGradesAsync();
                 var manager = context.GetCookieManager(null);
                 await TaskDeadline.AwaitAsync(manager.DeleteCookiesAsync(), TimeSpan.FromSeconds(8), stopping);
                 rotationFaultForQa?.Invoke();

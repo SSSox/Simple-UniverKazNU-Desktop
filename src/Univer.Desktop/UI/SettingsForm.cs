@@ -23,7 +23,7 @@ namespace Univer.Desktop.UI
         private readonly StageView stage = new StageView(StageScene.Welcome);
         private SelectionPlate tabPlate, languagePlate;
         private readonly TextInput login = new TextInput(false), password = new TextInput(true);
-        private readonly Toggle readable = new Toggle(), tray = new Toggle(), startup = new Toggle(), reminders = new Toggle(), animations = new Toggle(), externalLinks = new Toggle();
+        private readonly Toggle readable = new Toggle(), tray = new Toggle(), startup = new Toggle(), reminders = new Toggle(), grades = new Toggle(), animations = new Toggle(), externalLinks = new Toggle();
         // Links: where they open, and the in-app browser's data, cleared at once (not on Save) like Logout.
         private readonly SettingsSheet linksSheet = new SettingsSheet();
         private readonly Label webDataTitle = new Label(), webDataHint = new Label();
@@ -65,6 +65,13 @@ namespace Univer.Desktop.UI
         private readonly PickMenu leadMenu = new PickMenu("");
         private int lead;
         private readonly bool startReminders; private readonly int startLead;
+        // New grades: on or off, and how often the attestation page is read (a drop-down of GradeNotice.Intervals).
+        private readonly SettingsSheet gradeSheet = new SettingsSheet();
+        private readonly Label intervalTitle = new Label(), intervalHint = new Label();
+        private readonly ModernButton intervalButton = new ModernButton();
+        private readonly PickMenu intervalMenu = new PickMenu("");
+        private int interval;
+        private readonly bool startGrades; private readonly int startInterval;
 #if LEGACY_ENGINE
         private readonly LegacyWarningPanel legacyWarning = new LegacyWarningPanel();
 #endif
@@ -91,6 +98,8 @@ namespace Univer.Desktop.UI
         public bool Startup { get { return startup.Checked; } }
         public bool Reminders { get { return reminders.Checked; } }
         public int ReminderLead { get { return lead; } }
+        public bool Grades { get { return grades.Checked; } }
+        public int GradeInterval { get { return interval; } }
         // Save writes the line when the switch moved, and also when it names another copy of the app.
         public bool StartupChanged { get { return startup.Checked != startStartup || startup.Checked && startupElsewhere; } }
         public AutostartState StartupState
@@ -122,7 +131,7 @@ namespace Univer.Desktop.UI
             BuildFrame();
             BuildAccount(credentials); BuildView(prefs); BuildApp(prefs);
             startLanguage = Language; startTheme = theme; startReadable = readable.Checked; startTray = tray.Checked; startAnimations = animations.Checked; startExternalLinks = externalLinks.Checked;
-            startReminders = reminders.Checked; startLead = lead;
+            startReminders = reminders.Checked; startLead = lead; startGrades = grades.Checked; startInterval = interval;
             Wire();
             AcceptButton = save; if (!firstLaunch) CancelButton = cancel;
             fadeIn = Motion.Enabled && !Motion.KeyboardInput;
@@ -174,10 +183,13 @@ namespace Univer.Desktop.UI
         }
         private void Wire()
         {
-            foreach (var toggle in new[] { readable, tray, startup, reminders, animations, externalLinks }) toggle.CheckedChanged += (s, e) => UpdateFooter();
+            foreach (var toggle in new[] { readable, tray, startup, reminders, grades, animations, externalLinks }) toggle.CheckedChanged += (s, e) => UpdateFooter();
             reminders.CheckedChanged += (s, e) => leadButton.Enabled = reminders.Checked;
             leadButton.Click += (s, e) => leadMenu.Show(leadButton, ClassReminders.Leads.Select(m => new PickItem { Text = LeadText(m), Value = m, Selected = m == lead }), Theme.DpiScale, zoom, leadButton.Width);
-            leadMenu.Chosen += value => { lead = (int)value; leadButton.Text = leadButton.AccessibleName = LeadText(lead); ArrangeApp(); UpdateFooter(); };
+            leadMenu.Chosen += value => { lead = (int)value; NameChoices(); ArrangeApp(); UpdateFooter(); };
+            grades.CheckedChanged += (s, e) => intervalButton.Enabled = grades.Checked;
+            intervalButton.Click += (s, e) => intervalMenu.Show(intervalButton, GradeNotice.Intervals.Select(m => new PickItem { Text = IntervalText(m), Value = m, Selected = m == interval }), Theme.DpiScale, zoom, intervalButton.Width);
+            intervalMenu.Chosen += value => { interval = (int)value; NameChoices(); ArrangeApp(); UpdateFooter(); };
             webDataClear.Click += async (s, e) => await ClearWebDataAsync();
             pinSet.Click += async (s, e) => await PinAsync(SetPin);
             pinChange.Click += async (s, e) => await PinAsync(ChangePin);
@@ -292,6 +304,11 @@ namespace Univer.Desktop.UI
             AddRow(remindSheet, leadTitle, leadHint, RowHeight, wide - 132);
             leadButton.Look = ButtonLook.Outline; leadButton.Enabled = reminders.Checked; AddSlot(remindSheet, RowHeight + 14, 120, leadButton);
             appPanel.Controls.Add(remindSheet);
+            grades.Checked = prefs.Grades; interval = GradeNotice.Interval(prefs.GradeInterval); AddToggle(gradeSheet, grades, 0, wide);
+            gradeSheet.SetBounds(TextInput.Ring, appSheet.Bottom + 12, Inner, RowHeight * 2); gradeSheet.DesignHeight = RowHeight * 2; gradeSheet.Lines = new[] { RowHeight };
+            AddRow(gradeSheet, intervalTitle, intervalHint, RowHeight, wide - 132);
+            intervalButton.Look = ButtonLook.Outline; intervalButton.Enabled = grades.Checked; AddSlot(gradeSheet, RowHeight + 14, 120, intervalButton);
+            appPanel.Controls.Add(gradeSheet);
             securitySheet.SetBounds(TextInput.Ring, appSheet.Bottom + 12, Inner, RowHeight); securitySheet.DesignHeight = RowHeight; securitySheet.Lines = new int[0];
             AddRow(securitySheet, securityTitle, securityHint, 0, wide - 252);
             pinSlot.BackColor = Theme.Surface; pinSlot.SetBounds(Inner - Pad - 240, 14, 240, 32);
@@ -397,15 +414,8 @@ namespace Univer.Desktop.UI
                 height = top + row;
             }
             appSheet.Height = height; appSheet.DesignHeight = (int)Math.Round(height / scale); appSheet.Invalidate();
-            // The reminder row's hint may wrap; its button keeps to the right, centred on the row.
-            var leadWords = remindSheet.Width - d(Pad) * 2 - leadButton.HugWidth - d(12);
-            var leadLines = TextRenderer.MeasureText(leadHint.Text, leadHint.Font, new Size(leadWords, int.MaxValue), TextFormatFlags.WordBreak).Height + d(2);
-            leadTitle.SetBounds(d(Pad), d(RowHeight) + d(12), leadWords, d(20));
-            leadHint.SetBounds(d(Pad), leadTitle.Bottom + d(2), leadWords, leadLines);
-            var leadRow = Math.Max(d(RowHeight), leadHint.Bottom - d(RowHeight) + d(12));
-            leadButton.Parent.SetBounds(remindSheet.Width - d(Pad) - leadButton.HugWidth, d(RowHeight) + (leadRow - d(32)) / 2, leadButton.HugWidth, d(32));
-            remindSheet.SetBounds(remindSheet.Left, appSheet.Bottom + d(12), remindSheet.Width, d(RowHeight) + leadRow);
-            remindSheet.DesignHeight = (int)Math.Round(remindSheet.Height / scale); remindSheet.Invalidate();
+            ArrangeChoice(remindSheet, leadTitle, leadHint, leadButton, appSheet.Bottom + d(12));
+            ArrangeChoice(gradeSheet, intervalTitle, intervalHint, intervalButton, remindSheet.Bottom + d(12));
             // The PIN row: Set when there is none, Change and Turn off when there is one; the line under it may wrap.
             var on = PinOn;
             pinSet.Visible = !on; pinChange.Visible = pinDisable.Visible = pinGap.Visible = on;
@@ -416,7 +426,7 @@ namespace Univer.Desktop.UI
             securityHint.SetBounds(d(Pad), securityTitle.Bottom + d(2), pinWords, pinLines);
             var pinRow = Math.Max(d(RowHeight), securityHint.Bottom + d(12));
             pinSlot.SetBounds(securitySheet.Width - d(Pad) - pinButtons, (pinRow - d(32)) / 2, pinButtons, d(32));
-            securitySheet.SetBounds(securitySheet.Left, remindSheet.Bottom + d(12), securitySheet.Width, pinRow);
+            securitySheet.SetBounds(securitySheet.Left, gradeSheet.Bottom + d(12), securitySheet.Width, pinRow);
             securitySheet.DesignHeight = (int)Math.Round(pinRow / scale); securitySheet.Invalidate();
             // The data row's hint may wrap (Kazakh, a larger zoom): the row grows and its button stays centred.
             var dataWords = linksSheet.Width - d(Pad) * 2 - webDataClear.HugWidth - d(12);
@@ -430,6 +440,20 @@ namespace Univer.Desktop.UI
             var note = TextRenderer.MeasureText(about.Text, about.Font, new Size(about.Width, int.MaxValue), TextFormatFlags.WordBreak).Height + d(2);
             about.SetBounds(about.Left, linksSheet.Bottom + d(12), about.Width, note);
             appPanel.Height = about.Bottom;
+        }
+        // A switch over a choice (reminders, new grades): the choice's hint may wrap (Kazakh, a larger zoom); its button keeps
+        // to the right, centred on the row.
+        private void ArrangeChoice(SettingsSheet sheet, Label title, Label hint, ModernButton button, int top)
+        {
+            var scale = Px(1); Func<int, int> d = value => (int)Math.Round(value * scale);
+            var words = sheet.Width - d(Pad) * 2 - button.HugWidth - d(12);
+            var lines = TextRenderer.MeasureText(hint.Text, hint.Font, new Size(words, int.MaxValue), TextFormatFlags.WordBreak).Height + d(2);
+            title.SetBounds(d(Pad), d(RowHeight) + d(12), words, d(20));
+            hint.SetBounds(d(Pad), title.Bottom + d(2), words, lines);
+            var row = Math.Max(d(RowHeight), hint.Bottom - d(RowHeight) + d(12));
+            button.Parent.SetBounds(sheet.Width - d(Pad) - button.HugWidth, d(RowHeight) + (row - d(32)) / 2, button.HugWidth, d(32));
+            sheet.SetBounds(sheet.Left, top, sheet.Width, d(RowHeight) + row);
+            sheet.DesignHeight = (int)Math.Round(sheet.Height / scale); sheet.Invalidate();
         }
         // The PIN windows open over Settings; after them the row shows what is now true.
         private async Task PinAsync(Func<IWin32Window, Task<bool>> run)
@@ -507,7 +531,7 @@ namespace Univer.Desktop.UI
         {
             get
             {
-                return SaveKey() != "saveChanges" || Language != startLanguage || theme != startTheme || readable.Checked != startReadable || tray.Checked != startTray || StartupChanged || reminders.Checked != startReminders || lead != startLead || animations.Checked != startAnimations || externalLinks.Checked != startExternalLinks ||
+                return SaveKey() != "saveChanges" || Language != startLanguage || theme != startTheme || readable.Checked != startReadable || tray.Checked != startTray || StartupChanged || reminders.Checked != startReminders || lead != startLead || grades.Checked != startGrades || interval != startInterval || animations.Checked != startAnimations || externalLinks.Checked != startExternalLinks ||
                     login.Input.Text != (original?.Login ?? "") || password.Input.Text != (original?.Password ?? "");
             }
         }
@@ -519,6 +543,13 @@ namespace Univer.Desktop.UI
             if (!firstLaunch) Caption(cancel, changed ? "cancelChanges" : "closeWindow");
         }
         private string LeadText(int minutes) { return string.Format(Strings.Get("reminderLead", Language), minutes); }
+        private string IntervalText(int minutes) { return string.Format(Strings.Get("gradeInterval", Language), minutes); }
+        // A choice button says its value; its accessible name says what is chosen, too.
+        private void NameChoices()
+        {
+            leadButton.Text = LeadText(lead); leadButton.AccessibleName = leadTitle.Text + ": " + leadButton.Text;
+            intervalButton.Text = IntervalText(interval); intervalButton.AccessibleName = intervalTitle.Text + ": " + intervalButton.Text;
+        }
         private void Caption(ModernButton button, string key) { button.Text = button.AccessibleName = Strings.Get(key, Language); }
         private void UpdateRevealLabel() { password.Reveal.AccessibleName = Strings.Get(password.Input.UseSystemPasswordChar ? "showPassword" : "hidePassword", Language); }
         private void Localize()
@@ -540,7 +571,9 @@ namespace Univer.Desktop.UI
             animations.Text = Strings.Get("animationsOption", lang); animations.Hint = Strings.Get("animationsOptionHint", lang);
             tray.Text = Strings.Get("trayOption", lang); tray.Hint = Strings.Get("trayOptionHint", lang);
             reminders.Text = Strings.Get("reminderOption", lang); reminders.Hint = Strings.Get("reminderOptionHint", lang);
-            leadTitle.Text = Strings.Get("reminderLeadTitle", lang); leadHint.Text = Strings.Get("reminderLeadHint", lang); leadButton.Text = leadButton.AccessibleName = LeadText(lead);
+            leadTitle.Text = Strings.Get("reminderLeadTitle", lang); leadHint.Text = Strings.Get("reminderLeadHint", lang);
+            grades.Text = Strings.Get("gradesOption", lang); grades.Hint = Strings.Get("gradesOptionHint", lang);
+            intervalTitle.Text = Strings.Get("gradeIntervalTitle", lang); intervalHint.Text = Strings.Get("gradeIntervalHint", lang); NameChoices();
             startup.Text = Strings.Get("startupOption", lang); startup.Hint = Strings.Get(startupElsewhere ? "startupElsewhere" : "startupOptionHint", lang);
             externalLinks.Text = Strings.Get("externalLinksOption", lang); externalLinks.Hint = Strings.Get("externalLinksOptionHint", lang);
             webDataTitle.Text = Strings.Get("webDataTitle", lang); webDataHint.Text = Strings.Get(webDataState.Length > 0 ? webDataState : "webDataHint", lang);
@@ -561,7 +594,7 @@ namespace Univer.Desktop.UI
             tabPlate.Snap();
         }
         protected override void Dispose(bool disposing)
-        { if (disposing) { if (updates != null) updates.Changed -= RenderUpdates; appearance?.Cancel(); errorMove?.Cancel(); password.Input.Clear(); login.Input.Clear(); } base.Dispose(disposing); }
+        { if (disposing) { if (updates != null) updates.Changed -= RenderUpdates; appearance?.Cancel(); errorMove?.Cancel(); password.Input.Clear(); login.Input.Clear(); leadMenu.Dispose(); intervalMenu.Dispose(); } base.Dispose(disposing); }
         protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
         {
             Motion.KeyboardInput = true; MotionSurface.Stop(accountPanel); MotionSurface.Stop(viewPanel); MotionSurface.Stop(appPanel);

@@ -1,0 +1,109 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Threading;
+using System.Threading.Tasks;
+using System.Windows.Forms;
+using Univer.Desktop.Core;
+
+namespace Univer.Desktop.UI
+{
+    internal sealed partial class MainForm
+    {
+        // New grades: the settings row in each language, Save keeps the choice and turning it off removes the kept reading;
+        // the first reading and another set of courses are silent, a changed score comes as one balloon that opens the
+        // attestation page, a failed reading or a reading from an ended session changes nothing. Fixture pages instead of
+        // the network, an isolated hidden tray icon and a synthetic login mark.
+        private async Task GradesQaAsync(string qa, List<string> results)
+        {
+            Check(prefs.Grades && prefs.GradeInterval == GradeNotice.DefaultInterval, "new-grade notifications are on, every 30 minutes, by default", results);
+            foreach (var lang in new[] { "ru", "kz", "en" })
+            {
+                var shown = prefs.Clone(); shown.Language = lang;
+                using (var form = new SettingsForm(null, shown))
+                {
+                    form.Opacity = 0; form.ShowInTaskbar = false; form.Show(this); form.SelectUpdatesForQa(); await Task.Delay(150);
+                    var interval = form.IntervalForQa;
+                    QaTrace("grades-" + lang + " " + form.IntervalFitsForQa + " " + form.LeadFitsForQa + " " + string.Join("|", form.OverflowForQa()));
+                    Check(form.IntervalFitsForQa && form.LeadFitsForQa && interval.Visible && interval.Enabled && form.OverflowForQa().Length == 0 &&
+                        interval.Text == string.Format(Strings.Get("gradeInterval", lang), 30) && interval.AccessibleName.StartsWith(Strings.Get("gradeIntervalTitle", lang) + ": ") && !form.SaveButton.Enabled,
+                        "the new-grade row fits with its interval choice and changes nothing until touched (" + lang + ")", results);
+                    SaveBitmap(form, Path.Combine(qa, "grades-" + lang + ".png"));
+                    form.ChooseIntervalForQa(60); await Task.Delay(50);
+                    var chosen = form.GradeInterval == 60 && interval.Text == string.Format(Strings.Get("gradeInterval", lang), 60) && form.SaveButton.Enabled && form.IntervalFitsForQa;
+                    form.GradesForQa.Checked = false; await Task.Delay(50);
+                    Check(chosen && !form.Grades && !interval.Enabled && form.SaveButton.Enabled, "choosing an interval and turning new grades off are offered to Save (" + lang + ")", results);
+                    form.Close();
+                }
+            }
+            var file = Path.Combine(storage.Root, GradeFile.Name);
+            var previousTray = trayIcon; var previousOpens = balloonOpens; var previousSheet = gradeSheet;
+            var page = AttestationFixture(false);
+            string answer = page; var reads = 0;
+            gradeAccountForQa = ScheduleWeek.AccountMark("qa-grades");
+            gradeReadForQa = (url, token) => { reads++; return Task.FromResult(url == SitePolicy.Origin + "/student/attestation/" ? answer : null); };
+            using (var isolatedTray = new NotifyIcon { Visible = false })
+            {
+                trayIcon = isolatedTray;
+                try
+                {
+                    await ClearGradesAsync(); gradeTitleShown = gradeBodyShown = null; balloonOpens = null;
+                    await ReadGradesAsync();
+                    var kept = storage.LoadGrades(gradeAccountForQa);
+                    Check(reads == 1 && gradeTitleShown == null && balloonOpens == null && kept != null && kept.Rows.Count == 5 && kept.Rows[0].Course == "Алгоритмы и структуры данных",
+                        "the first reading of the attestation page is kept quietly as the baseline", results);
+                    Check(File.Exists(file) && !File.ReadAllText(file).Contains("<"), "the kept reading holds the table's text, not the page", results);
+                    await ReadGradesAsync();
+                    Check(gradeTitleShown == null, "the same scores again say nothing", results);
+                    // Психология: РК2 0 → 71, the total 18 → 38.
+                    answer = page.Replace("<td>60</td><td>0</td><td>0</td><td>18</td>", "<td>60</td><td>71</td><td>0</td><td>38</td>");
+                    await ReadGradesAsync();
+                    QaTrace("grades-balloon " + gradeTitleShown + " | " + gradeBodyShown);
+                    Check(gradeTitleShown == Strings.Get("gradesNew", prefs.Language) && gradeBodyShown == "Психология: РК2 71 · Сумма 38" && balloonOpens == "grades",
+                        "a changed score comes as one balloon naming the course and its new scores, and its click opens the attestation page", results);
+                    // A failed reading (a sign-in page, an error): nothing changes.
+                    var before = File.GetLastWriteTimeUtc(file); var sheetBefore = gradeSheet; gradeTitleShown = null;
+                    answer = null; await ReadGradesAsync();
+                    Check(gradeSheet == sheetBefore && File.GetLastWriteTimeUtc(file) == before && gradeTitleShown == null, "a failed reading leaves the baseline as it was and says nothing", results);
+                    // The session ends while the page answers: the reading is dropped. The epoch goes back at once, since the
+                    // browser's own callbacks are bound to it and later steps need them.
+                    answer = page; var epochWas = sessionEpoch;
+                    gradeReadForQa = (url, token) => { reads++; sessionEpoch++; return Task.FromResult(answer); };
+                    try { await ReadGradesAsync(); } finally { sessionEpoch = epochWas; }
+                    Check(gradeSheet == sheetBefore && File.GetLastWriteTimeUtc(file) == before && gradeTitleShown == null, "a reading from a session that ended meanwhile is dropped", results);
+                    gradeReadForQa = (url, token) => { reads++; return Task.FromResult(answer); };
+                    // Another set of courses (a new semester, another language of the site): a new quiet baseline.
+                    answer = page.Replace("<tr><td>Физическая культура</td><td>2</td><td>70</td><td>64</td><td>65</td><td>66</td><td>1.67</td><td>C-</td><td>удовл.</td></tr>", "");
+                    await ReadGradesAsync();
+                    Check(gradeTitleShown == null && gradeSheet != null && gradeSheet.Rows.Count == 4, "another set of courses becomes the new baseline without a balloon", results);
+                    // Behind a PIN the balloon names nothing.
+                    var body = GradeNotice.Body(new List<GradeChange> { new GradeChange { Course = "Психология", Cells = new List<string> { "РК2 71" } } }, prefs.Language, true);
+                    Check(body == Strings.Get("gradesLocked", prefs.Language) && !body.Contains("Психология"), "behind a PIN the balloon names no course or score", results);
+                    // Without a login mark nothing is read or kept.
+                    gradeAccountForQa = ""; var count = reads; await ReadGradesAsync();
+                    Check(reads == count && storage.LoadGrades("") == null, "without a saved login nothing is read or kept", results);
+                    gradeAccountForQa = ScheduleWeek.AccountMark("qa-grades");
+                    // Turned off in Settings: the kept reading goes, and nothing more is read.
+                    Check(await ApplySettingsAsync(SettingsAction.Save, null, prefs.Language, prefs.Readable, grades: false, gradeInterval: 60) && !prefs.Grades && prefs.GradeInterval == 60 &&
+                        !storage.LoadPreferences().Grades && storage.LoadPreferences().GradeInterval == 60, "Save keeps new grades off and the interval chosen", results);
+                    var removed = await UntilForQa(() => !File.Exists(file) && gradeSheet == null, 3000);
+                    count = reads; GradeContent(); await Task.Delay(50);
+                    Check(removed && reads == count, "turned off, the kept reading is removed and nothing is read", results);
+                    Check(await ApplySettingsAsync(SettingsAction.Save, null, prefs.Language, prefs.Readable, grades: true, gradeInterval: GradeNotice.DefaultInterval) && prefs.Grades && prefs.GradeInterval == 30,
+                        "Save turns them back on", results);
+                    messages.Withdraw("settingsSaved"); messages.Withdraw("networkError"); RenderFeedback();
+                    // The session's end takes the reading with it.
+                    await ReadGradesAsync(); var present = File.Exists(file);
+                    await ClearGradesAsync();
+                    Check(present && !File.Exists(file) && gradeSheet == null, "clearing the session's reading removes the file", results);
+                }
+                finally
+                {
+                    trayIcon = previousTray; balloonOpens = previousOpens; gradeSheet = previousSheet;
+                    gradeAccountForQa = null; gradeReadForQa = null; gradeTitleShown = gradeBodyShown = null; gradesDueAt = long.MinValue;
+                    prefs.Grades = true; prefs.GradeInterval = GradeNotice.DefaultInterval;
+                }
+            }
+        }
+    }
+}
