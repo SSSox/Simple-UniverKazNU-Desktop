@@ -110,8 +110,8 @@ namespace Univer.Desktop
                     if (Array.IndexOf(args, "--qa-offline") >= 0)
                     {
                         settings.CefCommandLineArgs.Add("proxy-server", "127.0.0.1:9");
-                        ScheduleFile.Write(storage.Root, UI.MainForm.OfflineWeekForQa(DateTime.Now, ""));
-                        LastGradesFile.Write(storage.Root, UI.MainForm.OfflineGradesForQa(DateTime.Now, ""));
+                        ScheduleFile.Write(storage.Root, UI.MainForm.OfflineWeekForQa(DateTime.Now, UI.MainForm.OfflineRunAccount));
+                        LastGradesFile.Write(storage.Root, UI.MainForm.OfflineGradesForQa(DateTime.Now, UI.MainForm.OfflineRunAccount));
                     }
                     // Before a page paints, and while a resized view catches up, Chromium shows this colour.
                     // Its default is black, which flashed as dark blocks between pages; this matches the shell.

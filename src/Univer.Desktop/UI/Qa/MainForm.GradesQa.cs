@@ -4,7 +4,9 @@ using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
+using CefSharp;
 using Univer.Desktop.Core;
+using Univer.Desktop.Web;
 
 namespace Univer.Desktop.UI
 {
@@ -40,7 +42,14 @@ namespace Univer.Desktop.UI
             var previousTray = trayIcon; var previousOpens = balloonOpens; var previousSheet = gradeSheet;
             var page = AttestationFixture(false);
             string answer = page; var reads = 0;
-            gradeAccountForQa = ScheduleWeek.AccountMark("qa-grades");
+            gradeAccountForQa = ScheduleWeek.AccountMark("qa-grades"); gateLoginForQa = "qa-grades";
+            // The check reads the shown page's account mark before it asks the site (ReadingAllowed): a site page that carries it.
+            Func<string, Task> showMark = async mark =>
+            {
+                main.LoadHtml("<!doctype html><html><head><title>grades-mark-qa</title></head><body><script>localStorage.setItem('" + PageAccount.Key + "','" + mark + "');</script><div id=\"l4\">QA</div></body></html>", SitePolicy.Origin + "/student/news/");
+                for (var until = DateTime.UtcNow.AddSeconds(8); DateTime.UtcNow < until && await AutomationController.EvaluateAsync(main, "document.title") != "grades-mark-qa";) await Task.Delay(100);
+            };
+            await showMark(PageAccount.Mark("qa-grades"));
             gradeReadForQa = (url, token) => { reads++; return Task.FromResult(url == SitePolicy.Origin + "/student/attestation/" ? answer : null); };
             using (var isolatedTray = new NotifyIcon { Visible = false })
             {
@@ -76,6 +85,13 @@ namespace Univer.Desktop.UI
                     answer = page.Replace("<tr><td>Физическая культура</td><td>2</td><td>70</td><td>64</td><td>65</td><td>66</td><td>1.67</td><td>C-</td><td>удовл.</td></tr>", "");
                     await ReadGradesAsync();
                     Check(gradeTitleShown == null && gradeSheet != null && gradeSheet.Rows.Count == 4, "another set of courses becomes the new baseline without a balloon", results);
+                    // The page shown belongs to another account (the student who signed in by hand after the site's own logout): no
+                    // request is made and nothing is kept or announced; the saved login's own page brings the check back.
+                    await showMark(PageAccount.Mark("qa-other"));
+                    var sheetKept = gradeSheet; var countOther = reads; gradeTitleShown = null; answer = page.Replace("<td>60</td><td>0</td><td>0</td><td>18</td>", "<td>60</td><td>71</td><td>0</td><td>38</td>");
+                    await ReadGradesAsync();
+                    Check(reads == countOther && gradeSheet == sheetKept && gradeTitleShown == null, "a page of another account than the saved login gets no grade check and nothing is announced", results);
+                    await showMark(PageAccount.Mark("qa-grades")); answer = page;
                     // Behind a PIN the balloon names nothing.
                     var body = GradeNotice.Body(new List<GradeChange> { new GradeChange { Course = "Психология", Cells = new List<string> { "РК2 71" } } }, prefs.Language, true);
                     Check(body == Strings.Get("gradesLocked", prefs.Language) && !body.Contains("Психология"), "behind a PIN the balloon names no course or score", results);
@@ -100,7 +116,8 @@ namespace Univer.Desktop.UI
                 finally
                 {
                     trayIcon = previousTray; balloonOpens = previousOpens; gradeSheet = previousSheet;
-                    gradeAccountForQa = null; gradeReadForQa = null; gradeTitleShown = gradeBodyShown = null; gradesDueAt = long.MinValue;
+                    gradeAccountForQa = null; gateLoginForQa = null; gradeReadForQa = null;
+                    await AutomationController.EvaluateAsync(main, "localStorage.removeItem('" + PageAccount.Key + "');'cleared'"); gradeTitleShown = gradeBodyShown = null; gradesDueAt = long.MinValue;
                     prefs.Grades = true; prefs.GradeInterval = GradeNotice.DefaultInterval;
                 }
             }

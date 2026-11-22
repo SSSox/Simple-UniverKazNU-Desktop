@@ -15,6 +15,8 @@ namespace Univer.Desktop.UI
 {
     internal sealed partial class MainForm
     {
+        // The login mark of the visible --qa-offline run, under which Program saves its synthetic week and totals.
+        internal static string OfflineRunAccount { get { return ScheduleWeek.AccountMark("qa-offline-run"); } }
         // A week of synthetic classes around today, saved yesterday afternoon. Program uses it for --qa-offline.
         internal static ScheduleWeek OfflineWeekForQa(DateTime now, string account)
         {

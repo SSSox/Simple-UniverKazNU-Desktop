@@ -17,6 +17,7 @@ namespace Univer.Desktop.UI
         private readonly System.Diagnostics.Stopwatch examClock = System.Diagnostics.Stopwatch.StartNew();
         private ExamPlan examPlan;
         private bool examBusy, examClearPending;
+        private readonly ReadRetry examRetry = new ReadRetry();
         private long examReadAt = long.MinValue;
         private string examReadAddress, examAccountForQa, examTitleShown, examBodyShown;
         private bool? examHiddenForQa;
@@ -34,6 +35,7 @@ namespace Univer.Desktop.UI
             if (!SitePolicy.ExamPage(address) || ExamAccount.Length == 0) return;
             var now = examClock.ElapsedMilliseconds;
             if (address == examReadAddress && examReadAt != long.MinValue && now - examReadAt < 60000) return;
+            if (address != examReadAddress) examRetry.Reset();
             examReadAddress = address; examReadAt = now;
             QueueAsync(() => ReadExamsAsync(address));
         }
@@ -46,13 +48,18 @@ namespace Univer.Desktop.UI
             {
                 var epoch = sessionEpoch; var account = ExamAccount;
                 if (account.Length == 0) return;
-                string raw;
-                try { raw = await AutomationController.EvaluateAsync(browser, "window.__univerOverviewV1&&typeof window.__univerOverviewV1.exams==='function'?window.__univerOverviewV1.exams():''"); }
+                string answer, pageMark, raw;
+                try { answer = await AutomationController.EvaluateAsync(browser, PageAccount.Script("window.__univerOverviewV1&&typeof window.__univerOverviewV1.exams==='function'?window.__univerOverviewV1.exams():''")); }
                 catch (Exception) { return; }
-                // The page went on, the session ended or the account changed while it answered: the answer is dropped.
+                // The page went on, the session ended or the account changed while it answered: the answer is dropped. So is a
+                // page of another account than the saved login, or one read while the app does not sign in by itself.
                 if (closing || rotating || epoch != sessionEpoch || browser != main || browser.Address != address || account != ExamAccount || !SitePolicy.ExamPage(address)) return;
+                if (!PageAccount.Split(answer, out pageMark, out raw) || !ReadingAllowed(pageMark)) return;
                 var now = DateTime.Now; ExamKind kind; List<ExamItem> items;
-                if (!ExamPlan.Parse(raw, now, out kind, out items)) return;
+                // The list is not on the page yet (it reads it a moment after it opens): ask again after ten seconds, three times
+                // (ReadRetry), then every minute as before.
+                if (!ExamPlan.Parse(raw, now, out kind, out items)) { examReadAt = examClock.ElapsedMilliseconds - (ReadRetry.FullMs - examRetry.NextDelayMs()); return; }
+                examRetry.Reset();
                 var current = examPlan != null && examPlan.Account == account ? examPlan : null;
                 var plan = (current ?? ExamPlan.Empty(account, now)).Replace(kind, items, now);
                 // The same list is written again at most once an hour.
@@ -62,20 +69,34 @@ namespace Univer.Desktop.UI
             }
             finally { examBusy = false; }
         }
-        // The balloon for the reminder that is due, if any; the tray timer asks every 20 s (MainForm.Reminders.cs). Behind the
-        // PIN it names no subject or room, and a click only brings the window forward.
-        private List<ExamReminder> RemindExams(DateTime now)
+        // The exam reminders that are due now (nothing is changed); the tray timer asks every 20 s (MainForm.Reminders.cs).
+        private List<ExamReminder> ExamsDue(DateTime now)
         {
             if (closing || rotating || trayIcon == null || !prefs.Reminders || examPlan == null || examPlan.Account != ExamAccount) return new List<ExamReminder>();
-            var due = examPlan.Due(now, prefs.ReminderLead);
-            if (due.Count == 0) return due;
+            return examPlan.Due(now, prefs.ReminderLead);
+        }
+        private bool ExamsHidden { get { return examHiddenForQa ?? LockArmed; } }
+        // They are said now: remembered (so a restart does not repeat them) and saved.
+        private void MarkExamsAnnounced(List<ExamReminder> due)
+        {
             examPlan = examPlan.WithAnnounced(due.Select(r => r.Key));
-            var plan = examPlan; var lang = prefs.Language; var hidden = examHiddenForQa ?? LockArmed;
-            examSaving = SaveExamPlanQuietAsync(plan);
+            examSaving = SaveExamPlanQuietAsync(examPlan);
+        }
+        // The balloon for the exam reminder that is due, if any. Behind the PIN it names no subject or room, and a click only
+        // brings the window forward.
+        private List<ExamReminder> RemindExams(DateTime now)
+        {
+            var due = ExamsDue(now);
+            if (due.Count > 0) AnnounceExams(due, now);
+            return due;
+        }
+        private void AnnounceExams(List<ExamReminder> due, DateTime now)
+        {
+            MarkExamsAnnounced(due);
+            var lang = prefs.Language; var hidden = ExamsHidden;
             balloonOpens = due[0].Item.Kind == ExamKind.Exam ? "exams" : "midterms";
             examTitleShown = ExamReminders.Title(due, now, lang, hidden); examBodyShown = ExamReminders.Body(due, lang, hidden);
             trayIcon.ShowBalloonTip(10000, examTitleShown, examBodyShown, ToolTipIcon.Info);
-            return due;
         }
         private async Task SaveExamPlanQuietAsync(ExamPlan plan)
         {
@@ -85,7 +106,7 @@ namespace Univer.Desktop.UI
         // holds is removed on the next signed-in page; Storage.FinishSessionClear removes it at the next start too.
         private async Task ClearExamsAsync()
         {
-            examPlan = null; examReadAt = long.MinValue; examReadAddress = null;
+            examPlan = null; examReadAt = long.MinValue; examReadAddress = null; examRetry.Reset();
             try { await storage.RemoveExamsAsync(); examClearPending = false; }
             catch (Exception) { examClearPending = true; }
         }

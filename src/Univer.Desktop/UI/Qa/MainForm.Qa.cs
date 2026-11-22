@@ -352,6 +352,19 @@ namespace Univer.Desktop.UI
 #if LEGACY_ENGINE
             var warningDismissed = prefs.LegacyWarningDismissed;
 #endif
+            // What the app keeps from a page (ReadingAllowed): only while it signs in by itself, and only a page that carries the
+            // saved login's mark or none. After the site's own logout (login kept, sign-in paused) a student who signs in by hand
+            // gets nothing kept under the saved login.
+            var savedCredentials = credentials; var wasPaused = prefs.AutoLoginPaused;
+            try
+            {
+                credentials = new Credentials { Login = "QA Gate", Password = "synthetic fixture" }; prefs.AutoLoginPaused = false;
+                var own = PageAccount.Mark("qa gate");
+                Check(ReadingAllowed(own) && ReadingAllowed("") && !ReadingAllowed(PageAccount.Mark("qa-other")), "readings are kept while the app signs in by itself, for the saved login's mark or none, not for another's", results);
+                prefs.AutoLoginPaused = true;
+                Check(!ReadingAllowed(own) && !ReadingAllowed(""), "after the site's own logout (sign-in paused) nothing is kept from the pages", results);
+            }
+            finally { credentials = savedCredentials; prefs.AutoLoginPaused = wasPaused; }
             await context.GetCookieManager(null).SetCookieAsync(SitePolicy.Origin, new CefSharp.Cookie { Name = "qa_cookie", Value = Guid.NewGuid().ToString("N"), Path = "/", Secure = true });
             var copy = Path.Combine(storage.Root, ScheduleFile.Name); File.WriteAllText(copy, "{}"); scheduleWeek = new ScheduleWeek { Classes = new List<ScheduleClass>() };
             var examCopy = Path.Combine(storage.Root, ExamFile.Name); File.WriteAllText(examCopy, "{}"); examPlan = ExamPlan.Empty("qa-logout", DateTime.Now);

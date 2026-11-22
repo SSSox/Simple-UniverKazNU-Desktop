@@ -59,7 +59,7 @@ namespace Univer.Desktop.Core
             if (week?.Classes == null || now < week.Start || now >= week.End) return null;
             return week.Classes.Where(c => c.Start > now).OrderBy(c => c.Start).ThenBy(c => c.Name, StringComparer.Ordinal).FirstOrDefault();
         }
-        private static string Cut(string text, int limit)
+        internal static string Cut(string text, int limit)
         {
             text = text ?? "";
             if (text.Length <= limit) return text;

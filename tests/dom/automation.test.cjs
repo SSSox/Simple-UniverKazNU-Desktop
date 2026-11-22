@@ -138,6 +138,26 @@ test('the login form notes a hash of the account it signs in, by a click or Ente
   p.w.document.querySelector('input').value = 'student.two'; p.w.document.querySelector('button').click();
   assert.notEqual(p.w.localStorage.getItem('univer.app.account.v1'), mark); p.close();
 });
+// The app compares the page's mark with Core/PageAccount.cs's (the readings it keeps): the same vectors are pinned in
+// tests/Univer.Desktop.Tests/PageAccountTests.cs, so neither side can change its hash alone.
+test('the login mark of the page is the FNV-1a hash the app computes for the same login', () => {
+  const vectors = [
+    ['Student.One', 'ad6afa8d2'], [' Student.One ', 'ad6afa8d2'], ['student.one', 'ad6afa8d2'],
+    ['Студент01', 'abd258a5c'], ['  СТУДЕНТ01 ', 'abd258a5c'], ['qa-grades', 'ae94b0d06'], ['a', 'ae40c292c']
+  ];
+  for (const [login, mark] of vectors) {
+    const p = page('<form id="login_frm"><input type="text"><input type="password" value="x"><button type="button">Войти</button></form>', 'https://univer.kaznu.kz/user/login');
+    p.w.document.querySelector('input').value = login;
+    p.w.document.querySelector('button').click();
+    assert.equal(p.w.localStorage.getItem('univer.app.account.v1'), mark, JSON.stringify(login)); p.close();
+  }
+  for (const empty of ['', '   ']) {
+    const p = page('<form id="login_frm"><input type="text"><input type="password" value="x"><button type="button">Войти</button></form>', 'https://univer.kaznu.kz/user/login');
+    p.w.document.querySelector('input').value = empty;
+    p.w.document.querySelector('button').click();
+    assert.equal(p.w.localStorage.getItem('univer.app.account.v1'), null, 'an empty login notes no mark'); p.close();
+  }
+});
 test('reauth preserves readonly login and nonce; success requires AJAX code 1', () => {
   const p = page(reauthHtml(), 'https://univer.kaznu.kz/student/news'); p.w.ajl = () => {};
   let clicks = 0;

@@ -19,7 +19,8 @@ namespace Univer.Desktop.UI
         private string lastGradesReadAddress, lastGradesAccountForQa;
         // The login mark the copy belongs to; the QA step sets its own synthetic one.
         private string LastGradesAccount { get { return lastGradesAccountForQa ?? ScheduleAccount; } }
-        private void LoadLastGrades() { lastGrades = storageFailed ? null : storage.LoadLastGrades(LastGradesAccount); }
+        private readonly ReadRetry lastGradesRetry = new ReadRetry();
+        private void LoadLastGrades() { var account = LastGradesAccount; lastGrades = storageFailed || account.Length == 0 ? null : storage.LoadLastGrades(account); }
         // A signed-in home page of the main window: asked once a minute while shown, and again after ten seconds while the page
         // has nothing to give yet (it reads the journal a moment after it opens).
         private void LastGradesContent()
@@ -30,6 +31,7 @@ namespace Univer.Desktop.UI
             if (!SitePolicy.Trusted(address) || !Uri.TryCreate(address, UriKind.Absolute, out uri) || !HomePath.IsMatch(uri.AbsolutePath) || LastGradesAccount.Length == 0) return;
             var now = lastGradesClock.ElapsedMilliseconds;
             if (address == lastGradesReadAddress && lastGradesReadAt != long.MinValue && now - lastGradesReadAt < 60000) return;
+            if (address != lastGradesReadAddress) lastGradesRetry.Reset();
             lastGradesReadAddress = address; lastGradesReadAt = now;
             QueueAsync(() => ReadLastGradesAsync(address));
         }
@@ -42,14 +44,17 @@ namespace Univer.Desktop.UI
             {
                 var epoch = sessionEpoch; var account = LastGradesAccount;
                 if (account.Length == 0) return;
-                string raw;
-                try { raw = await AutomationController.EvaluateAsync(browser, "window.__univerOverviewV1&&typeof window.__univerOverviewV1.grades==='function'?window.__univerOverviewV1.grades():''"); }
+                string answer, pageMark, raw;
+                try { answer = await AutomationController.EvaluateAsync(browser, PageAccount.Script("window.__univerOverviewV1&&typeof window.__univerOverviewV1.grades==='function'?window.__univerOverviewV1.grades():''")); }
                 catch (Exception) { return; }
-                // The page went on, the session ended or the account changed while it answered: the answer is dropped.
+                // The page went on, the session ended or the account changed while it answered: the answer is dropped. So is a
+                // page of another account than the saved login, or one read while the app does not sign in by itself.
                 if (closing || rotating || epoch != sessionEpoch || browser != main || browser.Address != address || account != LastGradesAccount) return;
+                if (!PageAccount.Split(answer, out pageMark, out raw) || !ReadingAllowed(pageMark)) return;
                 var grades = LastGrades.Parse(raw, DateTime.Now, account);
-                // Nothing to give yet: ask again soon instead of in a minute.
-                if (grades == null) { lastGradesReadAt = lastGradesClock.ElapsedMilliseconds - 50000; return; }
+                // Nothing to give yet: ask again after ten seconds, three times (ReadRetry), then every minute as before.
+                if (grades == null) { lastGradesReadAt = lastGradesClock.ElapsedMilliseconds - (ReadRetry.FullMs - lastGradesRetry.NextDelayMs()); return; }
+                lastGradesRetry.Reset();
                 // The same totals are written again at most once an hour, so the saved time stays close to the last reading.
                 if (grades.SameAs(lastGrades) && grades.SavedAt - lastGrades.SavedAt < TimeSpan.FromHours(1)) return;
                 lastGrades = grades; UpdateOffline();
@@ -61,7 +66,7 @@ namespace Univer.Desktop.UI
         // holds is removed on the next signed-in page; Storage.FinishSessionClear removes it at the next start too.
         private async Task ClearLastGradesAsync()
         {
-            lastGrades = null; lastGradesReadAt = long.MinValue; lastGradesReadAddress = null; UpdateOffline();
+            lastGrades = null; lastGradesReadAt = long.MinValue; lastGradesReadAddress = null; lastGradesRetry.Reset(); UpdateOffline();
             try { await storage.RemoveLastGradesAsync(); lastGradesClearPending = false; }
             catch (Exception) { lastGradesClearPending = true; }
         }

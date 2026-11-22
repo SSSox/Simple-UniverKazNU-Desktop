@@ -198,5 +198,94 @@ namespace Univer.Desktop.Tests
             }
             finally { Directory.Delete(root, true); }
         }
+
+        [Fact]
+        public void TheSameExamsInAnotherLanguageKeepWhatWasAnnounced()
+        {
+            var ru = new ExamItem { Kind = ExamKind.Exam, Subject = "Алгебра", Start = new DateTime(2026, 12, 15, 13, 0, 0), Place = "ФИТ · 309" };
+            var plan = Plan(ru);
+            var evening = Assert.Single(plan.Due(new DateTime(2026, 12, 14, 19, 0, 0), 30));
+            plan = plan.WithAnnounced(new[] { evening.Key });
+            // The site words the subject and the room in the page's language; the exam is the same one.
+            var en = new ExamItem { Kind = ExamKind.Exam, Subject = "Algebra", Start = ru.Start, Place = "IT · 309" };
+            var other = plan.Replace(ExamKind.Exam, new[] { en }, new DateTime(2026, 12, 14, 19, 5, 0));
+            Assert.Equal(new[] { evening.Key }, other.Announced.ToArray());
+            Assert.Empty(other.Due(new DateTime(2026, 12, 14, 19, 10, 0), 30));
+            Assert.Equal(ru.Key, en.Key);
+            Assert.DoesNotContain("Алгебра", ru.Key);
+        }
+
+        [Fact]
+        public void AnnouncedKeysOfTheOlderFormWithTheSubjectAreDroppedOnLoad()
+        {
+            var exam = Make("2026-12-15 10:00", "Алгебра");
+            var plan = new ExamPlan("acc", Now, new[] { exam }, new[] { "e|2026-12-15T10:00:00|Exam|Алгебра", "e|" + exam.Key });
+            Assert.Equal(new[] { "e|" + exam.Key }, plan.Announced.ToArray());
+        }
+
+        private static List<ScheduleClass> ClassAt(DateTime start, string name, string room = "305")
+        {
+            return new List<ScheduleClass> { new ScheduleClass { Start = start, End = start.AddMinutes(50), Name = name, Type = "", Room = room, Teacher = "" } };
+        }
+        private static List<ExamReminder> ExamDue(ExamItem item, DateTime now, int lead = 15) { return Plan(item).Due(now, lead); }
+
+        [Fact]
+        public void ACombinedBalloonTakesTheNearerOnesTitleAndListsClassesThenExams()
+        {
+            var now = new DateTime(2026, 12, 15, 12, 40, 0);
+            var classes = ClassAt(now.AddMinutes(10), "Политология");
+            var exams = ExamDue(new ExamItem { Kind = ExamKind.Exam, Subject = "Алгебра", Start = now.AddMinutes(14), Place = "309" }, now);
+            Assert.Equal("Пара через 10 мин", CombinedReminder.Title(classes, exams, now, "ru", false));
+            var body = CombinedReminder.Body(classes, exams, "ru", false).Split(new[] { Environment.NewLine }, StringSplitOptions.None);
+            Assert.Equal(new[] { "Политология · ауд. 305 · начало в 12:50", "Алгебра · ауд. 309 · начало в 12:54" }, body);
+            // An exam that starts before the class gives its title.
+            var early = ExamDue(new ExamItem { Kind = ExamKind.Exam, Subject = "Алгебра", Start = now.AddMinutes(5), Place = "" }, now);
+            Assert.Equal("Через 5 мин экзамен", CombinedReminder.Title(classes, early, now, "ru", false));
+        }
+
+        [Fact]
+        public void AnEveningExamNeverTakesTheTitleFromAClassButSaysTomorrow()
+        {
+            var now = new DateTime(2026, 12, 14, 19, 5, 0);
+            var classes = ClassAt(now.AddMinutes(10), "Политология", "");
+            var exams = Plan(new ExamItem { Kind = ExamKind.Midterm, Subject = "Физика", Start = new DateTime(2026, 12, 15, 9, 0, 0), Place = "" }).Due(now, 15);
+            Assert.True(exams[0].Evening);
+            Assert.Equal("Class in 10 min", CombinedReminder.Title(classes, exams, now, "en", false));
+            var body = CombinedReminder.Body(classes, exams, "en", false);
+            Assert.Contains("Tomorrow: midterm: Физика · starts at 09:00", body);
+        }
+
+        [Fact]
+        public void BehindThePinACombinedBalloonNamesNoClassOrSubjectOrRoomOnlyKindsAndTimes()
+        {
+            var now = new DateTime(2026, 12, 15, 12, 40, 0);
+            var classes = ClassAt(now.AddMinutes(10), "Политология", "305");
+            var exams = ExamDue(new ExamItem { Kind = ExamKind.Exam, Subject = "Секретный", Start = now.AddMinutes(14), Place = "777" }, now);
+            foreach (var lang in new[] { "ru", "kz", "en" })
+            {
+                var text = CombinedReminder.Title(classes, exams, now, lang, true) + Environment.NewLine + CombinedReminder.Body(classes, exams, lang, true);
+                Assert.DoesNotContain("Политология", text); Assert.DoesNotContain("Секретный", text);
+                Assert.DoesNotContain("305", text); Assert.DoesNotContain("777", text);
+                Assert.Contains("12:50", text); Assert.Contains("12:54", text);
+            }
+            var examFirst = ExamDue(new ExamItem { Kind = ExamKind.Midterm, Subject = "Секретный", Start = now.AddMinutes(5), Place = "777" }, now);
+            Assert.Equal("Soon: midterm", CombinedReminder.Title(classes, examFirst, now, "en", true));
+        }
+
+        [Fact]
+        public void ACombinedBalloonStaysInsideWindowsLimits()
+        {
+            var now = new DateTime(2026, 12, 15, 12, 40, 0);
+            var classes = ClassAt(now.AddMinutes(10), new string('а', 400), new string('7', 300));
+            classes.AddRange(ClassAt(now.AddMinutes(10), new string('б', 400)));
+            var exams = ExamDue(new ExamItem { Kind = ExamKind.Midterm, Subject = new string('в', 200), Start = now.AddMinutes(5), Place = new string('8', 200) }, now);
+            foreach (var lang in new[] { "ru", "kz", "en" })
+                foreach (var hidden in new[] { false, true })
+                {
+                    Assert.InRange(CombinedReminder.Title(classes, exams, now, lang, hidden).Length, 1, CombinedReminder.TitleLimit);
+                    Assert.InRange(CombinedReminder.Body(classes, exams, lang, hidden).Length, 1, CombinedReminder.BodyLimit);
+                }
+            Assert.Equal(63, CombinedReminder.TitleLimit); Assert.Equal(255, CombinedReminder.BodyLimit);
+        }
     }
 }

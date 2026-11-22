@@ -14,18 +14,18 @@ namespace Univer.Desktop.UI
     internal sealed partial class MainForm
     {
         // An exam or midterm schedule page as the site draws it: a heading table, then the list with a date row over its exams.
-        private static string ExamPageFixture(string title, string rows)
+        private static string ExamPageFixture(string title, string rows, string mark = null)
         {
-            return "<!doctype html><html><head><title>" + title + "</title></head><body><div id=\"l4\"><table><tr><td><table id=\"head\"><tr><th>Дисциплина</th><th>Преподаватель</th><th>Тип</th><th>Аудитория</th></tr></table>" +
+            return "<!doctype html><html><head><title>" + title + "</title></head><body>" + (mark == null ? "" : "<script>localStorage.setItem('" + PageAccount.Key + "','" + mark + "');</script>") + "<div id=\"l4\"><table><tr><td><table id=\"head\"><tr><th>Дисциплина</th><th>Преподаватель</th><th>Тип</th><th>Аудитория</th></tr></table>" +
                 "<table id=\"scheduleList\">" + rows + "</table></td></tr></table></div></body></html>";
         }
         private static string ExamRowsFixture(DateTime start, string subject, string kind)
         {
             return "<tr><th colspan=\"4\">" + start.ToString("dd.MM.yyyy HH:mm", CultureInfo.InvariantCulture) + "</th></tr><tr><td>" + subject + "</td><td>Синтетический П. П.</td><td>" + kind + "</td><td>Корпус: ФИТ | Ауд.: 309</td></tr>";
         }
-        private async Task LoadExamPageAsync(string path, string title, string rows)
+        private async Task LoadExamPageAsync(string path, string title, string rows, string mark = null)
         {
-            main.LoadHtml(ExamPageFixture(title, rows), SitePolicy.Origin + path);
+            main.LoadHtml(ExamPageFixture(title, rows, mark), SitePolicy.Origin + path);
             for (var until = DateTime.UtcNow.AddSeconds(8); DateTime.UtcNow < until && await AutomationController.EvaluateAsync(main, "document.title+'|'+typeof (window.__univerOverviewV1&&window.__univerOverviewV1.exams)") != title + "|function";) await Task.Delay(100);
             await ReadExamsAsync(main.Address);
         }
@@ -37,12 +37,16 @@ namespace Univer.Desktop.UI
             var today = DateTime.Today; var day = today.AddDays(30);
             var file = Path.Combine(storage.Root, ExamFile.Name);
             var previousTray = trayIcon; var previousOpens = balloonOpens; var previousLead = prefs.ReminderLead; var previousReminders = prefs.Reminders;
-            examAccountForQa = ScheduleWeek.AccountMark("qa-exams");
+            examAccountForQa = ScheduleWeek.AccountMark("qa-exams"); gateLoginForQa = "qa-exams";
             try
             {
                 await ClearExamsAsync();
                 var rows = ExamRowsFixture(day.AddHours(13), "QA Алгебра", "Экзамен") + ExamRowsFixture(day.AddHours(15), "QA Алгебра", "Консультация") + ExamRowsFixture(today.AddDays(-3).AddHours(9), "QA Прошедший", "Экзамен");
-                await LoadExamPageAsync("/student/myexam/schedule/", "exams-qa", rows);
+                // A page of another account (the student who signed in by hand after the site's own logout): nothing is kept.
+                await LoadExamPageAsync("/student/myexam/schedule/", "exams-other-qa", rows, PageAccount.Mark("qa-other"));
+                Check(examPlan == null && !File.Exists(file), "an exam page of another account than the saved login is not kept", results);
+                // Its own mark is accepted (the mark stays in the site's storage for the pages after it).
+                await LoadExamPageAsync("/student/myexam/schedule/", "exams-qa", rows, PageAccount.Mark("qa-exams"));
                 var saved = storage.LoadExams(examAccountForQa);
                 Check(examPlan != null && examPlan.Items.Count == 1 && examPlan.Items[0].Subject == "QA Алгебра" && examPlan.Items[0].Kind == ExamKind.Exam && examPlan.Items[0].Start == day.AddHours(13) &&
                     examPlan.Items[0].Place == "ФИТ · 309" && saved != null && saved.SameAs(examPlan), "the app reads the coming exams from the exam page, without a consultation or a past exam, and keeps them for this login", results);
@@ -51,6 +55,13 @@ namespace Univer.Desktop.UI
                 Check(examPlan != null && examPlan.Items.Select(i => i.Kind).SequenceEqual(new[] { ExamKind.Exam, ExamKind.Midterm }), "a midterm page adds its own kind and leaves the exams", results);
                 await LoadExamPageAsync("/student/myexam/schedule/", "exams-empty-qa", "<tr><td colspan=\"4\">Расписание отсутствует</td></tr>");
                 Check(examPlan != null && examPlan.Items.Count == 1 && examPlan.Items[0].Kind == ExamKind.Midterm, "an exam page with no schedule clears only the exams", results);
+                // A list that is not on the page yet: three asks after ten seconds, then the minute (ReadRetry).
+                main.LoadHtml(ExamPageFixture("exams-wait-qa", "").Replace("<table id=\"scheduleList\"></table>", ""), SitePolicy.Origin + "/student/myexam/schedule/");
+                for (var until = DateTime.UtcNow.AddSeconds(8); DateTime.UtcNow < until && await AutomationController.EvaluateAsync(main, "document.title+'|'+typeof (window.__univerOverviewV1&&window.__univerOverviewV1.exams)") != "exams-wait-qa|function";) await Task.Delay(100);
+                examRetry.Reset(); var waits = new List<long>();
+                for (var i = 0; i < 4; i++) { await ReadExamsAsync(main.Address); waits.Add(examClock.ElapsedMilliseconds - examReadAt); }
+                QaTrace("exams-retry " + string.Join(",", waits));
+                Check(waits[0] >= 49000 && waits[1] >= 49000 && waits[2] >= 49000 && waits[3] < 5000 && examRetry.Used == ReadRetry.ShortTries, "a list that is not on the page yet is asked again after ten seconds, three times, then every minute", results);
                 ExamKind kind; List<ExamItem> items;
                 Check(!ExamPlan.Parse("{\"v\":2,\"kind\":\"exam\",\"items\":[]}", DateTime.Now, out kind, out items) && !ExamPlan.Parse("{\"v\":1,\"kind\":\"consult\",\"items\":[]}", DateTime.Now, out kind, out items) &&
                     !ExamPlan.Parse("{\"v\":1,\"kind\":\"exam\",\"items\":[{\"kind\":\"exam\",\"subject\":\"\",\"start\":\"2030-01-01T10:00\"}]}", DateTime.Now, out kind, out items), "an answer out of shape is refused", results);
@@ -89,7 +100,8 @@ namespace Univer.Desktop.UI
             }
             finally
             {
-                trayIcon = previousTray; balloonOpens = previousOpens; prefs.ReminderLead = previousLead; prefs.Reminders = previousReminders; examHiddenForQa = null; examAccountForQa = null;
+                trayIcon = previousTray; balloonOpens = previousOpens; prefs.ReminderLead = previousLead; prefs.Reminders = previousReminders; examHiddenForQa = null; examAccountForQa = null; gateLoginForQa = null;
+                await AutomationController.EvaluateAsync(main, "localStorage.removeItem('" + PageAccount.Key + "');'cleared'");
                 await ClearExamsAsync();
             }
             Check(!File.Exists(file) && examPlan == null, "clearing the session's copy removes the exam file", results);

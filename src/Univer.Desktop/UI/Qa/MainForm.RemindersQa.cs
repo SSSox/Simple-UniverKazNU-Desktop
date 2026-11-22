@@ -59,8 +59,36 @@ namespace Univer.Desktop.UI
                     Check(RemindClasses(now.AddMinutes(31)).Select(c => c.Room).SequenceEqual(new[] { "302" }), "the next class is announced in its own time", results);
                     scheduleWeek = null;
                     Check(RemindClasses(now).Count == 0, "without a kept week nothing is announced", results);
+                    // A class and an exam reminder due on the same tick come in ONE balloon (the second would replace the first and
+                    // its click target): the nearer one's title, both listed, both remembered, a click opens the schedule.
+                    var lang = prefs.Language; var account = ScheduleWeek.AccountMark("qa-reminders");
+                    examAccountForQa = account; examHiddenForQa = false;
+                    var exam = new ExamItem { Kind = ExamKind.Exam, Subject = "QA Секретный экзамен", Start = now.AddMinutes(12), Place = "777" };
+                    Action arm = () =>
+                    {
+                        remindersShown.Clear(); balloonOpens = null; combinedTitleShown = combinedBodyShown = examTitleShown = null;
+                        scheduleWeek = new ScheduleWeek { Start = now.Date.AddDays(-1), End = now.Date.AddDays(2), Classes = new List<ScheduleClass> { lesson(soon, "300") } };
+                        examPlan = ExamPlan.Empty(account, now).Replace(ExamKind.Exam, new[] { exam }, now);
+                    };
+                    arm(); RemindDue(now);
+                    Check(balloonOpens == "schedule" && examTitleShown == null && combinedTitleShown == string.Format(Strings.Get("reminderTitle", lang), 10) && combinedBodyShown.Contains("QA Политология") &&
+                        combinedBodyShown.Contains("QA Секретный экзамен") && combinedBodyShown.Contains("777") && remindersShown.Count == 1 && examPlan.Announced.Count == 1,
+                        "a class and an exam due together make one balloon with both, and a click opens the schedule", results);
+                    balloonOpens = null; combinedTitleShown = null;
+                    RemindDue(now.AddMinutes(1));
+                    Check(balloonOpens == null && combinedTitleShown == null, "both are remembered: no second balloon", results);
+                    examHiddenForQa = true; arm(); RemindDue(now);
+                    Check(combinedTitleShown != null && combinedBodyShown.Contains(soon.ToString("HH:mm")) && combinedBodyShown.Contains(exam.Start.ToString("HH:mm")) && !combinedBodyShown.Contains("Политология") &&
+                        !combinedBodyShown.Contains("Секретный") && !combinedBodyShown.Contains("777") && !combinedBodyShown.Contains("300"), "behind the PIN the one balloon names no class or subject, only kinds and times", results);
+                    examHiddenForQa = false; arm(); scheduleWeek = null; RemindDue(now);
+                    Check(balloonOpens == "exams" && examTitleShown != null && combinedTitleShown == null, "an exam alone keeps its own balloon", results);
+                    await examSaving;
                 }
-                finally { trayIcon = previousTray; scheduleWeek = previousWeek; balloonOpens = previousOpens; prefs.Reminders = true; remindersShown.Clear(); }
+                finally
+                {
+                    trayIcon = previousTray; scheduleWeek = previousWeek; balloonOpens = previousOpens; prefs.Reminders = true; remindersShown.Clear();
+                    examAccountForQa = null; examHiddenForQa = null; examPlan = null; await ClearExamsAsync();
+                }
             }
             Check(trayIcon != null || RemindClasses(now).Count == 0, "without a tray icon no reminder is shown", results);
         }

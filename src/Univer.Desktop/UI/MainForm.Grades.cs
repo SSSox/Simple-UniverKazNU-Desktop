@@ -53,9 +53,12 @@ namespace Univer.Desktop.UI
                     gradeAgent = await AutomationController.EvaluateAsync(main, "navigator.userAgent");
                     if (closing || rotating || epoch != sessionEpoch) return;
                 }
+                // The shown page must be the saved login's (ReadingAllowed), before the request and again before anything is kept:
+                // a student who signed in by hand after the site's own logout gets no check under the saved login.
+                if (!await PageAllowedAsync(epoch, account, source)) return;
                 var html = await (gradeReadForQa ?? ((url, token) => ReadAttestationAsync(source, url, token)))(SitePolicy.Origin + GradeFetch.Path, stopping);
                 // The session ended, the account changed or the app is closing while the page answered: the reading is dropped.
-                if (html == null || !Current(epoch, account, source)) return;
+                if (html == null || !Current(epoch, account, source) || !await PageAllowedAsync(epoch, account, source)) return;
                 var at = DateTime.Now;
                 var sheet = await Task.Run(() => GradeSheet.Parse(html, account, at));
                 if (sheet == null || !Current(epoch, account, source)) return;
@@ -66,6 +69,12 @@ namespace Univer.Desktop.UI
             }
             catch (Exception) { /* No reading this time. */ }
             finally { gradesBusy = false; }
+        }
+        private async Task<bool> PageAllowedAsync(long epoch, string account, IRequestContext source)
+        {
+            string mark;
+            try { mark = await PageMarkAsync(); } catch (Exception) { return false; }
+            return mark != null && Current(epoch, account, source) && ReadingAllowed(mark);
         }
         private bool Current(long epoch, string account, IRequestContext source)
         {

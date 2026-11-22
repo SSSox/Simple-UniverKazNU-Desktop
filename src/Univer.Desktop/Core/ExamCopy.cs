@@ -19,7 +19,11 @@ namespace Univer.Desktop.Core
         public string Subject { get; set; }
         public DateTime Start { get; set; }
         public string Place { get; set; }
-        internal string Key { get { return Start.ToString("s", CultureInfo.InvariantCulture) + "|" + Kind + "|" + Subject; } }
+        // What an announcement is remembered by: the kind and the start, not the subject or the room, which the site words
+        // in the language of the page (opening the exam page in another language must not repeat a reminder). Two exams of
+        // one kind that start together are announced together anyway (ExamPlan.Due). Keys of the older form (with the subject
+        // at the end) match no exam any more and are dropped on load, so a reminder already said may be said once more.
+        internal string Key { get { return Start.ToString("s", CultureInfo.InvariantCulture) + "|" + Kind; } }
         internal bool SameAs(ExamItem other) { return other != null && other.Kind == Kind && other.Start == Start && other.Subject == Subject && other.Place == Place; }
     }
     // A reminder that is due: the evening before ("tomorrow") or the lead time before the start.
@@ -202,6 +206,50 @@ namespace Univer.Desktop.Core
             // Windows takes at most 255 characters for a balloon's text.
             return text.Length <= 255 ? text : text.Substring(0, 254) + "…";
         }
+    }
+    // One balloon when a class reminder and an exam reminder are due at the same time: a second balloon would replace the first
+    // and its click target. The title is that of the more urgent one (the class unless an exam's lead reminder starts earlier),
+    // the body lists the classes, then the exams. Behind the PIN no class name or subject is written, only the kinds and times.
+    // A click opens the schedule. Windows cuts a balloon's title at 63 characters and its text at 255.
+    internal static class CombinedReminder
+    {
+        internal const int TitleLimit = 63, BodyLimit = 255;
+        internal static string Title(IList<ScheduleClass> classes, IList<ExamReminder> exams, DateTime now, string lang, bool hidden)
+        {
+            var examFirst = !exams[0].Evening && exams[0].Item.Start < classes[0].Start;
+            var title = examFirst ? ExamReminders.Title(exams, now, lang, hidden) : ClassReminders.Title(classes, now, lang);
+            return ClassReminders.Cut(title, TitleLimit);
+        }
+        internal static string Body(IList<ScheduleClass> classes, IList<ExamReminder> exams, string lang, bool hidden)
+        {
+            var lines = new List<string>();
+            if (hidden)
+            {
+                lines.AddRange(classes.Select(c => c.Start).Distinct().Take(2).Select(t => Cap(string.Format(Strings.Get("reminderClassAt", lang), Time(t)))));
+                lines.AddRange(exams.Take(2).Select(r => Cap(ExamReminders.KindWord(r.Item.Kind, lang)) + " · " + string.Format(Strings.Get("examStarts", lang), Time(r.Item.Start))));
+            }
+            else
+            {
+                lines.AddRange(classes.Take(2).Select(c =>
+                {
+                    var parts = new List<string> { c.Name };
+                    if (c.Room.Length > 0) parts.Add(string.Format(Strings.Get("reminderRoom", lang), c.Room));
+                    parts.Add(string.Format(Strings.Get("examStarts", lang), Time(c.Start)));
+                    return string.Join(" · ", parts);
+                }));
+                lines.AddRange(exams.Take(2).Select(r =>
+                {
+                    var parts = new List<string> { r.Item.Subject };
+                    if (r.Item.Place.Length > 0) parts.Add(string.Format(Strings.Get("reminderRoom", lang), r.Item.Place));
+                    parts.Add(string.Format(Strings.Get("examStarts", lang), Time(r.Item.Start)));
+                    var line = string.Join(" · ", parts);
+                    return r.Evening ? string.Format(Strings.Get("examTomorrow", lang), ExamReminders.KindWord(r.Item.Kind, lang)) + ": " + line : line;
+                }));
+            }
+            return ClassReminders.Cut(string.Join(Environment.NewLine, lines), BodyLimit);
+        }
+        private static string Time(DateTime at) { return at.ToString("HH:mm", CultureInfo.InvariantCulture); }
+        private static string Cap(string text) { return text.Length == 0 ? text : char.ToUpperInvariant(text[0]) + text.Substring(1); }
     }
     internal static class ExamFile
     {

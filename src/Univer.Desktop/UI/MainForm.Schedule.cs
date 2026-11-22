@@ -17,7 +17,10 @@ namespace Univer.Desktop.UI
         private bool scheduleBusy, scheduleClearPending;
         private long scheduleReadAt = long.MinValue;
         private string scheduleReadAddress;
-        private string ScheduleAccount { get { return ScheduleWeek.AccountMark(credentials?.Login); } }
+        // The visible --qa-offline run has no saved login: it gives its own synthetic mark, under which Program wrote its week
+        // and totals (copies kept for no login at all are never read).
+        private readonly string scheduleAccountForQa = Array.IndexOf(Environment.GetCommandLineArgs(), "--qa-offline") >= 0 ? OfflineRunAccount : null;
+        private string ScheduleAccount { get { return scheduleAccountForQa ?? ScheduleWeek.AccountMark(credentials?.Login); } }
         private void LoadScheduleCopy() { scheduleWeek = storageFailed ? null : storage.LoadSchedule(ScheduleAccount); }
         // A signed-in page of the main window: the two pages that know the week are asked once a minute while shown.
         private void ScheduleContent()
@@ -39,11 +42,13 @@ namespace Univer.Desktop.UI
             try
             {
                 var epoch = sessionEpoch; var account = ScheduleAccount;
-                string raw;
-                try { raw = await AutomationController.EvaluateAsync(browser, "window.__univerOverviewV1&&typeof window.__univerOverviewV1.week==='function'?window.__univerOverviewV1.week():''"); }
+                string answer, pageMark, raw;
+                try { answer = await AutomationController.EvaluateAsync(browser, PageAccount.Script("window.__univerOverviewV1&&typeof window.__univerOverviewV1.week==='function'?window.__univerOverviewV1.week():''")); }
                 catch (Exception) { return; }
-                // The page went on, the session ended or the account changed while it answered: the answer is dropped.
+                // The page went on, the session ended or the account changed while it answered: the answer is dropped. So is a
+                // page of another account than the saved login, or one read while the app does not sign in by itself.
                 if (closing || rotating || epoch != sessionEpoch || browser != main || browser.Address != address || account != ScheduleAccount) return;
+                if (!PageAccount.Split(answer, out pageMark, out raw) || !ReadingAllowed(pageMark)) return;
                 var week = ScheduleWeek.Parse(raw, DateTime.Now, account);
                 if (week == null) return;
                 // The same classes are written again at most once an hour, so the saved date stays close to the last reading.
