@@ -27,7 +27,8 @@ A desktop app for the [Univer KazNU](https://univer.kaznu.kz/) student portal wi
 ### Schedule and studies
 
 - **Schedule** with the current and next class, a day filter and a week grid.
-- **Class reminders.** Fifteen minutes before a class starts, the app shows a tray notification with the class and its room. In Settings you can pick 5, 10, 15 or 30 minutes or turn reminders off. They work while the app is running, also from the tray, and come from the copy of this week's schedule that the app keeps when you open the schedule or the Bachelor page, so the site gets no extra request for them. With a PIN set, the notification does not name the class.
+- **Class reminders.** Fifteen minutes before a class starts, the app shows a tray notification with the class and its room. In Settings you can pick 5, 10, 15 or 30 minutes or turn reminders off. They work while the app is running, also from the tray, and come from the copy of this week's schedule that the app keeps when you open the schedule or the Bachelor page, so the site gets no extra request for them. With a PIN set, the notification does not name the class. The tray icon's tooltip shows the next class ("Today, 11:00 · Philosophy"; without its name under a PIN), and "Schedule" in the icon's menu opens the schedule.
+- **Start page** (Settings → Language & view): with a saved sign-in the app opens straight on the chosen section: home, schedule, journal, current attestation, UMKD materials or distance learning. Without a saved sign-in it opens the home page.
 - **Schedule without internet.** When the site cannot be reached, the app shows its saved copy of this week's schedule and when it was saved instead of the error page, with today marked. Retry and the automatic retries stay in the bar at the top. The copy is refreshed when the app signs in by itself and the schedule or Bachelor page is open.
 - **Schedule to a calendar or as a picture.** On the schedule page, «To calendar» saves an .ics file to Downloads for Google Calendar, Outlook or a phone calendar, and «As picture» saves a PNG. The file holds the week shown and its neighbour. The site alternates odd and even weeks, so the calendar repeats each of them every second week until the semester's last week. The app reads the neighbouring week from the site when you press the button; if it cannot be read, the file holds only the week shown and the app says so. Times are written as the site shows them, without a time zone. Later changes on the site do not reach the calendar by themselves: save the file again. Each class has a fixed identifier, so a calendar that uses them updates the classes on a second import instead of adding copies.
 - **New grades.** While the app is running, also from the tray, it reads the Current attestation page every 30 minutes and shows in the tray which scores changed since the last check: the course and its new score, for example «Algorithms: RK2 96». The first check and a new list of courses (another semester, another site language) bring no notification. In Settings you can pick 15, 30, 60 or 120 minutes or turn the check off. It needs a saved sign-in; with a PIN set, the notification names no course or score. Each check extends the site session, so the session does not end while the app is open.
@@ -39,7 +40,7 @@ A desktop app for the [Univer KazNU](https://univer.kaznu.kz/) student portal wi
 
 ### Files
 
-- **"Downloads" (Ctrl+J):** every downloaded file with search and filters, and a built-in viewer for PDF, Word, Excel, PowerPoint, web pages, text and images, without Office.
+- **"Downloads" (Ctrl+J):** every downloaded file with search and filters, and a built-in viewer for PDF, Word, Excel, PowerPoint, web pages, text and images, without Office. The chosen sort order (newest, by name, by size) is kept for the next start.
 - **"Download all"** in a section of the course materials (УМКД): the section's files go to Downloads, into the folder `Univer УМКД\<course>\<section>`. Files that were not on the course page at your last visit are marked New (in the app only).
 
 ![Course materials (УМКД): the "Download all" button on a section with files](https://raw.githubusercontent.com/SSSox/Simple-UniverKazNU-Desktop/main/.github/readme/umkd.png)
@@ -150,11 +151,12 @@ In Settings → App → File for a fault report, the Save button puts a text fil
 
 | Action | Keys |
 | --- | --- |
-| Back / close the open document | Alt+←, Esc |
+| Back / close the open document | Alt+←, Esc, the mouse's Back side button |
+| Forward in the site | Alt+→, the mouse's Forward side button |
 | "Downloads" | Ctrl+J |
 | Search on the page, in a document or file | Ctrl+F |
 | Next / previous match | F3 or Enter / Shift+F3 or Shift+Enter |
-| Reload the page (forms are never resent) | F5 |
+| Reload the page (forms are never resent) | F5, Ctrl+R |
 | Settings | Ctrl+, |
 | All sections with the cursor in the search | Ctrl+K |
 | Print | Ctrl+P |

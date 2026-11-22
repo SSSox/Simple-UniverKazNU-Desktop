@@ -142,6 +142,12 @@ namespace Univer.Desktop.UI
                 var plainFile = storage.LoadCredentials();
                 Check(plainFile != null && plainFile.Sealed && plainFile.Password == null && plainFile.Login == "QA student", "with a PIN the plain file keeps only the login", results);
                 pinGuard = new PinGuard(storage.LockStore); credentials = storage.Load().Credentials;
+                {
+                    var pageWas = prefs.StartPage; var pausedWas = prefs.AutoLoginPaused;
+                    prefs.StartPage = "schedule"; prefs.AutoLoginPaused = false;
+                    Check(!credentials.Usable() && StartAddress() == SitePolicy.Origin + "/student/myschedule/", "a new start with the login as saved under the PIN opens the chosen start page", results);
+                    prefs.StartPage = pageWas; prefs.AutoLoginPaused = pausedWas;
+                }
                 Lock(); lockView.Pad.TypeForQa("135792"); await LockIdleQaAsync();
                 Check(!locked && credentials != null && credentials.Usable() && credentials.Password == "synthetic fixture", "after a new start the right PIN opens the sealed password", results);
                 Lock();
