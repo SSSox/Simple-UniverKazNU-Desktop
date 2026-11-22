@@ -200,7 +200,7 @@ namespace Univer.Desktop.UI
             { "trayClassHidden", new[] { "пара", "сабақ", "class" } },
             { "startPageTitle", new[] { "Стартовая страница", "Бастапқы бет", "Start page" } },
             { "startPageHint", new[] { "Раздел, который открывается при запуске", "Қолданба ашылғанда көрсетілетін бөлім", "The section the app opens with" } },
-            { "reminderOption", new[] { "Напоминать о парах", "Сабақ туралы еске салу", "Remind me of classes" } },
+            { "reminderOption", new[] { "Напоминать о парах и экзаменах", "Сабақ пен емтихан туралы еске салу", "Remind me of classes and exams" } },
             { "reminderOptionHint", new[] { "Уведомление в трее перед началом пары", "Сабақ басталар алдында науада хабарландыру", "A tray notification before a class starts" } },
             { "reminderLeadTitle", new[] { "Когда напоминать", "Қашан еске салу", "When to remind" } },
             { "reminderLeadHint", new[] { "Расписание недели берётся из последнего чтения", "Апта кестесі соңғы оқылғаннан алынады", "Uses the week's schedule as last read" } },

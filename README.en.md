@@ -40,7 +40,7 @@ A desktop app for the [Univer KazNU](https://univer.kaznu.kz/) student portal wi
 
 ### Files
 
-- **"Downloads" (Ctrl+J):** every downloaded file with search and filters, and a built-in viewer for PDF, Word, Excel, PowerPoint, web pages, text and images, without Office. The chosen sort order (newest, by name, by size) is kept for the next start. "Delete file" in a row's menu moves the file to the Windows Recycle Bin after you confirm; on a drive without a Recycle Bin (USB stick, network folder) the app does not delete it.
+- **"Downloads" (Ctrl+J):** every downloaded file with search and filters, and a built-in viewer for PDF, Word, Excel, PowerPoint, web pages, text and images, without Office. The chosen sort order (newest, by name, by size) is kept for the next start. "Delete file" in a row's menu moves the file to the Windows Recycle Bin after you confirm; on a drive without a Recycle Bin (USB stick, network folder) the app does not delete it, and if the Recycle Bin is off or the file is too big for it, Windows itself asks whether to delete it for good.
 - **"Download all"** in a section of the course materials (УМКД): the section's files go to Downloads, into the folder `Univer УМКД\<course>\<section>`. Files that were not on the course page at your last visit are marked New (in the app only).
 
 ![Course materials (УМКД): the "Download all" button on a section with files](https://raw.githubusercontent.com/SSSox/Simple-UniverKazNU-Desktop/main/.github/readme/umkd.png)

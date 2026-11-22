@@ -45,3 +45,21 @@ test('only the two pages with a list answer, and an empty-note page gives an emp
   const unread = page('/student/myexam/schedule/', '');
   try { assert.equal(unread.__univerOverviewV1.exams(), ''); } finally { unread.close(); }
 });
+
+// The site's own shape, as in the Android fixture (tests/dom/screens.test.cjs there): the head table and the list in one cell,
+// seven columns, a countdown under the date heading and the row id carrying seconds.
+test('the site-shaped page with its countdown and seven columns gives the same items', () => {
+  const head = '<table class="inner"><tr><th>Название дисциплины</th><th>Преподаватель</th><th>Тип</th><th>Аудитория факультета</th><th>Тип группы</th><th>Примечание</th><th>&nbsp;</th></tr></table>';
+  const slot = (when, name, kind) => `<tr><th colspan="7" class="last timerTicked">${when} <br><b>До начало экзамена </b> <span data-timer="1">Осталось 3 дня</span></th></tr>` +
+    `<tr class="link" id="${when}:00"><td>${name} </td><td>Тестов А. А.</td><td>${kind}</td><td>Корп: ФИТ | Ауд.: Онлайн</td><td>сем</td><td></td><td>&nbsp;</td></tr>`;
+  const html = '<body><table class="mt"><tr class="mid"><td class="tt" id="host">' + head + '<div class="inner"><table class="inner" id="scheduleList">' +
+    slot('15.12.2026 13:00', 'Алгебра', 'Экзамен') + slot('14.12.2026 10:00', 'Алгебра', 'Консультация') + '</table></div></td></tr></table></body>';
+  const dom = new JSDOM(html, {url: 'https://univer.kaznu.kz/student/myexam/schedule/', runScripts: 'outside-only'});
+  const w = dom.window, RealDate = w.Date;
+  w.Date = class extends RealDate { constructor(...args) { super(...(args.length ? args : [2026, 10, 23, 12, 0])); } static now() { return new RealDate(2026, 10, 23, 12, 0).getTime(); } };
+  w.eval(read('page-common.js')); w.eval(read('overview.js'));
+  try {
+    assert.deepEqual(JSON.parse(w.__univerOverviewV1.exams()), {v: 1, kind: 'exam', items: [
+      {kind: 'exam', subject: 'Алгебра', start: '2026-12-15T13:00', place: 'ФИТ · Онлайн'}]});
+  } finally { w.close(); }
+});
