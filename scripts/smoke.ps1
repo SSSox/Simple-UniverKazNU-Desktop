@@ -1,7 +1,7 @@
 # -Only runs CEF start-up and one self-test step (the names in its ValidateSet, the app's QaStep names) for a quick check
 # while working on it; a release run uses every step.
 param([ValidateSet('x64','x86')][string]$Platform = 'x64', [ValidateSet('Modern','Legacy')][string]$BrowserFlavor = 'Modern', [switch]$Live, [string]$OutputRoot,
-    [ValidateSet('settings','autostart','reminders','shell','navigation','document','presentation','form-download','layout-load','downloads','office','zoom','polish','top','skeletons','igpa','report','speed','idle','kept','schedule-copy','schedule-export','offline','grades','diagnostics','product','theme','notices','updates','update-entry','online-test','live','first-load','lock','logout')][string]$Only)
+    [ValidateSet('settings','autostart','reminders','shell','navigation','document','presentation','form-download','layout-load','downloads','download-delete','office','zoom','polish','top','skeletons','igpa','report','speed','idle','kept','schedule-copy','exams','schedule-export','offline','grades','diagnostics','product','theme','notices','updates','update-entry','online-test','live','first-load','lock','logout')][string]$Only)
 $ErrorActionPreference = 'Stop'
 $projectRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $framework = if ($BrowserFlavor -eq 'Legacy') { 'net452' } else { 'net462' }

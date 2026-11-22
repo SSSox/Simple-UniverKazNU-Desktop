@@ -144,7 +144,7 @@ namespace Univer.Desktop
                             // Self-test records the failure itself; users get a recoverable message, never a stack trace.
                             if (!selfTest) Application.ThreadException += (sender, error) => form.ReportUnexpectedError();
                             // Only a normal run reads and writes the user's start-with-Windows line.
-                            if (!isolated && !accountReview) form.RunKey = new RegistryRunKey();
+                            if (!isolated && !accountReview) { form.RunKey = new RegistryRunKey(); form.Recycler = new RecycleBinRecycler(); }
                             form.StartHidden = !selfTest && !accountReview && Autostart.StartsInTray(args);
                             Application.Run(form);
                         }

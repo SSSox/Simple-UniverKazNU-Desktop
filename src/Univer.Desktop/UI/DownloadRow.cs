@@ -32,7 +32,7 @@ namespace Univer.Desktop.UI
     // 400, which keeps zooming and scrolling light. While it runs a meter fills along the row and the cancel stays visible.
     internal sealed class DownloadRow : Control
     {
-        public event Action<DownloadRecord> OpenInside, OpenOutside, ShowInFolder, CancelDownload, RemoveRecord;
+        public event Action<DownloadRecord> OpenInside, OpenOutside, ShowInFolder, CancelDownload, RemoveRecord, DeleteFile;
         public event Action<DownloadRow, int> Step;
         public event Action<DownloadRow, Point> MenuRequested;
         private enum Part { None, Outside, Folder, Remove }
@@ -174,6 +174,9 @@ namespace Univer.Desktop.UI
         }
         public bool CanOpen { get { return exists; } }
         public bool CanOpenOutside { get { return exists && FileNames.CanOpen(item.Path); } }
+        // A finished file the list still sees on disk; the deletion itself checks the disk again and asks first.
+        public bool CanDelete { get { return exists && item != null && item.State == DownloadState.Completed && !item.Path.EndsWith(".part", StringComparison.OrdinalIgnoreCase); } }
+        public void Delete() { if (CanDelete) DeleteFile?.Invoke(item); }
         public void Open() { if (exists) OpenInside?.Invoke(item); }
         public void OpenElsewhere() { if (CanOpenOutside) OpenOutside?.Invoke(item); }
         public void Reveal() { if (exists) ShowInFolder?.Invoke(item); }

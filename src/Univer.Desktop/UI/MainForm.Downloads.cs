@@ -37,6 +37,7 @@ namespace Univer.Desktop.UI
             downloadsView.ShowInFolder += ShowRecordInFolder;
             downloadsView.CancelDownload += record => { downloads?.Cancel(record.Id); CancelWebDownload(record.Id); };
             downloadsView.RemoveRecord += record => ForgetRecord(record.Id);
+            downloadsView.DeleteFile += record => QueueAsync(() => DeleteDownloadAsync(record));
             downloadsView.OpenFolder += OpenDownloads;
             downloadsView.ViewChanged += () => { if (!closing) { UpdateLocation(); ArrangeToolbar(); } };
             downloadsView.FindHandler = new Web.FindResults((source, total, ordinal, final) => Dispatch(() => findBar.ShowResult(source, total, ordinal, final)));

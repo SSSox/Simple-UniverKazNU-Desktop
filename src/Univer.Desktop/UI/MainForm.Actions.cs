@@ -134,7 +134,7 @@ namespace Univer.Desktop.UI
             var replaced = false;
             try
             {
-                await ClearNoticesAsync(); await ClearScheduleAsync(); await ClearGradesAsync();
+                await ClearNoticesAsync(); await ClearScheduleAsync(); await ClearExamsAsync(); await ClearGradesAsync();
                 var manager = context.GetCookieManager(null);
                 await TaskDeadline.AwaitAsync(manager.DeleteCookiesAsync(), TimeSpan.FromSeconds(8), stopping);
                 rotationFaultForQa?.Invoke();

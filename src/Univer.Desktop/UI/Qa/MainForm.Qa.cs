@@ -39,6 +39,7 @@ namespace Univer.Desktop.UI
                     QaStep("form-download", () => FormDownloadQaAsync(results)),
                     QaStep("layout-load", () => LayoutLoadQaAsync(results)),
                     QaStep("downloads", () => DownloadsQaAsync(qa, results)),
+                    QaStep("download-delete", () => DeleteQaAsync(results)),
                     QaStep("office", () => OfficeQaAsync(qa, results)),
                     QaStep("zoom", () => ZoomQaAsync(qa, results)),
                     QaStep("polish", () => PolishQaAsync(qa, results)),
@@ -50,6 +51,7 @@ namespace Univer.Desktop.UI
                     QaStep("idle", () => IdleQaAsync(results)),
                     QaStep("kept", () => KeptQaAsync(qa, results)),
                     QaStep("schedule-copy", () => ScheduleCopyQaAsync(results)),
+                    QaStep("exams", () => ExamsQaAsync(results)),
                     QaStep("schedule-export", () => ScheduleExportQaAsync(qa, results)),
                     QaStep("offline", () => OfflineQaAsync(qa, results)),
                     QaStep("grades", () => GradesQaAsync(qa, results)),
@@ -351,8 +353,10 @@ namespace Univer.Desktop.UI
 #endif
             await context.GetCookieManager(null).SetCookieAsync(SitePolicy.Origin, new CefSharp.Cookie { Name = "qa_cookie", Value = Guid.NewGuid().ToString("N"), Path = "/", Secure = true });
             var copy = Path.Combine(storage.Root, ScheduleFile.Name); File.WriteAllText(copy, "{}"); scheduleWeek = new ScheduleWeek { Classes = new List<ScheduleClass>() };
+            var examCopy = Path.Combine(storage.Root, ExamFile.Name); File.WriteAllText(examCopy, "{}"); examPlan = ExamPlan.Empty("qa-logout", DateTime.Now);
             await EndSessionAsync(false);
             Check(!File.Exists(copy) && scheduleWeek == null, "logout removes the app's copy of the week", results);
+            Check(!File.Exists(examCopy) && examPlan == null, "logout removes the app's copy of the exams", results);
             Check(messages.Current?.Action != MessageAction.Settings, "a logout puts no banner over the sign-in page", results);
             Check(prefs.AutoLoginPaused && storage.LoadPreferences().AutoLoginPaused, "logout durably pauses automation", results);
             Check(!prefs.SessionClearPending && !storage.LoadPreferences().SessionClearPending, "a finished logout leaves no session for the next start to clear", results);

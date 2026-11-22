@@ -14,7 +14,7 @@ namespace Univer.Desktop.UI
     // the in-app viewer (FilePreview).
     internal sealed partial class DownloadsView : Panel
     {
-        public event Action<DownloadRecord> OpenOutside, ShowInFolder, CancelDownload, RemoveRecord;
+        public event Action<DownloadRecord> OpenOutside, ShowInFolder, CancelDownload, RemoveRecord, DeleteFile;
         public event Action OpenFolder, ViewChanged, OrderChanged;
         public event Action<Keys> Shortcut;
         private const int PageSize = 100;
@@ -327,13 +327,28 @@ namespace Univer.Desktop.UI
         }
         private void ShowRowMenu(DownloadRow row, Point at)
         {
+            BuildRowMenu(row);
+            rowMenu.Show(row, at);
+        }
+        private void BuildRowMenu(DownloadRow row)
+        {
             rowMenu.Items.Clear();
             Action<string, Action, bool> add = (key, run, enabled) => { var entry = new ToolStripMenuItem(Strings.Get(key, language)) { Enabled = enabled }; entry.Click += (s, e) => run(); rowMenu.Items.Add(entry); };
             add("openInside", row.Open, row.CanOpen); add("openOutside", row.OpenElsewhere, row.CanOpenOutside); add("showInFolder", row.Reveal, row.CanOpen);
             rowMenu.Items.Add(new ToolStripSeparator());
             add(row.Item?.State == DownloadState.Running ? "cancelDownload" : "removeFromList", row.Remove, true);
-            rowMenu.Show(row, at);
+            if (row.CanDelete) add("deleteFile", row.Delete, true);
         }
+        // The id of the file the open preview shows; a deletion lets that file go first.
+        internal string PreviewId { get { return Previewing ? preview.Item?.Id : null; } }
+        internal System.Collections.Generic.List<ToolStripItem> MenuForQa(string id)
+        {
+            DownloadRow row;
+            if (!rows.TryGetValue(id, out row)) return null;
+            BuildRowMenu(row);
+            return rowMenu.Items.Cast<ToolStripItem>().ToList();
+        }
+        internal Font MenuFontForQa { get { return rowMenu.Font; } }
         // Set when the list itself changed: a new or removed file, not a resize or a filter.
         private bool animateRows;
         // Refresh looks at the disk again; a rebuild for a typed letter does not.
@@ -356,7 +371,7 @@ namespace Univer.Desktop.UI
             if (spare.Count > 0) { var used = spare.Pop(); used.Recycle(); return used; }
             var row = new DownloadRow(rowStyle, language);
             row.OpenInside += x => Preview(x); row.OpenOutside += x => OpenOutside?.Invoke(x); row.ShowInFolder += x => ShowInFolder?.Invoke(x);
-            row.CancelDownload += x => CancelDownload?.Invoke(x); row.RemoveRecord += x => RemoveRecord?.Invoke(x);
+            row.CancelDownload += x => CancelDownload?.Invoke(x); row.RemoveRecord += x => RemoveRecord?.Invoke(x); row.DeleteFile += x => DeleteFile?.Invoke(x);
             row.Step += StepRow; row.MenuRequested += ShowRowMenu;
             sheet.Controls.Add(row);
             return row;

@@ -564,6 +564,55 @@
         clearTimeout(exportTimer); exportTimer = setTimeout(function () { exportToken++; exportJson = ''; exportButtons(false); }, 60000);
         prepare(kind, token).catch(function () { if (token === exportToken) exportDone(); });
     }, true);
+    /* The exam or midterm schedule page's list for the app's exam reminders (MainForm.Exams.cs asks for it and checks every
+       field again): {v, kind, items:[{kind, subject, start:'yyyy-MM-ddTHH:mm' local, place}]}, or '' when the page is not
+       one of the two or has no list yet. Consultations are not exams. A page whose only row says there is no schedule gives
+       an empty list, so exams that left the site stop reminding. The page's own tables are only read. */
+    function examRows(table) { return Array.prototype.filter.call(table.rows, function (row) { return row.closest('table') === table; }); }
+    function examWhen(text) {
+        var m = /(\d{2})\.(\d{2})\.(\d{4})(?:\s+(\d{1,2}):(\d{2}))?/.exec(text || '');
+        return m ? new Date(+m[3], +m[2] - 1, +m[1], +(m[4] || 0), +(m[5] || 0)) : null;
+    }
+    function examColumns(list) {
+        var host = list.closest('td'), head = host && Array.prototype.find.call(host.querySelectorAll('table'), function (table) {
+            var rows = examRows(table);
+            return table !== list && rows.length === 1 && rows[0].cells.length > 3 && Array.prototype.every.call(rows[0].cells, function (c) { return c.tagName === 'TH'; });
+        });
+        var labels = head ? Array.prototype.map.call(examRows(head)[0].cells, clean) : [];
+        var find = function (pattern, fallback) { var i = labels.findIndex(function (l) { return pattern.test(l); }); return i >= 0 ? i : fallback; };
+        return {name: find(/дисципл|пән|subject|discipline|course/i, 0), kind: find(/^(тип|түрі|type)$/i, 2), place: find(/аудитор|room|auditor/i, 3)};
+    }
+    function examPlace(text) {
+        var m = /корп[^:]*:\s*([^|]*?)\s*\|\s*ауд[^:]*:\s*(.*)$/i.exec(text);
+        return m ? [m[1], m[2]].filter(Boolean).join(' · ') : text;
+    }
+    function exams() {
+        try {
+            var midterm = /^\/student\/mymidterm\/schedule\/?$/i.test(location.pathname);
+            if (!midterm && !/^\/student\/myexam\/schedule\/?$/i.test(location.pathname)) return '';
+            var list = document.getElementById('scheduleList'); if (!list) return '';
+            var columns = examColumns(list), rows = examRows(list), current = null, items = [], two = function (n) { return String(n).padStart(2, '0'); };
+            rows.forEach(function (row) {
+                var cells = Array.prototype.slice.call(row.cells);
+                if (cells.length === 1 && cells[0].tagName === 'TH') { current = examWhen(clean(cells[0])) || current; return; }
+                if (cells.length < 4 || cells.some(function (c) { return c.tagName === 'TH'; })) return;
+                var at = examWhen(row.id) || current; if (!at) return;
+                var cell = function (i) { return i >= 0 && cells[i] ? clean(cells[i]) : ''; };
+                var notes = cells[columns.kind] ? Array.prototype.map.call(cells[columns.kind].querySelectorAll('i,em'), clean).join(' ') : '';
+                var kindText = cell(columns.kind).replace(notes, '').trim();
+                if (/^(консультац|кеңес|consult)/i.test(kindText)) return;
+                var subject = cell(columns.name).slice(0, 200); if (!subject) return;
+                items.push({at: at, subject: subject, place: examPlace(cell(columns.place)).slice(0, 200)});
+            });
+            var kind = midterm ? 'midterm' : 'exam';
+            if (!items.length && !(rows.length === 1 && rows[0].cells.length === 1 && rows[0].cells[0].tagName !== 'TH' && !examWhen(clean(rows[0])))) return '';
+            var now = Date.now();
+            return JSON.stringify({v: 1, kind: kind, items: items.filter(function (item) { return item.at.getTime() > now; }).sort(function (a, b) { return a.at - b.at; }).slice(0, 60).map(function (item) {
+                var d = item.at;
+                return {kind: kind, subject: item.subject, start: d.getFullYear() + '-' + two(d.getMonth() + 1) + '-' + two(d.getDate()) + 'T' + two(d.getHours()) + ':' + two(d.getMinutes()), place: item.place};
+            })});
+        } catch (_) { return ''; }
+    }
     window.__univerOverviewV1 = {
         apply: function (lang) {
             if (lang !== language) { language = lang || 'ru'; if (active) this.release(); }
@@ -595,6 +644,8 @@
             } catch (_) { return ''; }
         },
         // The week export the student pressed: the prepared JSON string once, then empty. exported() ends the busy state.
+        // The exam or midterm list for the exam reminders (see exams() above): a JSON string, or ''.
+        exams: exams,
         exportData: function () { var data = exportJson; exportJson = ''; return data; },
         exported: function () { exportDone(); },
         // Test hooks: the same readers on a supplied document.

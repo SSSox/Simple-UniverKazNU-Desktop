@@ -707,6 +707,8 @@
 /* What is left to the mark stands out as a soft plate in the band's tint; absences are one line of the course card. */
 :root:root:root:root.univer-mobile #l4 .univer-app-score-next[data-univer-left] { display:inline-block; max-width:100%; box-sizing:border-box; padding:2px 8px; border-radius:6px; background:var(--univer-band-soft); font-weight:600; }
 :root:root:root:root.univer-mobile #l4 p.univer-app-attendance-absences { display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 8px; margin:0!important; padding:10px 16px!important; color:var(--u-muted); font-size:14px!important; }
+:root:root:root:root.univer-mobile #l4 p.univer-app-attendance-limit { margin:0 0 12px!important; padding:10px 14px!important; border-radius:12px; background:var(--univer-band-soft); border:1px solid var(--univer-band-line); color:var(--univer-band-ink)!important; font-size:14px!important; font-weight:600; line-height:1.4!important; text-align:start; }
+:root:root:root:root.univer-mobile #l4 p.univer-app-attendance-limit[hidden] { display:none!important; }
 :root.univer-mobile #l4 p.univer-app-attendance-absences b { color:var(--u-text); font-weight:600; }
 :root.univer-mobile #l4 p.univer-app-attendance-absences small { font-size:13px; }
 :root:root:root:root.univer-mobile #l4 button.univer-app-attendance-report { display:inline-flex!important; align-items:center; gap:8px; width:auto!important; height:36px!important; min-height:36px!important; margin:0!important; padding:0 14px!important; border:1px solid var(--u-line)!important; border-radius:10px!important; background:var(--u-surface)!important; box-shadow:none!important; color:var(--u-brand)!important; font-size:13px!important; font-weight:600!important; }

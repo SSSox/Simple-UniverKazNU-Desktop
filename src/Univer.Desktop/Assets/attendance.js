@@ -43,6 +43,18 @@
         return count;
     }
     // Every class counts, labs and practicals with no known type too; a type counts only its own.
+    // More «н» hours than this in a term (one class = one hour) puts a warning over the courses, as on Android.
+    var MISSED_LIMIT=25;
+    function limitText(hours) {
+        return (language==='en'?'{n} hours missed this term: more than {limit}':language==='kz'?'Семестрде {n} сағат қатыспадыңыз: бұл {limit} сағаттан көп':'Пропущено {n} ч за семестр: это больше {limit} ч')
+            .replace('{n}',hours).replace('{limit}',MISSED_LIMIT);
+    }
+    // Every course of the term counts, whichever course or class type is shown; written only when it changes.
+    function showLimit(groups) {
+        var hours=groups.reduce((n,group)=>n+missed(group),0), over=hours>MISSED_LIMIT, words=over?limitText(hours):'';
+        if (state.limit.hidden===over) state.limit.hidden=!over;
+        if (state.limit.textContent!==words) state.limit.textContent=words;
+    }
     function missed(group,type) { return group.lessons.filter(l=>!type||l.type===type).reduce((sum,lesson)=>sum+lesson.tables.reduce((n,table)=>n+absences(table),0),0); }
     function cell(cls,text) { var node=document.createElement('span'); node.className=cls; node.setAttribute('role','cell'); if (text!=null) node.textContent=text; return node; }
     // A period's name without its "(100)".
@@ -399,6 +411,7 @@
                 button.addEventListener('click',event=>{selected=type;render(model());if(event.detail>0)owned.filter(node=>!node.closest('[hidden]')).forEach(node=>window.__univerMotionUI?.reveal(node,'content'));}); bar.appendChild(button);
             });
             var tools=document.createElement('div');tools.className='univer-app-attendance-tools';
+            var limit=document.createElement('p');limit.className='univer-app-attendance-limit';limit.dataset.univerBand='low';limit.setAttribute('role','status');limit.hidden=true;
             var courses=document.createElement('nav');courses.className='univer-app-attendance-courses';
             var courseCaption=document.createElement('p');courseCaption.className='univer-app-attendance-course-caption';
             var courseList=document.createElement('div');courseList.className='univer-app-attendance-course-list';
@@ -426,12 +439,12 @@
             actions.append(goalBox,report);
             // The class-type switch and the summary's button share one row: filters on the left, the action on the right.
             var filterRow=document.createElement('div');filterRow.className='univer-app-attendance-filter-row';filterRow.append(bar,actions);
-            tools.append(courses,caption,filterRow,note,summaryList);
+            tools.append(limit,courses,caption,filterRow,note,summaryList);
             insertAfterCell(groups[0].heading||groups[0].lessons[0].cell,tools,true);
             // The filter bar has its own lifetime; summary rebuilds must not remove it.
-            var host=owned.pop(); state={bar,host,caption,note,courses,courseCaption,courseList,allCourse,courseButtons:new Map(),overview:summaryList,report:actions,reportLabel,goal:goalBox,goalLanguage:language,signature:null};
+            var host=owned.pop(); state={bar,host,limit,caption,note,courses,courseCaption,courseList,allCourse,courseButtons:new Map(),overview:summaryList,report:actions,reportLabel,goal:goalBox,goalLanguage:language,signature:null};
         }
-        if (state.signature!==signature) { state.signature=signature; render(groups); }
+        if (state.signature!==signature) { state.signature=signature; render(groups); showLimit(groups); }
     }
     function release() {
         window.__univerReportV1?.close();

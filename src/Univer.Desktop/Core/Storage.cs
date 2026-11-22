@@ -176,6 +176,9 @@ namespace Univer.Desktop.Core
             try { GradeFile.Remove(root); }
             catch (IOException) { }
             catch (UnauthorizedAccessException) { }
+            try { ExamFile.Remove(root); }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
             // A failed write leaves the mark on disk, and the next start finishes the change again.
             SavePreferences(preferences);
             return true;
@@ -286,6 +289,10 @@ namespace Univer.Desktop.Core
         public ScheduleWeek LoadSchedule(string account) { return ScheduleFile.Read(root, account); }
         public Task SaveScheduleAsync(ScheduleWeek week) { return writes.RunAsync(() => Task.Run(() => ScheduleFile.Write(root, week))); }
         public Task RemoveScheduleAsync() { return writes.RunAsync(() => Task.Run(() => ScheduleFile.Remove(root))); }
+        // The exams and midterms kept for the exam reminders (Core/ExamCopy.cs), by the same rules.
+        public ExamPlan LoadExams(string account) { return ExamFile.Read(root, account); }
+        public Task SaveExamsAsync(ExamPlan plan) { return writes.RunAsync(() => Task.Run(() => ExamFile.Write(root, plan))); }
+        public Task RemoveExamsAsync() { return writes.RunAsync(() => Task.Run(() => ExamFile.Remove(root))); }
         public GradeSheet LoadGrades(string account) { return GradeFile.Read(root, account); }
         public Task SaveGradesAsync(GradeSheet sheet) { return writes.RunAsync(() => Task.Run(() => GradeFile.Write(root, sheet))); }
         public Task RemoveGradesAsync() { return writes.RunAsync(() => Task.Run(() => GradeFile.Remove(root))); }

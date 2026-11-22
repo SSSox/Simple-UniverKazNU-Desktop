@@ -139,6 +139,8 @@ namespace Univer.Desktop.UI
             if (opens == "notices") ShowNotices();
             else if (opens == "schedule") NavigateSection("/student/myschedule/");
             else if (opens == "grades") NavigateSection("/student/attestation/");
+            else if (opens == "exams") NavigateSection("/student/myexam/schedule/");
+            else if (opens == "midterms") NavigateSection("/student/mymidterm/schedule/");
         }
         private void ExitApplication() { exitRequested = true; if (!Visible) Show(); Close(); }
         private void DisposeTray()

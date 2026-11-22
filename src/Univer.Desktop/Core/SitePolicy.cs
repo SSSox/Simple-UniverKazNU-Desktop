@@ -16,6 +16,7 @@ namespace Univer.Desktop.Core
         private static readonly Regex GradesPath = Path(@"^/student/attendance/(?:full|show)(?:/\d+)*/?$");
         // The schedule page, a semester tab of it or one week's own address (the export buttons' pages, overview.js schedulePage).
         private static readonly Regex SchedulePath = Path(@"^/student/myschedule(?:/\d{4}/[12](?:/\d{1,2}\.\d{1,2}\.\d{4}/\d{1,2}\.\d{1,2}\.\d{4})?)?/?$");
+        private static readonly Regex ExamsPath = Path(@"^/student/(?:myexam|mymidterm)/schedule/?$");
         private static readonly Regex DocumentPath =Path(@"\.(?:pdf|docx?|xlsx?|pptx?|odt|ods|rtf|zip|rar)$");
         private static readonly Regex SingleSignOnPath = Path(@"^/user/loginMoodle/?$");
         private static readonly Regex OnlineTestPath = Path(@"^/student/AuthorizationOnOnlineTestForm/?$");
@@ -126,6 +127,7 @@ namespace Univer.Desktop.Core
         // The attendance and grades journal («Успеваемость»), the only page the grade summary is made from.
         public static bool Grades(string url) { return TrustedPath(url, GradesPath); }
         public static bool SchedulePage(string url) { return TrustedPath(url, SchedulePath); }
+        public static bool ExamPage(string url) { return TrustedPath(url, ExamsPath); }
         // A teacher's link from UMKD: a plain web page on a named host. Mail and phone links, addresses with a user name,
         // bare IP addresses and local names are not study sources.
         public static bool StudyLink(string url)

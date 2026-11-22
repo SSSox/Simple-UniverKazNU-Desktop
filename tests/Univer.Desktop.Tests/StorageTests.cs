@@ -81,7 +81,7 @@ namespace Univer.Desktop.Tests
             var stopped = new Preferences { AutoLoginPaused = true, SessionClearPending = true };
             storage.SavePreferences(stopped);
             Directory.CreateDirectory(storage.ProfilePath(stopped.Profile)); Directory.CreateDirectory(storage.WebProfilePath(stopped.WebProfile));
-            File.WriteAllText(Path.Combine(root, "notices.json"), "[]");
+            File.WriteAllText(Path.Combine(root, "notices.json"), "[]"); File.WriteAllText(Path.Combine(root, "exams.json"), "{}");
 
             var next = new Storage(root); var prefs = next.Load().Preferences;
             Assert.True(prefs.SessionClearPending);
@@ -92,6 +92,7 @@ namespace Univer.Desktop.Tests
             Assert.Equal(prefs.Profile, saved.Profile); Assert.Equal(prefs.WebProfile, saved.WebProfile);
             Assert.True(saved.AutoLoginPaused); Assert.False(saved.SessionClearPending);
             Assert.False(File.Exists(Path.Combine(root, "notices.json")));
+            Assert.False(File.Exists(Path.Combine(root, "exams.json")));
             // The profiles of the session that was ending are obsolete now, and the usual start-up cleanup takes them.
             next.CleanOldProfiles(prefs.Profile);
             Assert.True(next.WebProfileSaved(prefs.WebProfile)); next.CleanOldWebProfiles(prefs.WebProfile);
