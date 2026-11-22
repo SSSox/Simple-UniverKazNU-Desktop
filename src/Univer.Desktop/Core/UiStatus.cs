@@ -95,7 +95,7 @@ namespace Univer.Desktop.Core
             if (key == "downloadAllBusy") return new UiMessage(key, MessageTone.Info, MessageAction.None, 74, true);
             // Deleting a downloaded file: the answer to the user's own click, a refusal says why and keeps the row.
             if (key == "fileDeleted") return new UiMessage(key, MessageTone.Success, MessageAction.None, 62, true);
-            if (key == "deleteChanged" || key == "deleteNoBin" || key == "deleteNotFile" || key == "deleteFailed") return new UiMessage(key, MessageTone.Warning, MessageAction.None, 70, true);
+            if (key == "deleteChanged" || key == "deleteNoBin" || key == "deleteBusy" || key == "deleteNotFile" || key == "deleteFailed") return new UiMessage(key, MessageTone.Warning, MessageAction.None, 70, true);
             // A file that left its place was taken off the list when the student tried to open it.
             if (key == "downloadGone") return new UiMessage(key, MessageTone.Info, MessageAction.None, 62, true);
             // The grade summary's files: a copied picture is a quiet success, a file that could not be made a warning (a saved

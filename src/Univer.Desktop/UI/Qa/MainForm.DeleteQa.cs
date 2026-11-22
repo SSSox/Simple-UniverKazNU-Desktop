@@ -85,6 +85,44 @@ namespace Univer.Desktop.UI
                 duringMove = !downloadsView.Previewing;
                 Check(showing && duringMove && recorder.Calls.Count == 2 && recorder.Calls[1] == shownText.Path && !downloadsView.HasRowForQa(shownText.Id), "deleting the file shown in the preview closes the preview first", results);
 
+                Check(recorder.Owners.Count == 2 && recorder.Owners.All(x => x == Handle), "the recycler is handed the main window as the owner of the shell's question", results);
+
+                // A file another program holds is "busy", not "no bin": it is kept and the status says so.
+                recorder.Busy = true;
+                var held = make("Занят QA.pdf", 14); OnDownloadChanged(held);
+                await DeleteDownloadAsync(held);
+                Check(recorder.Calls.Count == 2 && File.Exists(held.Path) && downloadsView.HasRowForQa(held.Id) && messages.Current?.Key == "deleteBusy", "a file open elsewhere is refused as busy and kept", results);
+                recorder.Busy = false;
+
+                // The preview's release is awaited with a bound: a holder that lets go after a moment is waited for.
+                using (var holder = new FileStream(held.Path, FileMode.Open, FileAccess.Read, FileShare.None))
+                {
+                    var watch = System.Diagnostics.Stopwatch.StartNew();
+                    var letGo = Task.Delay(350).ContinueWith(_ => holder.Dispose());
+                    var released = await FileDeletion.WaitReleasedAsync(held.Path);
+                    watch.Stop();
+                    Check(released && watch.ElapsedMilliseconds >= 250 && watch.ElapsedMilliseconds < 1800, "the wait for a preview to let go ends when the file opens", results);
+                    await letGo;
+                }
+
+                // The real shell path, short of moving anything into the user's bin: struct layout, drive decision, STA call.
+                int structSize, flagsAt, abortedAt;
+                RecycleBinRecycler.Layout(out structSize, out flagsAt, out abortedAt);
+                var x64 = IntPtr.Size == 8;
+                Check(structSize == (x64 ? 56 : 30) && flagsAt == (x64 ? 32 : 16) && abortedAt == (x64 ? 36 : 18), "SHFILEOPSTRUCT has the shell's layout (" + structSize + "/" + flagsAt + "/" + abortedAt + " on " + (x64 ? "x64" : "x86") + ")", results);
+                var real = new RecycleBinRecycler();
+                var probe = make("Реальный QA.pdf", 8);
+                var tempFixed = false;
+                try { tempFixed = new DriveInfo(Path.GetPathRoot(folder)).DriveType == DriveType.Fixed; } catch (Exception) { }
+                Check(real.Support(probe.Path) == (tempFixed ? RecycleSupport.Yes : RecycleSupport.NoBin), "a file on a fixed drive is accepted by its resolved location", results);
+                using (new FileStream(probe.Path, FileMode.Open, FileAccess.Read, FileShare.None))
+                    Check(real.Support(probe.Path) == RecycleSupport.Busy, "a file held without sharing is busy for the real recycler", results);
+                Check(real.Support(Path.Combine(folder, "нет-такого.pdf")) == RecycleSupport.NoBin, "a missing file is not a bin question", results);
+                var ranOnUi = true; var crashed = false;
+                try { await real.RecycleAsync(Path.Combine(folder, "нет-такого.pdf"), Handle); } catch (IOException) { } catch (Exception) { crashed = true; }
+                ranOnUi = RecycleBinRecycler.LastApartment != System.Threading.ApartmentState.STA;
+                Check(!crashed && !ranOnUi, "the real shell call runs on its own STA thread with the window as owner and ends cleanly", results);
+
                 // A repeat download of the same address is not called a repeat once the record is gone.
                 Check(wasKnown && history.Downloaded("qa-key", good.FileName, "QA") == null, "after a deletion the same file is no longer 'already downloaded'", results);
             }
@@ -93,7 +131,7 @@ namespace Univer.Desktop.UI
                 deleteAnswerForQa = null; downloadsView.PreferBuiltIn = false; Recycler = saved;
                 downloadsView.ClosePreview();
                 foreach (var id in ids) ForgetRecord(id);
-                messages.Withdraw("fileDeleted"); messages.Withdraw("deleteChanged"); messages.Withdraw("deleteNoBin"); RenderFeedback();
+                messages.Withdraw("fileDeleted"); messages.Withdraw("deleteChanged"); messages.Withdraw("deleteNoBin"); messages.Withdraw("deleteBusy"); RenderFeedback();
                 HideDownloads();
                 downloadsView.SetItems(history.Items);
                 try { Directory.Delete(folder, true); } catch (IOException) { } catch (UnauthorizedAccessException) { }

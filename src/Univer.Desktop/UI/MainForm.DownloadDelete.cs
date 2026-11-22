@@ -34,9 +34,16 @@ namespace Univer.Desktop.UI
                 record = history.Items.FirstOrDefault(x => x.Id == id);
                 if (record == null || !string.Equals(record.Path, snapshot.Path, StringComparison.OrdinalIgnoreCase)) return;
                 snapshot = record.Clone();
-                if (downloadsView.PreviewId == id) { downloadsView.ClosePreview(); downloadsView.ReleaseViewer(); }
-                var recycler = Recycler;
-                verdict = await Task.Run(() => FileDeletion.Delete(snapshot, recycler));
+                // The preview may need a moment to let go of the file (Office preview handler): a bounded probe, then one shell call.
+                if (downloadsView.PreviewId == id)
+                {
+                    downloadsView.ClosePreview(); downloadsView.ReleaseViewer();
+                    var path = snapshot.Path;
+                    await Task.Run(() => FileDeletion.WaitReleasedAsync(path));
+                    if (closing || history == null) return;
+                }
+                var recycler = Recycler; var owner = Handle;
+                verdict = await Task.Run(() => FileDeletion.DeleteAsync(snapshot, recycler, owner));
                 if (closing || history == null) return;
                 if (verdict == DeleteVerdict.Ok) { ForgetRecord(id); SetStatus("fileDeleted"); }
                 else Refuse(id, snapshot, verdict);

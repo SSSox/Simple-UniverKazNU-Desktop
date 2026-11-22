@@ -1,6 +1,7 @@
 using System;
 using System.Diagnostics;
 using System.IO;
+using System.Threading.Tasks;
 using Univer.Desktop.Core;
 using Univer.Desktop.UI;
 using Xunit;
@@ -25,7 +26,7 @@ namespace Univer.Desktop.Tests
         {
             var record = Saved("a.pdf"); var other = Saved("b.pdf");
             var recycler = new MemoryRecycler();
-            Assert.Equal(DeleteVerdict.Ok, FileDeletion.Delete(record, recycler));
+            Assert.Equal(DeleteVerdict.Ok, FileDeletion.DeleteAsync(record, recycler, IntPtr.Zero).GetAwaiter().GetResult());
             Assert.Equal(new[] { record.Path }, recycler.Calls.ToArray());
             Assert.True(File.Exists(other.Path));
         }
@@ -35,7 +36,7 @@ namespace Univer.Desktop.Tests
         {
             var record = Saved("a.pdf"); record.Total = record.Received = 99;
             var recycler = new MemoryRecycler();
-            Assert.Equal(DeleteVerdict.Changed, FileDeletion.Delete(record, recycler));
+            Assert.Equal(DeleteVerdict.Changed, FileDeletion.DeleteAsync(record, recycler, IntPtr.Zero).GetAwaiter().GetResult());
             Assert.Empty(recycler.Calls);
         }
 
@@ -57,7 +58,7 @@ namespace Univer.Desktop.Tests
             var directory = new DownloadRecord { FileName = "dir", Path = Path.Combine(folder, "dir"), State = DownloadState.Completed, Total = 0, Received = 0 };
             Directory.CreateDirectory(directory.Path);
             var recycler = new MemoryRecycler();
-            Assert.Equal(DeleteVerdict.Directory, FileDeletion.Delete(directory, recycler));
+            Assert.Equal(DeleteVerdict.Directory, FileDeletion.DeleteAsync(directory, recycler, IntPtr.Zero).GetAwaiter().GetResult());
             Assert.Empty(recycler.Calls);
             Assert.True(Directory.Exists(directory.Path));
         }
@@ -83,7 +84,7 @@ namespace Univer.Desktop.Tests
             if (!MakeLink(link, target.Path)) return;
             var record = new DownloadRecord { FileName = "link.pdf", Path = link, State = DownloadState.Completed, Total = 10, Received = 10 };
             var recycler = new MemoryRecycler();
-            Assert.Equal(DeleteVerdict.Link, FileDeletion.Delete(record, recycler));
+            Assert.Equal(DeleteVerdict.Link, FileDeletion.DeleteAsync(record, recycler, IntPtr.Zero).GetAwaiter().GetResult());
             Assert.Empty(recycler.Calls);
             Assert.True(File.Exists(target.Path));
         }
@@ -93,7 +94,7 @@ namespace Univer.Desktop.Tests
         {
             var record = Saved("a.pdf");
             var recycler = new MemoryRecycler { Available = false };
-            Assert.Equal(DeleteVerdict.NoBin, FileDeletion.Delete(record, recycler));
+            Assert.Equal(DeleteVerdict.NoBin, FileDeletion.DeleteAsync(record, recycler, IntPtr.Zero).GetAwaiter().GetResult());
             Assert.Empty(recycler.Calls);
             Assert.True(File.Exists(record.Path));
         }
@@ -102,17 +103,68 @@ namespace Univer.Desktop.Tests
         public void TheRealRecyclerTrustsOnlyAFixedLocalDrive()
         {
             var real = new RecycleBinRecycler();
-            Assert.False(real.CanRecycle(@"\\server\share\a.pdf"));
-            Assert.False(real.CanRecycle(@"\\?\C:\a.pdf"));
-            Assert.False(real.CanRecycle("a.pdf"));
-            Assert.False(real.CanRecycle(@"ZZ:\a.pdf"));
+            Assert.Equal(RecycleSupport.NoBin, real.Support(@"\\server\share\a.pdf"));
+            Assert.Equal(RecycleSupport.NoBin, real.Support(@"\\?\C:\a.pdf"));
+            Assert.Equal(RecycleSupport.NoBin, real.Support("a.pdf"));
+            Assert.Equal(RecycleSupport.NoBin, real.Support(@"ZZ:\a.pdf"));
+            Assert.Equal(RecycleSupport.NoBin, real.Support(""));
+        }
+
+        [Fact]
+        public void TheDriveIsReadFromTheResolvedPathNotTheLetterTheFileWasSavedUnder()
+        {
+            Assert.Equal(@"C:\", FileDeletion.LocalDriveRoot(@"\\?\C:\x"));
+            Assert.Equal(@"d:\", FileDeletion.LocalDriveRoot(@"\\?\d:\Users\a\b.pdf"));
+            Assert.Null(FileDeletion.LocalDriveRoot(@"\\?\UNC\srv\share\x"));
+            Assert.Null(FileDeletion.LocalDriveRoot(@"\\?\Volume{01234567-89ab-cdef-0123-456789abcdef}\x"));
+            Assert.Null(FileDeletion.LocalDriveRoot(@"C:\x"));
+            Assert.Null(FileDeletion.LocalDriveRoot(@"\\?\C:"));
+            Assert.Null(FileDeletion.LocalDriveRoot(""));
+            Assert.Null(FileDeletion.LocalDriveRoot(null));
+        }
+
+        [Fact]
+        public void AFileAnotherProgramHoldsIsBusyNotWithoutABin()
+        {
+            var record = Saved("a.pdf");
+            var recycler = new MemoryRecycler { Busy = true };
+            Assert.Equal(DeleteVerdict.Busy, FileDeletion.DeleteAsync(record, recycler, IntPtr.Zero).GetAwaiter().GetResult());
+            Assert.Empty(recycler.Calls);
+            Assert.Equal("deleteBusy", FileDeletion.StatusKey(DeleteVerdict.Busy));
+        }
+
+        [Fact]
+        public void TheOwnerWindowReachesTheRecycler()
+        {
+            var record = Saved("a.pdf"); var recycler = new MemoryRecycler();
+            FileDeletion.DeleteAsync(record, recycler, new IntPtr(1234)).GetAwaiter().GetResult();
+            Assert.Equal(new[] { new IntPtr(1234) }, recycler.Owners.ToArray());
+        }
+
+        [Fact]
+        public void WaitingForARelease_GivesUpAfterTheLimitAndSucceedsOnceTheHolderLetsGo()
+        {
+            var record = Saved("a.pdf");
+            using (var holder = new FileStream(record.Path, FileMode.Open, FileAccess.Read, FileShare.None))
+                Assert.False(FileDeletion.WaitReleasedAsync(record.Path, 250, 50).GetAwaiter().GetResult());
+            Assert.True(FileDeletion.WaitReleasedAsync(record.Path, 250, 50).GetAwaiter().GetResult());
+        }
+
+        [Fact]
+        public void TheRealStructureHasTheShellsLayout()
+        {
+            int size, flags, aborted;
+            RecycleBinRecycler.Layout(out size, out flags, out aborted);
+            Assert.Equal(IntPtr.Size == 8 ? 56 : 30, size);
+            Assert.Equal(IntPtr.Size == 8 ? 32 : 16, flags);
+            Assert.Equal(IntPtr.Size == 8 ? 36 : 18, aborted);
         }
 
         [Fact]
         public void ARecyclerThatCannotMoveTheFileIsAFailureNotASuccess()
         {
             var record = Saved("a.pdf");
-            Assert.Equal(DeleteVerdict.Failed, FileDeletion.Delete(record, new Throwing()));
+            Assert.Equal(DeleteVerdict.Failed, FileDeletion.DeleteAsync(record, new Throwing(), IntPtr.Zero).GetAwaiter().GetResult());
         }
 
         [Fact]
@@ -130,8 +182,8 @@ namespace Univer.Desktop.Tests
 
         private sealed class Throwing : IFileRecycler
         {
-            public bool CanRecycle(string path) { return true; }
-            public void Recycle(string path) { throw new IOException("open elsewhere"); }
+            public RecycleSupport Support(string path) { return RecycleSupport.Yes; }
+            public Task RecycleAsync(string path, IntPtr owner) { var failed = new TaskCompletionSource<bool>(); failed.SetException(new IOException("open elsewhere")); return failed.Task; }
         }
         private static bool MakeLink(string link, string target)
         {
