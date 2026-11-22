@@ -26,9 +26,14 @@
         return language === 'en' ? {expand:'Show the full article', collapse:'Collapse'} :
             language === 'kz' ? {expand:'Толық көрсету', collapse:'Жасыру'} : {expand:'Показать полностью', collapse:'Свернуть'};
     }
-    function updateFold(record) {
-        if (!record.body.getBoundingClientRect().width) return; // Hidden search/source pages have no useful geometry.
-        var long = record.body.scrollHeight > 280, open = expanded.get(record.source) === true;
+    // Reads first, writes after: a batch of rows costs one layout, not one per row.
+    function measureFold(record) {
+        var width = record.body.getBoundingClientRect().width; // Hidden search/source pages have no useful geometry.
+        return width ? record.body.scrollHeight > 280 : null;
+    }
+    function paintFold(record, long) {
+        if (long === null) return;
+        var open = expanded.get(record.source) === true;
         var collapsed = String(long && !open);
         if (record.body.getAttribute('data-collapsed') !== collapsed) record.body.setAttribute('data-collapsed',collapsed);
         if (record.button.hidden === long) record.button.hidden = !long;
@@ -36,6 +41,7 @@
         if (record.button.getAttribute('aria-expanded') !== value) record.button.setAttribute('aria-expanded',value);
         setText(record.button,long ? (open ? foldText().collapse : foldText().expand) : '');
     }
+    function updateFold(record) { paintFold(record, measureFold(record)); }
     function unfold(record) {
         window.__univerMotionUI?.stop(record.body);
         foldObserver?.unobserve(record.body); record.button.remove();
@@ -46,6 +52,7 @@
         folds.forEach((record,row) => {
             if (!record.body.isConnected || (!state.table.contains(row) && !state.results.contains(row))) { unfold(record); folds.delete(row); }
         });
+        var batch = [];
         [state.table,state.results].forEach(root => root.querySelectorAll('tr.news').forEach(row => {
             var record = folds.get(row), cell = row.cells[1]; if (!cell) return;
             if (!record) {
@@ -68,8 +75,10 @@
                 body.addEventListener('load',scheduleFolds,true);
                 foldObserver?.observe(body);
             }
-            updateFold(record);
+            batch.push(record);
         }));
+        var longs = batch.map(measureFold);
+        batch.forEach((record,i) => paintFold(record,longs[i]));
     }
     function scheduleFolds() {
         if (!state || foldTimer !== null) return;
@@ -345,17 +354,18 @@
             if (active()) timer = setTimeout(search,200);
             else if (!state.total) timer = setTimeout(discoverPages,400);
         }
-        var t = text(); state.query.placeholder=t.search; state.query.setAttribute('aria-label',t.search);
+        var t = text(); if (state.query.placeholder!==t.search) state.query.placeholder=t.search; if (state.query.getAttribute('aria-label')!==t.search) state.query.setAttribute('aria-label',t.search);
         var captions = state.bar.querySelectorAll('.univer-app-news-date>span'); setText(captions[0],t.from); setText(captions[1],t.to);
         setText(state.important,t.important); setText(state.reset,t.reset);
         Array.from(state.presets.children).forEach(preset => setText(preset,t[preset.dataset.key]));
-        document.querySelectorAll('#l4 td.tb').forEach(cell => { if (cell.querySelector('a[href*="/my/news/"]') || /^(Страница|Page|Бет)\s*\d+/i.test(clean(cell))) cell.classList.add('univer-app-news-pager-source'); });
+        document.querySelectorAll('#l4 td.tb').forEach(cell => { if (cell.querySelector('a[href*="/my/news/"]') || /^(Страница|Page|Бет)\s*\d+/i.test(clean(cell))) { if (!cell.classList.contains('univer-app-news-pager-source')) cell.classList.add('univer-app-news-pager-source'); } });
         // Native polling calls apply repeatedly; only rerender on actual language/content changes.
         var signature = language + '|' + Array.from(table.querySelectorAll('tr.news')).map(clean).join('|');
         if (state.signature !== signature) {
             state.signature = signature; state.pages.set(pageNumber(),Array.from(table.querySelectorAll('tr.news'))); render();
+            // Later size changes arrive through the resize listener and the observer; an unchanged page needs no pass.
+            scheduleFolds();
         }
-        scheduleFolds();
     }
     function release() {
         cancel(); if (!state) return;

@@ -22,6 +22,18 @@ namespace Univer.Desktop.UI
         internal Toggle RemindersForQa { get { return reminders; } }
         internal ModernButton LeadForQa { get { return leadButton; } }
         internal void ChooseLeadForQa(int minutes) { leadButton.PerformClick(); leadMenu.ListForQa.ChooseForQa(minutes); }
+        internal ModernButton StartPageForQa { get { return startPageButton; } }
+        internal void ChooseStartPageForQa(string key) { startPageButton.PerformClick(); startPageMenu.ListForQa.ChooseForQa(key); }
+        // The start page row: its words end before its button, and the button shows its whole name inside the sheet and the tab.
+        internal bool StartPageFitsForQa
+        {
+            get
+            {
+                var slot = startPageButton.Parent;
+                return startPageTitle.Right <= slot.Left && startPageHint.Right <= slot.Left && slot.Right <= viewSheet.Width && startPageButton.Width >= startPageButton.HugWidth - 1 &&
+                    slot.Bottom <= viewSheet.Height && viewSheet.Bottom <= viewPanel.Height && TextRenderer.MeasureText(startPageHint.Text, startPageHint.Font).Width <= startPageHint.Width;
+            }
+        }
         internal Toggle GradesForQa { get { return grades; } }
         internal ModernButton IntervalForQa { get { return intervalButton; } }
         internal void ChooseIntervalForQa(int minutes) { intervalButton.PerformClick(); intervalMenu.ListForQa.ChooseForQa(minutes); }

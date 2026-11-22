@@ -17,7 +17,7 @@ namespace Univer.Desktop.UI
         {
             if (trayIcon == null) return;
             reminderTimer = new Timer { Interval = 20000 };
-            reminderTimer.Tick += (s, e) => RemindClasses(DateTime.Now);
+            reminderTimer.Tick += (s, e) => { UpdateTrayHint(); RemindClasses(DateTime.Now); };
             reminderTimer.Start();
         }
         private List<ScheduleClass> RemindClasses(DateTime now)

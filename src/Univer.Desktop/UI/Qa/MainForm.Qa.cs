@@ -33,6 +33,7 @@ namespace Univer.Desktop.UI
                     QaStep("autostart", () => AutostartQaAsync(qa, results)),
                     QaStep("reminders", () => RemindersQaAsync(qa, results)),
                     QaStep("shell", () => ShellQaAsync(qa, results)),
+                    QaStep("navigation", () => NavigationQaAsync(qa, results)),
                     QaStep("document", () => DocumentQaAsync(qa, results)),
                     QaStep("presentation", () => PresentationQaAsync(qa, results)),
                     QaStep("form-download", () => FormDownloadQaAsync(results)),

@@ -63,11 +63,13 @@ namespace Univer.Desktop.UI
             if (!wasBusy) return;
             if (Program.FirstReveal == 0) Program.FirstReveal = Program.Clock.ElapsedMilliseconds;
             if (selfTest || accountReview) { loading.Visible = false; ScheduleShape(browser); QueueAsync(UpdateSiteTitleAsync); return; }
-            // Uncover a few frames later, once Chromium has painted the revealed page; uncovering at once
-            // could show the compositor's empty surface for a frame.
+            // Uncover once Chromium has painted the revealed page (two frames later), at most 48 ms on: uncovering at once could
+            // show the compositor's empty surface for a frame. A hidden window paints nothing, so the delay ends the wait there.
             QueueAsync(async () =>
             {
-                await Task.Delay(48);
+                var clock = System.Diagnostics.Stopwatch.StartNew();
+                if (revealFixedForQa) await Task.Delay(48); else await Task.WhenAny(AutomationController.PaintedAsync(browser), Task.Delay(48));
+                revealWaitForQa = clock.ElapsedMilliseconds;
                 if (closing || reveal != revealGeneration) return;
                 loading.Visible = false; ScheduleShape(browser);
                 if (prefs.Animations && !Motion.KeyboardInput && browser == Active)
@@ -76,6 +78,10 @@ namespace Univer.Desktop.UI
             });
         }
         private int revealGeneration;
+        // How long the last uncover waited for the page's frames (QA flash run).
+        private long revealWaitForQa;
+        // The flash run compares the old fixed wait with the frame signal.
+        private bool revealFixedForQa;
         // What the first session found and the address each session opened with; the live self-test reads them, and
         // freshForQa lets it take the new-profile road a self-test otherwise skips.
         private bool sessionStarted, profileAbsentAtStart, freshForQa, loggingOut, languageHop, accountStarting;
@@ -100,12 +106,23 @@ namespace Univer.Desktop.UI
             // Download records belong to the app-wide history, so updates from an ended session are still kept.
             downloads = new DownloadService(context, key => Dispatch(() => { if (epoch == sessionEpoch) SetStatus(key); }),
                 record => Dispatch(() => OnDownloadChanged(record)), id => Dispatch(() => ForgetRecord(id)));
-            sessionAddress = fresh ? SitePolicy.LanguageSwitch(prefs.Language) : selfTest ? "about:blank" : SitePolicy.Home;
+            sessionAddress = fresh ? SitePolicy.LanguageSwitch(prefs.Language) : selfTest ? "about:blank" : StartAddress();
             main = CreateBrowser(sessionAddress, false);
             canvas.Controls.Add(main); main.BringToFront(); error = false; timer.Start();
             languageHop = false;
-            presentationBegan = DateTime.UtcNow; ShowRoute(fresh && OpensOnSignIn() ? SitePolicy.LoginAddress : SitePolicy.Home); loading.Visible = true; loading.BringToFront();
+            presentationBegan = DateTime.UtcNow; ShowRoute(fresh && OpensOnSignIn() ? SitePolicy.LoginAddress : StartAddress()); loading.Visible = true; loading.BringToFront();
             sessionCreatedForQa?.Invoke();
+        }
+        // The section chosen in Settings (StartPages), when the app signs in by itself: an ended session sends it to the sign-in
+        // form, and the page reopens after the app's sign-in (LoginRedirect). Without automatic sign-in the start stays the
+        // home page, the way to the site's own sign-in. A direct start skips "/" and with it the read notice that page
+        // re-posts (SitePolicy.NewsShortcut); the notice is still confirmed when the site shows it.
+        // A login whose password is still sealed under the PIN counts too: the app signs in by itself once the PIN is entered.
+        private string StartAddress() { return SignsInByItself() ? StartPages.Address(prefs.StartPage) : SitePolicy.Home; }
+        private bool SignsInByItself()
+        {
+            return Credentials.SignInActive(credentials, prefs)
+                || (PinSet && credentials != null && credentials.Sealed && !string.IsNullOrEmpty(credentials.Login) && !prefs.AutoLoginPaused);
         }
         // A new profile the app will not sign in by itself (a logout; a start without a saved sign-in or with a paused one) opens
         // on the site's sign-in page: the cover draws that page from the start instead of the home page. A new account's
@@ -206,7 +223,7 @@ namespace Univer.Desktop.UI
             {
                 if (started || !browser.IsBrowserInitialized) return; started = true;
                 // Every browser window, the file viewer's included, lives on CEF's one UI thread: the first one hooks Ctrl+wheel for all.
-                current(() => { ctrlWheel.Attach(browser.GetBrowser().GetHost().GetWindowHandle()); QueueAsync(() => PrepareBrowserAsync(browser, url, viewer, epoch, current)); });
+                current(() => { browserMouse.Attach(browser.GetBrowser().GetHost().GetWindowHandle()); QueueAsync(() => PrepareBrowserAsync(browser, url, viewer, epoch, current)); });
             };
             browser.IsBrowserInitializedChanged += (s, e) => initialize(); initialize();
             return browser;

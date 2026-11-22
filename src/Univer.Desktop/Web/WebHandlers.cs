@@ -101,7 +101,7 @@ namespace Univer.Desktop.Web
             dispatch(() => progress(id, path, host, item));
         }
     }
-    // The window's keys inside a page: Alt+Left/Right walk its history (Back from the first page closes it), F5 reloads, Ctrl+P
+    // The window's keys inside a page: Alt+Left/Right walk its history (Back from the first page closes it), F5 and Ctrl+R reload, Ctrl+P
     // prints, Ctrl+0/+/- zoom. Escape stays with the page (it closes the page's own menus and must not lose a half-typed form);
     // on the window's bar it closes the window.
     internal sealed class WebKeys : KeyboardHandler
@@ -110,7 +110,7 @@ namespace Univer.Desktop.Web
         public WebKeys(Action<Keys> dispatch) { this.dispatch = dispatch; }
         public static bool Accepted(Keys key)
         {
-            return key == (Keys.Alt | Keys.Left) || key == (Keys.Alt | Keys.Right) || key == Keys.F5 || key == (Keys.Control | Keys.P) ||
+            return key == (Keys.Alt | Keys.Left) || key == (Keys.Alt | Keys.Right) || key == Keys.F5 || key == (Keys.Control | Keys.R) || key == (Keys.Control | Keys.P) ||
                 key == (Keys.Control | Keys.D0) || key == (Keys.Control | Keys.NumPad0) || key == (Keys.Control | Keys.Oemplus) || key == (Keys.Control | Keys.Add) ||
                 key == (Keys.Control | Keys.OemMinus) || key == (Keys.Control | Keys.Subtract);
         }

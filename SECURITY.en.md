@@ -34,7 +34,7 @@ Fixes are released for the latest version only. The Legacy variant is built on C
 
 **Signs out completely.** Signing out first records the pause of automatic sign-in, then cancels downloads, deletes the site's cookies and storage and creates a new browser profile. Sign out in Settings also erases the encrypted record; the sign-out link on the site itself keeps it. This is a sign-out on this computer: the app does not promise that the server ends all sessions and does not promise guaranteed erasure of files from the disk.
 
-**What the app touches in Windows.** It reads (never writes) three registry keys: the Windows theme (`HKCU\…\Themes\Personalize`), font substitutes (`HKLM\…\FontSubstitutes`) and file preview handlers (`HKCR`). Ctrl+mouse wheel is caught with a hook on its own thread only (`UI/CtrlWheel.cs`), without global hooks or DLLs. Processes are started only on a user action: opening a downloaded file, the Downloads folder or an external link (`UI/MainForm.Actions.cs`, `UI/MainForm.Downloads.cs`).
+**What the app touches in Windows.** It reads (never writes) three registry keys: the Windows theme (`HKCU\…\Themes\Personalize`), font substitutes (`HKLM\…\FontSubstitutes`) and file preview handlers (`HKCR`). Ctrl+mouse wheel and the mouse's side buttons are caught with a hook on the thread of the app's own windows only (`UI/BrowserMouse.cs`), without global hooks or DLLs. Processes are started only on a user action: opening a downloaded file, the Downloads folder or an external link (`UI/MainForm.Actions.cs`, `UI/MainForm.Downloads.cs`).
 
 ## Test code in the sources
 

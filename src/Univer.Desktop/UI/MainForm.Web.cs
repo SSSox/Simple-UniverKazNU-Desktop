@@ -132,7 +132,7 @@ namespace Univer.Desktop.UI
             var browser = webPanel?.Browser; if (browser == null || LockShown) return;
             if (key == (System.Windows.Forms.Keys.Alt | System.Windows.Forms.Keys.Left)) webPanel.GoBack();
             else if (key == (System.Windows.Forms.Keys.Alt | System.Windows.Forms.Keys.Right)) { if (browser.CanGoForward) browser.Forward(); }
-            else if (key == System.Windows.Forms.Keys.F5) webPanel.Reload();
+            else if (key == System.Windows.Forms.Keys.F5 || key == (System.Windows.Forms.Keys.Control | System.Windows.Forms.Keys.R)) webPanel.Reload();
             else if (key == (System.Windows.Forms.Keys.Control | System.Windows.Forms.Keys.P)) { if (browser.IsBrowserInitialized) browser.Print(); }
             else if (key == (System.Windows.Forms.Keys.Control | System.Windows.Forms.Keys.D0) || key == (System.Windows.Forms.Keys.Control | System.Windows.Forms.Keys.NumPad0)) SetZoom(100);
             else if (key == (System.Windows.Forms.Keys.Control | System.Windows.Forms.Keys.Oemplus) || key == (System.Windows.Forms.Keys.Control | System.Windows.Forms.Keys.Add)) SetZoom(zoomPercent + 10);

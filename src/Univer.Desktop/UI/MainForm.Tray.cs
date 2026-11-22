@@ -42,11 +42,14 @@ namespace Univer.Desktop.UI
         {
             if (trayMenu == null) return;
             var lang = prefs.Language;
-            trayIcon.Text = Strings.Get("appTitle", lang);
+            UpdateTrayHint();
             trayMenu.Items.Clear();
             var open = new ToolStripMenuItem(Strings.Get("trayOpen", lang)) { Font = Theme.Strong(10) };
             open.Click += (s, e) => RestoreFromTray();
             var unread = NoticesActive ? Notices.Unread(notices) : 0;
+            // Behind the PIN, like a reminder's click, it only brings the window (and its lock) forward.
+            var schedule = new ToolStripMenuItem(Strings.Get("schedule", lang));
+            schedule.Click += (s, e) => { RestoreFromTray(); OpenFromBalloon("schedule"); };
             var alerts = new ToolStripMenuItem(unread > 0 ? Strings.Get("notices", lang) + " (" + unread + ")" : Strings.Get("notices", lang));
             alerts.Click += (s, e) => { RestoreFromTray(); ShowNotices(); };
             var files = new ToolStripMenuItem(Strings.Get("downloads", lang)) { ShortcutKeyDisplayString = "Ctrl+J" };
@@ -55,7 +58,16 @@ namespace Univer.Desktop.UI
             settings.Click += (s, e) => { RestoreFromTray(); QueueAsync(() => OpenSettingsAsync()); };
             var exit = new ToolStripMenuItem(Strings.Get("trayExit", lang));
             exit.Click += (s, e) => ExitApplication();
-            trayMenu.Items.AddRange(new ToolStripItem[] { open, alerts, files, settings, new ToolStripSeparator(), exit });
+            trayMenu.Items.AddRange(new ToolStripItem[] { open, schedule, alerts, files, settings, new ToolStripSeparator(), exit });
+        }
+        // The icon's tooltip names the next class of the kept week (ClassReminders.TrayText); behind the PIN only when. Every
+        // writer of the text comes here: the reminder timer, a new copy of the week, a session change, the PIN, the language.
+        private string trayHintForQa;
+        private void UpdateTrayHint()
+        {
+            var text = ClassReminders.TrayText(scheduleWeek, DateTime.Now, prefs.Language, LockArmed);
+            trayHintForQa = text;
+            if (trayIcon != null && trayIcon.Text != text) trayIcon.Text = text;
         }
         // Closing the window keeps the session, automatic sign-in and downloads alive in the tray.
         private bool HideToTray(FormClosingEventArgs e)
@@ -139,6 +151,13 @@ namespace Univer.Desktop.UI
         {
             if (m.Msg == 0x00A1) Motion.KeyboardInput = false;
             if (m.Msg == ShowWindowMessage && ShowWindowMessage != 0) { RestoreFromTray(); return; }
+            // WM_APPCOMMAND: the mouse's side buttons (and a keyboard's Back/Forward keys) over the app's own parts, which
+            // Windows sends up from the control under the pointer. Over a page the hook in BrowserMouse takes them first.
+            if (m.Msg == 0x0319)
+            {
+                var command = (int)(((long)m.LParam >> 16) & 0x0FFF);
+                if (command == 1 || command == 2) { SideButton(command == 2); m.Result = (IntPtr)1; return; }
+            }
             // WM_SYSCOMMAND/SC_MINIMIZE: the PIN cover goes up before the window shrinks.
             if (m.Msg == 0x0112 && ((long)m.WParam & 0xFFF0) == 0xF020) CoverBeforeMinimize();
             // WM_SYSCOMMAND/SC_CLOSE raises FormClosing synchronously inside the default handling.

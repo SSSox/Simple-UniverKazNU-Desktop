@@ -77,6 +77,12 @@ namespace Univer.Desktop.UI
         private readonly PickMenu intervalMenu = new PickMenu("");
         private int interval;
         private readonly bool startGrades; private readonly int startInterval;
+        // The section the app opens with (StartPages): a drop-down on the View tab.
+        private readonly Label startPageTitle = new Label(), startPageHint = new Label();
+        private readonly ModernButton startPageButton = new ModernButton();
+        private readonly Panel startPageSlot = new Panel();
+        private readonly PickMenu startPageMenu = new PickMenu("");
+        private string startPage; private readonly string startStartPage;
 #if LEGACY_ENGINE
         private readonly LegacyWarningPanel legacyWarning = new LegacyWarningPanel();
 #endif
@@ -105,6 +111,7 @@ namespace Univer.Desktop.UI
         public int ReminderLead { get { return lead; } }
         public bool Grades { get { return grades.Checked; } }
         public int GradeInterval { get { return interval; } }
+        public string StartPage { get { return startPage; } }
         // Save writes the line when the switch moved, and also when it names another copy of the app.
         public bool StartupChanged { get { return startup.Checked != startStartup || startup.Checked && startupElsewhere; } }
         public AutostartState StartupState
@@ -138,7 +145,7 @@ namespace Univer.Desktop.UI
             BuildFrame();
             BuildAccount(credentials); BuildView(prefs); BuildApp(prefs);
             startLanguage = Language; startTheme = theme; startReadable = readable.Checked; startTray = tray.Checked; startAnimations = animations.Checked; startExternalLinks = externalLinks.Checked;
-            startReminders = reminders.Checked; startLead = lead; startGrades = grades.Checked; startInterval = interval;
+            startReminders = reminders.Checked; startLead = lead; startGrades = grades.Checked; startInterval = interval; startStartPage = startPage;
             Wire();
             AcceptButton = save; if (!firstLaunch) CancelButton = cancel;
             fadeIn = Motion.Enabled && !Motion.KeyboardInput;
@@ -197,6 +204,9 @@ namespace Univer.Desktop.UI
             grades.CheckedChanged += (s, e) => intervalButton.Enabled = grades.Checked;
             intervalButton.Click += (s, e) => intervalMenu.Show(intervalButton, GradeNotice.Intervals.Select(m => new PickItem { Text = IntervalText(m), Value = m, Selected = m == interval }), Theme.DpiScale, zoom, intervalButton.Width);
             intervalMenu.Chosen += value => { interval = (int)value; NameChoices(); ArrangeApp(); UpdateFooter(); };
+            startPageButton.Click += (s, e) => startPageMenu.Show(startPageButton, StartPages.Keys.Select(k => new PickItem { Text = Strings.Get(k, Language), Value = k, Selected = k == startPage }), Theme.DpiScale, zoom, Math.Max(startPageButton.Width, (int)Px(200)));
+            startPageMenu.Opened += (s, e) => startPageButton.Open = true; startPageMenu.Closed += (s, e) => startPageButton.Open = false;
+            startPageMenu.Chosen += value => { startPage = (string)value; NameChoices(); ArrangeApp(); UpdateFooter(); };
             webDataClear.Click += async (s, e) => await ClearWebDataAsync();
             diagSave.Click += async (s, e) => await SaveDiagnosticsFileAsync();
             pinSet.Click += async (s, e) => await PinAsync(SetPin);
@@ -263,7 +273,7 @@ namespace Univer.Desktop.UI
         private void BuildView(Preferences prefs)
         {
             var wide = Inner - Pad * 2; var segment = 78; var from = Inner - Pad - segment * languages.Length - 2;
-            viewSheet.SetBounds(TextInput.Ring, 0, Inner, 342); viewSheet.DesignHeight = 342; viewSheet.Lines = new[] { RowHeight, 222, 282 };
+            viewSheet.SetBounds(TextInput.Ring, 0, Inner, 342 + RowHeight); viewSheet.DesignHeight = 342 + RowHeight; viewSheet.Lines = new[] { RowHeight, 222, 282, 342 };
             AddRow(viewSheet, languageLabel, languageHint, 0, from - Pad - 8);
             languagePlate = new SelectionPlate(viewSheet, () => Px(Kit.RadiusSmall)) { Style = PlateStyle.Thumb, Ground = () => Theme.Current.Track };
             viewSheet.Paint += (s, e) => PaintLanguageTrack(e.Graphics);
@@ -292,7 +302,11 @@ namespace Univer.Desktop.UI
             SelectTheme(theme);
             readable.Checked = prefs.Readable; animations.Checked = prefs.Animations;
             AddToggle(viewSheet, readable, 222, wide); AddToggle(viewSheet, animations, 282, wide);
-            viewPanel.Height = 342; viewPanel.Controls.Add(viewSheet);
+            startPage = StartPages.Normalize(prefs.StartPage);
+            AddRow(viewSheet, startPageTitle, startPageHint, 342, wide - 132);
+            startPageButton.Look = ButtonLook.Outline; startPageButton.Hug = true; startPageButton.Height = 32; startPageButton.Dock = DockStyle.Right; startPageButton.Chevron = true;
+            startPageSlot.BackColor = Theme.Surface; startPageSlot.SetBounds(Inner - Pad - 160, 342 + 14, 160, 32); startPageSlot.Controls.Add(startPageButton); viewSheet.Controls.Add(startPageSlot);
+            viewPanel.Height = 342 + RowHeight; viewPanel.Controls.Add(viewSheet);
         }
         private void BuildApp(Preferences prefs)
         {
@@ -412,6 +426,10 @@ namespace Univer.Desktop.UI
         {
             if (!laidOut || IsDisposed) return;
             var scale = Px(1); Func<int, int> d = value => (int)Math.Round(value * scale);
+            // The start page's button hugs the section's name; the words keep clear of it.
+            var hug = startPageButton.HugWidth;
+            startPageSlot.SetBounds(viewSheet.Width - d(Pad) - hug, d(342 + 14), hug, d(32));
+            startPageTitle.Width = startPageHint.Width = viewSheet.Width - d(Pad) * 2 - hug - d(12);
             var top = d(RowHeight * 2); var height = top;
             if (updates != null)
             {
@@ -569,7 +587,7 @@ namespace Univer.Desktop.UI
         {
             get
             {
-                return SaveKey() != "saveChanges" || Language != startLanguage || theme != startTheme || readable.Checked != startReadable || tray.Checked != startTray || StartupChanged || reminders.Checked != startReminders || lead != startLead || grades.Checked != startGrades || interval != startInterval || animations.Checked != startAnimations || externalLinks.Checked != startExternalLinks ||
+                return SaveKey() != "saveChanges" || Language != startLanguage || theme != startTheme || readable.Checked != startReadable || tray.Checked != startTray || StartupChanged || reminders.Checked != startReminders || lead != startLead || grades.Checked != startGrades || interval != startInterval || startPage != startStartPage || animations.Checked != startAnimations || externalLinks.Checked != startExternalLinks ||
                     login.Input.Text != (original?.Login ?? "") || password.Input.Text != (original?.Password ?? "");
             }
         }
@@ -587,6 +605,7 @@ namespace Univer.Desktop.UI
         {
             leadButton.Text = LeadText(lead); leadButton.AccessibleName = leadTitle.Text + ": " + leadButton.Text;
             intervalButton.Text = IntervalText(interval); intervalButton.AccessibleName = intervalTitle.Text + ": " + intervalButton.Text;
+            startPageButton.Text = Strings.Get(startPage, Language); startPageButton.AccessibleName = startPageTitle.Text + ": " + startPageButton.Text;
         }
         private void Caption(ModernButton button, string key) { button.Text = button.AccessibleName = Strings.Get(key, Language); }
         private void UpdateRevealLabel() { password.Reveal.AccessibleName = Strings.Get(password.Input.UseSystemPasswordChar ? "showPassword" : "hidePassword", Language); }
@@ -604,6 +623,7 @@ namespace Univer.Desktop.UI
             logoutTitle.Text = Strings.Get("logout", lang); logoutHint.Text = Strings.Get("logoutHint", lang); logout.Text = Strings.Get("logoutAction", lang);
             languageLabel.Text = Strings.Get("language", lang); languageHint.Text = Strings.Get("languageHint", lang);
             themeLabel.Text = Strings.Get("theme", lang);
+            startPageTitle.Text = Strings.Get("startPageTitle", lang); startPageHint.Text = Strings.Get("startPageHint", lang);
             for (var i = 0; i < themes.Length; i++) themes[i].Text = themes[i].AccessibleName = Strings.Get(ThemeNames[i], lang);
             readable.Text = Strings.Get("reading", lang); readable.Hint = Strings.Get("viewHint", lang);
             animations.Text = Strings.Get("animationsOption", lang); animations.Hint = Strings.Get("animationsOptionHint", lang);
@@ -634,7 +654,7 @@ namespace Univer.Desktop.UI
             tabPlate.Snap();
         }
         protected override void Dispose(bool disposing)
-        { if (disposing) { if (updates != null) updates.Changed -= RenderUpdates; appearance?.Cancel(); errorMove?.Cancel(); password.Input.Clear(); login.Input.Clear(); leadMenu.Dispose(); intervalMenu.Dispose(); } base.Dispose(disposing); }
+        { if (disposing) { if (updates != null) updates.Changed -= RenderUpdates; appearance?.Cancel(); errorMove?.Cancel(); password.Input.Clear(); login.Input.Clear(); leadMenu.Dispose(); intervalMenu.Dispose(); startPageMenu.Dispose(); } base.Dispose(disposing); }
         protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
         {
             Motion.KeyboardInput = true; MotionSurface.Stop(accountPanel); MotionSurface.Stop(viewPanel); MotionSurface.Stop(appPanel);

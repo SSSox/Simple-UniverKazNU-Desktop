@@ -52,6 +52,19 @@ namespace Univer.Desktop.Tests
             Assert.Equal("kz", modern.LoadPreferences().Language); Assert.Equal(Active, modern.LoadPreferences().Profile);
         }
         [Fact]
+        public void StartCleanup_RemovesOldProfiles_OnlyWhileTheSavedSettingsNameTheActiveOnes()
+        {
+            var storage = new Storage(root);
+            var old = MakeSentinel(storage.ProfilePath(Old)); var active = MakeSentinel(storage.ProfilePath(Active));
+            // A logout saved new names after this cleanup was queued: nothing it was given may go.
+            storage.SavePreferences(new Preferences { Profile = Old, WebProfile = Old });
+            storage.CleanAtStartAsync(Active, Active).Wait();
+            Assert.True(File.Exists(old)); Assert.True(File.Exists(active));
+            storage.SavePreferences(new Preferences { Profile = Active, WebProfile = Active });
+            storage.CleanAtStartAsync(Active, Active).Wait();
+            Assert.False(File.Exists(old)); Assert.True(File.Exists(active));
+        }
+        [Fact]
         public void WebCleanupTakesOnlyOldWebProfiles()
         {
             var storage = new Storage(root);

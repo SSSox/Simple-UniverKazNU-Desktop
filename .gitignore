@@ -313,3 +313,10 @@ DESIGN.md
 !package-lock.json
 !packages.lock.json
 !packages.modern.lock.json
+
+# AI-file block checked before each push
+.github/copilot-instructions.md
+/CLAUDE.md
+/CLAUDE.local.md
+/AGENTS.md
+/GEMINI.md

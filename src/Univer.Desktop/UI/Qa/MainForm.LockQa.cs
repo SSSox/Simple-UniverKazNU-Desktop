@@ -52,6 +52,19 @@ namespace Univer.Desktop.UI
                     { offer.Opacity = 0; offer.ShowInTaskbar = false; offer.Show(this); await Task.Delay(40); SaveBitmap(offer, Path.Combine(qa, "pin-offer-" + lang + ".png")); offer.Close(); }
                 await Task.Run(() => pinGuard.Enable("135792"));
                 Check(storage.LockExists, "the PIN is stored", results);
+                // A login sealed under the PIN still opens the chosen start page: the app signs in once the PIN is entered.
+                {
+                    var credentialsWere = credentials; var pageWas = prefs.StartPage; var pausedWas = prefs.AutoLoginPaused;
+                    try
+                    {
+                        prefs.StartPage = "schedule"; prefs.AutoLoginPaused = false;
+                        credentials = new Credentials { Login = "qa-sealed", Sealed = true };
+                        var sealedStart = StartAddress() == SitePolicy.Origin + "/student/myschedule/";
+                        prefs.AutoLoginPaused = true; var pausedStart = StartAddress() == SitePolicy.Home;
+                        Check(sealedStart && pausedStart, "a login sealed under the PIN opens the chosen start page, a paused one the home page", results);
+                    }
+                    finally { credentials = credentialsWere; prefs.StartPage = pageWas; prefs.AutoLoginPaused = pausedWas; }
+                }
                 foreach (var lang in new[] { "ru", "kz", "en" })
                 {
                     var shown = prefs.Clone(); shown.Language = lang;

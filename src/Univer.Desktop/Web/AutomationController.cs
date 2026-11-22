@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Threading.Tasks;
 using System.Web.Script.Serialization;
 using CefSharp;
@@ -71,7 +72,15 @@ namespace Univer.Desktop.Web
         private static string Js(bool value) { return value ? "true" : "false"; }
         private static string ConfigurePaint(bool active) { return "window.__univerPaintV1.configure(" + Js(active) + ");"; }
         // Motion, pinned shortcuts (plain data from validated preferences) and the reading layout of this view.
+        // Built once per set of values: the app asks every tick, and the three serializer calls are not free.
         private string ApplyView(Preferences prefs, bool viewer)
+        {
+            var key = ViewCache.Key(new[] { Js(prefs.Animations), Theme(), Js(prefs.Readable), Js(viewer), prefs.Language },
+                (prefs.Pins ?? new List<PinnedLink>()).SelectMany(p => new[] { p.Title, p.Url }), prefs.TileOrder, prefs.HiddenTiles);
+            return viewCache.Get(key, () => BuildView(prefs, viewer));
+        }
+        private readonly ViewCache viewCache = new ViewCache();
+        private string BuildView(Preferences prefs, bool viewer)
         {
             return "window.__univerMotion=" + Js(prefs.Animations) + ";window.__univerTheme=" + Theme() + ";window.__univerShortcutsV1&&window.__univerShortcutsV1.configure(" + Shortcuts.ToJson(prefs.Pins) + "," + Shortcuts.OrderJson(prefs.TileOrder) + "," + Shortcuts.HiddenJson(prefs.HiddenTiles) + ");" +
                 "window.__univerDesktop.apply(" + Js(prefs.Readable) + "," + Js(viewer) + "," + Quote(prefs.Language) + ");";
@@ -362,6 +371,18 @@ namespace Univer.Desktop.Web
             return await EvaluateAsync(browser, "window.__univerAutomationV1." + method + "(" + string.Join(",", quoted) + ")");
         }
         private string Quote(string value) { return json.Serialize(value).Replace("\u2028", "\\u2028").Replace("\u2029", "\\u2029"); }
+        // Completes once the page has produced two more frames (two requestAnimationFrame turns): the frame of the revealed
+        // page has then reached the compositor. A hidden window gives no frames, so callers race it with a short delay.
+        internal static async Task PaintedAsync(ChromiumWebBrowser browser)
+        {
+            if (browser == null || browser.IsDisposed || !browser.IsBrowserInitialized || !SitePolicy.Trusted(browser.Address)) return;
+            using (var frame = browser.GetMainFrame())
+            {
+                if (!frame.IsValid || !SitePolicy.Trusted(frame.Url)) return;
+                try { await frame.EvaluateScriptAsPromiseAsync("return new Promise(function(r){requestAnimationFrame(function(){requestAnimationFrame(function(){r(1);});});});", TimeSpan.FromSeconds(1)); }
+                catch (Exception) { /* A page replaced meanwhile: the caller's delay decides. */ }
+            }
+        }
         internal static async Task<string> EvaluateAsync(ChromiumWebBrowser browser, string script)
         {
             if (browser == null || browser.IsDisposed || !browser.IsBrowserInitialized || !SitePolicy.Trusted(browser.Address)) return null;

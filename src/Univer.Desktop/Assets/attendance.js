@@ -119,7 +119,8 @@
             events.push({tag:'lesson',cell,link,type,start:boundary(cell)});
         });
         events.sort((a,b)=>a.start===b.start?0:before(a.start,b.start)?-1:1);
-        var groups=[], group=null;
+        // One walk of the page for every lesson's tables, not one per lesson.
+        var inner=Array.from(root.querySelectorAll('table.inner')), groups=[], group=null;
         events.forEach((event,index)=>{
             if (event.tag==='course') {
                 if (group) group.end=event.start;
@@ -132,7 +133,7 @@
                 // A single-group attendance/show page may omit the full-course heading.
                 if (!group) { group={heading:null,lessons:[],overall:null}; groups.push(group); }
                 event.end=events[index+1]?.start || null; group.lessons.push(event);
-                event.tables=Array.from(root.querySelectorAll('table.inner')).filter(table=>before(event.start,table) && (!event.end || before(table,event.end)) && !table.contains(event.start));
+                event.tables=inner.filter(table=>before(event.start,table) && (!event.end || before(table,event.end)) && !table.contains(event.start));
             }
         });
         return groups.filter(group=>group.heading||group.lessons.some(lesson=>lesson.type));

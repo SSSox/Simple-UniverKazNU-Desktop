@@ -69,7 +69,7 @@ namespace Univer.Desktop.UI
         public MainForm(Storage storage, bool selfTest, bool liveSmoke, bool accountReview = false, bool reviewAll = false)
         {
             this.storage = storage; this.selfTest = selfTest; this.liveSmoke = liveSmoke; this.accountReview = accountReview; this.reviewAll = reviewAll; stopping = lifetime.Token;
-            ctrlWheel = new CtrlWheel((delta, time) => Dispatch(() => WheelZoom(delta, time)));
+            browserMouse = new BrowserMouse((delta, time) => Dispatch(() => WheelZoom(delta, time)), forward => Dispatch(() => SideButton(forward)));
             var stored = storage.Load(); prefs = stored.Preferences; credentials = stored.Credentials; storageFailed = stored.Failed; credentialsUnreadable = stored.CredentialsUnreadable;
             plainPassword = stored.PlainFile; Program.Mark("stored");
             // A review that may only use the existing session: without credentials in memory an expired session stops at
@@ -88,8 +88,7 @@ namespace Univer.Desktop.UI
                 try { storage.RemoveLock(); } catch (Exception) { }
             }
             // Housekeeping of old profiles must never discard successfully loaded settings or credentials.
-            if (!storageFailed && !accountReview) { try { storage.CleanOldProfiles(prefs.Profile); if (storage.WebProfileSaved(prefs.WebProfile)) storage.CleanOldWebProfiles(prefs.WebProfile); } catch (Exception) { } }
-            Program.Mark("cleaned");
+            // Housekeeping of old profiles waits until the window is shown (Shown, CleanAtStartAsync).
             LoadScheduleCopy(); LoadGradeSheet();
             // Automated checks read settled layouts, so they always run without motion.
             Motion.Enabled = prefs.Animations && !selfTest && !accountReview;
@@ -148,7 +147,7 @@ namespace Univer.Desktop.UI
             {
                 System.Net.NetworkInformation.NetworkChange.NetworkAvailabilityChanged -= NetworkAvailabilityChanged;
                 Microsoft.Win32.SystemEvents.PowerModeChanged -= PowerModeChanged;
-                zoomSettle.Dispose(); curtain?.Dispose(); ctrlWheel.Dispose(); DisposeLock(); DisposeReminders(); DisposeTray(); updates?.Dispose(); downloads?.Dispose(); DisposeWeb(); CloseBrowsers(); context?.Dispose(); Web.SingleSignOn.CleanUp(TimeSpan.Zero);
+                zoomSettle.Dispose(); curtain?.Dispose(); browserMouse.Dispose(); DisposeLock(); DisposeReminders(); DisposeTray(); updates?.Dispose(); downloads?.Dispose(); DisposeWeb(); CloseBrowsers(); context?.Dispose(); Web.SingleSignOn.CleanUp(TimeSpan.Zero);
             };
             var restored = false;
             // Restore before the first paint so the window does not jump after appearing.
@@ -156,6 +155,9 @@ namespace Univer.Desktop.UI
             Shown += async (s, e) =>
             {
                 if (Program.WindowShown == 0) Program.WindowShown = Program.Clock.ElapsedMilliseconds;
+                // Old browser profiles (a logout's, an account change's) are removed now, off the UI thread, not before the
+                // first paint; a failure only leaves them for the next start.
+                if (!storageFailed && !accountReview) { var cleanup = storage.CleanAtStartAsync(prefs.Profile, prefs.WebProfile); cleanup.ContinueWith(t => { var ignored = t.Exception; }, TaskContinuationOptions.OnlyOnFaulted); }
                 if (!restored)
                 {
                     var area = Screen.FromControl(this).WorkingArea;
@@ -241,7 +243,7 @@ namespace Univer.Desktop.UI
             BuildLock();
             Resize += (s, e) => ArrangeShell(); toolbar.Resize += (s, e) => ArrangeToolbar(); sidebar.Resize += (s, e) => ArrangeSidebar();
             menu.Click += async (s, e) => await ToggleSidebarAsync();
-            back.Click += (s, e) => Back(); forward.Click += (s, e) => { if (Active?.CanGoForward == true) Active.Forward(); };
+            back.Click += (s, e) => Back(); forward.Click += (s, e) => Forward();
             refresh.Click += (s, e) => RefreshCurrent();
             downloadsButton.Click += (s, e) => ShowDownloads(); website.Click += (s, e) => External(SitePolicy.Trusted(Active?.Address) ? Active.Address : SitePolicy.Home);
             sideSettings.Click += async (s, e) => await OpenSettingsAsync();
@@ -619,6 +621,7 @@ namespace Univer.Desktop.UI
                 if (keyData == (Keys.Control | Keys.J)) { CloseWeb(); ShowDownloads(); return true; }
             }
             if (keyData == (Keys.Alt | Keys.Left)) { Back(); return true; }
+            if (keyData == (Keys.Alt | Keys.Right)) { Forward(); return true; }
             // An open find bar takes Escape first; the next Escape closes the document or preview as before.
             if (keyData == Keys.Escape && findBar.Searching) { findBar.Close(); return true; }
             if (keyData == Keys.Escape && NoticesShown) { HideNotices(); return true; }
@@ -627,7 +630,8 @@ namespace Univer.Desktop.UI
             if (keyData == Keys.Escape && DownloadsVisible) { if (downloadsView.Previewing) downloadsView.ClosePreview(); else if (!downloadsView.ClearSearch()) HideDownloads(); return true; }
             if (keyData == Keys.Escape && document != null) { CloseDocument(); return true; }
             if (keyData == (Keys.Control | Keys.J)) { ShowDownloads(); return true; }
-            if (keyData == Keys.F5) { RefreshCurrent(); return true; }
+            // Ctrl+R is the browser habit for F5: the same GET-only retry, never a POST replayed.
+            if (keyData == Keys.F5 || keyData == (Keys.Control | Keys.R)) { RefreshCurrent(); return true; }
             if (keyData == (Keys.Control | Keys.K)) { OpenSections(); return true; }
             if (keyData == (Keys.Control | Keys.P)) { PrintPage(); return true; }
             if (keyData == (Keys.Control | Keys.Oemcomma)) { QueueAsync(() => OpenSettingsAsync()); return true; }

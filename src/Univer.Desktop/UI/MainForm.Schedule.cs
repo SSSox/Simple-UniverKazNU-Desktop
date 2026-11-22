@@ -48,7 +48,7 @@ namespace Univer.Desktop.UI
                 if (week == null) return;
                 // The same classes are written again at most once an hour, so the saved date stays close to the last reading.
                 if (week.SameAs(scheduleWeek) && week.SavedAt - scheduleWeek.SavedAt < TimeSpan.FromHours(1)) return;
-                scheduleWeek = week;
+                scheduleWeek = week; UpdateTrayHint();
                 try { await storage.SaveScheduleAsync(week); } catch (Exception) { /* The copy in memory still serves this run. */ }
             }
             finally { scheduleBusy = false; }
@@ -57,7 +57,7 @@ namespace Univer.Desktop.UI
         // holds is removed on the next signed-in page; Storage.FinishSessionClear removes it at the next start too.
         private async Task ClearScheduleAsync()
         {
-            scheduleWeek = null; scheduleReadAt = long.MinValue; scheduleReadAddress = null; UpdateOffline();
+            scheduleWeek = null; scheduleReadAt = long.MinValue; scheduleReadAddress = null; UpdateOffline(); UpdateTrayHint();
             try { await storage.RemoveScheduleAsync(); scheduleClearPending = false; }
             catch (Exception) { scheduleClearPending = true; }
         }

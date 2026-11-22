@@ -223,7 +223,7 @@ namespace Univer.Desktop.UI
             catch (Exception) { SetStatus("lockFailed"); return false; }
             await StripPlainAsync();
             if (!prefs.PinOffered) { prefs.PinOffered = true; if (!storageFailed) QueueAsync(SavePreferencesAsync); }
-            SetStatus("lockOn"); EnterUpdates();
+            SetStatus("lockOn"); EnterUpdates(); UpdateTrayHint();
             return true;
         }
         private async Task<bool> ChangePinAsync(IWin32Window owner)
@@ -266,7 +266,7 @@ namespace Univer.Desktop.UI
             if (restored) plainPassword = true;
             if (answer == DialogResult.Abort) { EndFromSettings(owner); return Task.FromResult(false); }
             if (answer != DialogResult.OK) return Task.FromResult(false);
-            SetStatus("lockOff");
+            SetStatus("lockOff"); UpdateTrayHint();
             return Task.FromResult(true);
         }
         // Ten wrong current PINs in Settings (or a record that can no longer be read): Settings closes and the account ends.

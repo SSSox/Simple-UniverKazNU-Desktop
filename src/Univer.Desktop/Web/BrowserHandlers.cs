@@ -36,7 +36,7 @@ namespace Univer.Desktop.Web
         }
         private bool Accepted(Keys key)
         {
-            return key == (Keys.Alt | Keys.Left) || key == Keys.F5 || (viewer && key == Keys.Escape) ||
+            return key == (Keys.Alt | Keys.Left) || key == (Keys.Alt | Keys.Right) || key == Keys.F5 || key == (Keys.Control | Keys.R) || (viewer && key == Keys.Escape) ||
                 key == (Keys.Control | Keys.F) || key == Keys.F3 || key == (Keys.Shift | Keys.F3) ||
                 key == (Keys.Control | Keys.Oemcomma) || key == (Keys.Control | Keys.P) || key == (Keys.Control | Keys.J) || key == (Keys.Control | Keys.D0) || key == (Keys.Control | Keys.NumPad0) ||
                 key == (Keys.Control | Keys.Oemplus) || key == (Keys.Control | Keys.Add) || key == (Keys.Control | Keys.OemMinus) || key == (Keys.Control | Keys.Subtract);

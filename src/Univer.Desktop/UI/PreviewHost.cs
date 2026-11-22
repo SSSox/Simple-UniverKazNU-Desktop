@@ -19,7 +19,7 @@ namespace Univer.Desktop.UI
         // Keyboard focus inside the preview belongs to the out-of-process handler. It offers these app shortcuts back through
         // IPreviewHandlerFrame, so Escape, Alt+Left, Ctrl+P and the rest still work after a click into the document.
         public event Action<Keys> Shortcut;
-        private static readonly Keys[] AppKeys = { Keys.Escape, Keys.Alt | Keys.Left, Keys.F5, Keys.Control | Keys.P, Keys.Control | Keys.J, Keys.Control | Keys.Oemcomma,
+        private static readonly Keys[] AppKeys = { Keys.Escape, Keys.Alt | Keys.Left, Keys.F5, Keys.Control | Keys.R, Keys.Control | Keys.P, Keys.Control | Keys.J, Keys.Control | Keys.Oemcomma,
             Keys.Control | Keys.D0, Keys.Control | Keys.NumPad0, Keys.Control | Keys.Oemplus, Keys.Control | Keys.Add, Keys.Control | Keys.OemMinus, Keys.Control | Keys.Subtract };
         private IntPtr accelerators;
         private Frame frame;

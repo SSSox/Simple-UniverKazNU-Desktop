@@ -46,6 +46,7 @@ namespace Univer.Desktop.UI
             while (!preparedBrowsers.Contains(main)) await Task.Delay(50);
             Size = new Size(1000, 640); var area = Screen.PrimaryScreen.WorkingArea; Location = new Point(area.Right - Width - 8, area.Bottom - Height - 8); TopMost = true; await Task.Delay(300);
             if (Array.IndexOf(Environment.GetCommandLineArgs(), "--qa-flash-downloads") >= 0) { await FlashDownloadsAsync(); return; }
+            if (Array.IndexOf(Environment.GetCommandLineArgs(), "--qa-flash-reveal") >= 0) { await FlashRevealAsync(); return; }
             noticesQa = true;
             notices = new List<SiteNotice>
             {
@@ -67,6 +68,46 @@ namespace Univer.Desktop.UI
             }
             File.AppendAllText(FlashReport, await FlashRunAsync("notices", 3, async () => { ShowNotices(); await Task.Delay(420); HideNotices(); await Task.Delay(320); }) + "\r\n");
             File.AppendAllText(FlashReport, await FlashRunAsync("find", 3, async () => { OpenFind(); await Task.Delay(320); findBar.Close(); await Task.Delay(240); }) + "\r\n");
+        }
+        // The uncover after a page load: how soon the page is on screen after its navigation began, and whether a frame shows
+        // neither the placeholder nor the page once the placeholder is gone. The page is one colour over the whole window, so
+        // a single screen patch says which is shown. The old fixed 48 ms wait and the frame signal run in turns.
+        private async Task FlashRevealAsync()
+        {
+            var original = main.ResourceRequestHandlerFactory; var pages = original as ResourceRequestHandlerFactory ?? new ResourceRequestHandlerFactory();
+            main.ResourceRequestHandlerFactory = pages;
+            var lines = new List<string>();
+            for (var round = 0; round < 12; round++)
+            {
+                var fixedWait = round % 2 == 0; revealFixedForQa = fixedWait;
+                var url = SitePolicy.Origin + "/news/student?qa-reveal=" + round;
+                pages.RegisterHandler(url, ResourceHandler.GetByteArray(PolishShell("<div style='position:fixed;inset:0;background:#c2185b;z-index:2147483647'></div><p>QA</p>", false), System.Text.Encoding.UTF8), "text/html", true);
+                var patch = canvas.PointToScreen(new Point(canvas.Width / 2, canvas.Height / 2));
+                var frames = new List<Tuple<long, bool, bool>>(); var stop = false; var lastColour = Color.Empty; var clock = System.Diagnostics.Stopwatch.StartNew();
+                var sampler = Task.Run(() =>
+                {
+                    using (var shot = new Bitmap(2, 2))
+                    using (var g = Graphics.FromImage(shot))
+                        while (!stop && clock.ElapsedMilliseconds < 4000)
+                        {
+                            g.CopyFromScreen(patch, Point.Empty, new Size(2, 2));
+                            var c = shot.GetPixel(0, 0); lastColour = c;
+                            frames.Add(Tuple.Create(clock.ElapsedMilliseconds, loading.Visible, Math.Abs(c.R - 0xc2) < 24 && Math.Abs(c.G - 0x18) < 24 && Math.Abs(c.B - 0x5b) < 24));
+                            System.Threading.Thread.Sleep(2);
+                        }
+                });
+                main.Load(url);
+                while (clock.ElapsedMilliseconds < 4000 && !(frames.Count > 0 && !loading.Visible && frames[frames.Count - 1].Item3)) await Task.Delay(10);
+                await Task.Delay(300); stop = true; await sampler;
+                var uncover = frames.FirstOrDefault(f => !f.Item2 && f.Item1 > 50);
+                var shown = frames.FirstOrDefault(f => f.Item3);
+                var blank = uncover == null ? -1 : frames.Count(f => f.Item1 >= uncover.Item1 && !f.Item2 && !f.Item3 && shown != null && f.Item1 < shown.Item1 + 1000 && f.Item1 >= uncover.Item1);
+                lines.Add((fixedWait ? "fixed48" : "frames ") + " round=" + round + " uncoverMs=" + (uncover?.Item1 ?? -1) + " pageOnScreenMs=" + (shown?.Item1 ?? -1) + " waitMs=" + revealWaitForQa + " blankSamplesAfterUncover=" + blank + " samples=" + frames.Count + " owned=" + OwnsPoint(Handle, patch) + " last=" + ColorTranslator.ToHtml(lastColour) + " url=" + main.Address);
+                pages.UnregisterHandler(url);
+                await Task.Delay(400);
+            }
+            revealFixedForQa = false; main.ResourceRequestHandlerFactory = original;
+            File.AppendAllText(FlashReport, string.Join(Environment.NewLine, lines) + Environment.NewLine);
         }
         // How long Downloads takes to follow the window, the zoom and a filter with its painting done, and whether every
         // control survives a repaint of the panel under it. Pixels are read from the screen and dropped.

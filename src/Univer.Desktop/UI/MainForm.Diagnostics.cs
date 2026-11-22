@@ -54,6 +54,8 @@ namespace Univer.Desktop.UI
             add("Tray", on(prefs.Tray));
             add("Start with Windows", ReadAutostart().ToString().ToLowerInvariant());
             add("Class reminders", on(prefs.Reminders) + ", " + prefs.ReminderLead + " min");
+            add("Start page", prefs.StartPage);
+            add("Downloads order", prefs.DownloadsOrder);
             add("New grades", on(prefs.Grades) + ", every " + prefs.GradeInterval + " min");
             add("Links in the system browser", on(prefs.ExternalLinks));
             add("Saved sign-in", credentials == null ? (credentialsUnreadable ? "unreadable" : "none") : credentials.Sealed ? "sealed by the PIN" : "saved");

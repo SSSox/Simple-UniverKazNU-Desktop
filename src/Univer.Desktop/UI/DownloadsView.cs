@@ -15,7 +15,7 @@ namespace Univer.Desktop.UI
     internal sealed partial class DownloadsView : Panel
     {
         public event Action<DownloadRecord> OpenOutside, ShowInFolder, CancelDownload, RemoveRecord;
-        public event Action OpenFolder, ViewChanged;
+        public event Action OpenFolder, ViewChanged, OrderChanged;
         public event Action<Keys> Shortcut;
         private const int PageSize = 100;
         private static readonly FileKind?[] Filters = { null, FileKind.Pdf, FileKind.Word, FileKind.Excel, FileKind.PowerPoint, FileKind.Image, FileKind.Other };
@@ -201,7 +201,10 @@ namespace Univer.Desktop.UI
         {
             if (order == value) return;
             order = value; UpdateSort(); ArrangeList(); Rebuild(); MotionSurface.Reveal(list);
+            OrderChanged?.Invoke();
         }
+        // The order the student chose last time (preferences), given before the list is filled: no animation, no event.
+        public DownloadSort Order { get { return order; } set { order = value; UpdateSort(); } }
         private void UpdateSort()
         {
             sort.Text = Strings.Get(SortKey(order), language);

@@ -25,7 +25,14 @@ namespace Univer.Desktop.UI
                 Web.SingleSignOn.CleanUp(TimeSpan.Zero); // A Moodle hand-off page left by an earlier, abruptly ended run.
             });
             downloadsView = new DownloadsView(layoutScale, External);
+            downloadsView.Order = DownloadOrder.Parse(prefs.DownloadsOrder);
             downloadsView.SetItems(history.Items);
+            // A chosen order is kept for the next start; self-test and the review leave the settings file alone.
+            downloadsView.OrderChanged += () =>
+            {
+                prefs.DownloadsOrder = DownloadOrder.Name(downloadsView.Order);
+                if (!storageFailed && !selfTest && !accountReview) QueueAsync(SavePreferencesAsync);
+            };
             downloadsView.OpenOutside += OpenRecordOutside;
             downloadsView.ShowInFolder += ShowRecordInFolder;
             downloadsView.CancelDownload += record => { downloads?.Cancel(record.Id); CancelWebDownload(record.Id); };

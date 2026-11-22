@@ -94,9 +94,20 @@ namespace Univer.Desktop.Core
                 Classes.Zip(other.Classes, (a, b) => a.Start == b.Start && a.End == b.End && a.Name == b.Name && a.Type == b.Type && a.Room == b.Room && a.Teacher == b.Teacher).All(same => same);
         }
         // A short, one-way mark of the login, so a copy is never shown to another account of this Windows user.
+        // Asked every second with the same login: the last answer is kept as one immutable pair.
+        private sealed class Mark { public string Login, Value; }
+        private static volatile Mark lastMark;
         internal static string AccountMark(string login)
         {
             if (string.IsNullOrWhiteSpace(login)) return "";
+            var last = lastMark;
+            if (last != null && string.Equals(last.Login, login, StringComparison.Ordinal)) return last.Value;
+            var value = ComputeMark(login);
+            lastMark = new Mark { Login = login, Value = value };
+            return value;
+        }
+        private static string ComputeMark(string login)
+        {
             using (var sha = SHA256.Create())
             {
                 var hash = sha.ComputeHash(Encoding.UTF8.GetBytes(login.Trim().ToLowerInvariant()));

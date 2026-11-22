@@ -26,7 +26,7 @@ namespace Univer.Desktop.UI
                 {
                     form.OpenReleasePage = () => External(Updates.ReleasePage(updates.Available));
                     form.StartupState = ReadAutostart();
-                    form.ApplyAsync = (action, next, language, readable) => ApplySettingsAsync(action, next, language, readable, form.Tray, form.Animations, form.SelectedTheme, form.ExternalLinks, form.StartupChanged ? form.Startup : (bool?)null, form.Reminders, form.ReminderLead, form.Grades, form.GradeInterval);
+                    form.ApplyAsync = (action, next, language, readable) => ApplySettingsAsync(action, next, language, readable, form.Tray, form.Animations, form.SelectedTheme, form.ExternalLinks, form.StartupChanged ? form.Startup : (bool?)null, form.Reminders, form.ReminderLead, form.Grades, form.GradeInterval, form.StartPage);
                     form.ClearWebData = ClearWebDataAsync; form.SaveDiagnostics = SaveDiagnosticsAsync;
                     form.PinSet = () => PinSet; form.SetPin = SetPinAsync; form.ChangePin = ChangePinAsync; form.DisablePin = DisablePinAsync;
                     form.ShowDialog(this);
@@ -38,7 +38,7 @@ namespace Univer.Desktop.UI
             finally { settingsOpen = false; }
             if (installUpdate) ShowUpdate(true);
         }
-        private async Task<bool> ApplySettingsAsync(SettingsAction action, Credentials next, string language, bool readable, bool? tray = null, bool? animations = null, string theme = null, bool? externalLinks = null, bool? startup = null, bool? reminders = null, int? reminderLead = null, bool? grades = null, int? gradeInterval = null)
+        private async Task<bool> ApplySettingsAsync(SettingsAction action, Credentials next, string language, bool readable, bool? tray = null, bool? animations = null, string theme = null, bool? externalLinks = null, bool? startup = null, bool? reminders = null, int? reminderLead = null, bool? grades = null, int? gradeInterval = null, string startPage = null)
         {
             if (commandBusy || closing) return false;
             commandBusy = true; SetCommandEnabled(false);
@@ -52,7 +52,7 @@ namespace Univer.Desktop.UI
                 var change = action == SettingsAction.Manual ? SettingsChange.AppearanceOnly : SettingsDecision.Classify(credentials, next, prefs.AutoLoginPaused || guard.Stopped);
                 var updated = prefs.Clone(); updated.Language = language; updated.Readable = readable; if (tray.HasValue) updated.Tray = tray.Value; if (animations.HasValue) updated.Animations = animations.Value; if (theme != null) updated.Theme = ThemeChoice.Normalize(theme); if (externalLinks.HasValue) updated.ExternalLinks = externalLinks.Value;
                 if (reminders.HasValue) updated.Reminders = reminders.Value; if (reminderLead.HasValue) updated.ReminderLead = ClassReminders.Lead(reminderLead.Value);
-                if (grades.HasValue) updated.Grades = grades.Value; if (gradeInterval.HasValue) updated.GradeInterval = GradeNotice.Interval(gradeInterval.Value);
+                if (grades.HasValue) updated.Grades = grades.Value; if (gradeInterval.HasValue) updated.GradeInterval = GradeNotice.Interval(gradeInterval.Value); if (startPage != null) updated.StartPage = StartPages.Normalize(startPage);
                 if (action == SettingsAction.Manual) updated.AutoLoginPaused = true;
                 if (change != SettingsChange.AppearanceOnly)
                 {
@@ -408,7 +408,7 @@ namespace Univer.Desktop.UI
             if (closing || round != zoomRound || curtain == null) return;
             curtain.Reveal(); curtain = null;
         }
-        private readonly CtrlWheel ctrlWheel;
+        private readonly BrowserMouse browserMouse;
         private readonly WheelSteps wheelSteps = new WheelSteps();
         // Ctrl+wheel over the site or a shown file is the app zoom: one 10% step per wheel notch, as Ctrl+plus/minus.
         // time: the wheel message's own time, so a delay before this runs does not count as a pause.
@@ -433,6 +433,16 @@ namespace Univer.Desktop.UI
         {
             if (DownloadsVisible) { if (downloadsView.Previewing) downloadsView.ClosePreview(); else HideDownloads(); return; }
             if (document != null) CloseDocument(); else if (Active?.CanGoBack == true) Active.Back();
+        }
+        // Forward belongs to the site only, as the toolbar button says (UpdateHistoryButtons): not in Downloads or the viewer.
+        private void Forward() { if (!DownloadsVisible && document == null && Active?.CanGoForward == true) Active.Forward(); }
+        // The mouse's side buttons (BrowserMouse over a page, WM_APPCOMMAND over the app's own parts): Back and Forward of
+        // what is shown, with the gates of Alt+Left. Not through ProcessCmdKey, which would mark the input as keyboard.
+        private void SideButton(bool forward)
+        {
+            if (closing || LockShown || LockGate.Engaged || commandBusy) return;
+            if (WebShown) { var browser = webPanel?.Browser; if (!forward) webPanel.GoBack(); else if (browser != null && browser.CanGoForward) browser.Forward(); return; }
+            if (forward) Forward(); else Back();
         }
         private void NavigateSection(string path)
         {

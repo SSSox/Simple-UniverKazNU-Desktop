@@ -1290,8 +1290,10 @@
         }
         apply(document);
         if (window.__univerKitV1) window.__univerKitV1.configure(enabled && !viewer);
-        if (measure) window.__univerMobileV1.measure();
+        // «Наверх» reads the layout (button width, control boxes) and measure() writes scroll hints after its own reads:
+        // in this order the page is laid out once, not again after the hint writes.
         if (window.__univerTopV1) window.__univerTopV1.configure(enabled, language || 'ru');
+        if (measure) window.__univerMobileV1.measure();
         // Same-origin frames only. Polling sees late frames without rewriting page contents.
         Array.from(document.querySelectorAll('iframe,frame')).forEach(function (frame) {
             try { if (frame.contentWindow.location.origin === location.origin && frame.contentDocument) apply(frame.contentDocument); } catch (_) { }

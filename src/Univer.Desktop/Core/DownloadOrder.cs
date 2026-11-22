@@ -17,6 +17,9 @@ namespace Univer.Desktop.Core
                 default: return items.OrderByDescending(x => x.Started).ToList();
             }
         }
+        // The chosen order is kept in preferences as a word, so a reordered enum never changes what a saved file means.
+        public static string Name(DownloadSort sort) { return sort == DownloadSort.Name ? "name" : sort == DownloadSort.Size ? "size" : "newest"; }
+        public static DownloadSort Parse(string name) { return name == "name" ? DownloadSort.Name : name == "size" ? DownloadSort.Size : DownloadSort.Newest; }
         // A finished file reports its total; a download without Content-Length only knows what was received.
         public static long Size(DownloadRecord item) { return item.Total >= 0 ? item.Total : item.Received; }
         // Explorer-like names: "Лекция 2" comes before "Лекция 10"; letters compare in the user's culture, ignoring case.

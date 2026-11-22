@@ -76,6 +76,20 @@ namespace Univer.Desktop.Tests
         }
 
         [Fact]
+        public void AccountMarkKeepsItsRulesThroughTheRememberedAnswer()
+        {
+            var a = ScheduleWeek.AccountMark("Memo-One");
+            Assert.Equal(a, ScheduleWeek.AccountMark("Memo-One"));
+            var b = ScheduleWeek.AccountMark("memo-two");
+            Assert.NotEqual(a, b);
+            // Back to the first login after another: still its own mark, case and spaces folded as before.
+            Assert.Equal(a, ScheduleWeek.AccountMark("  memo-one "));
+            Assert.Equal("", ScheduleWeek.AccountMark("   "));
+            Assert.Equal("", ScheduleWeek.AccountMark(null));
+            Assert.Equal(b, ScheduleWeek.AccountMark("MEMO-TWO"));
+        }
+
+        [Fact]
         public void TheSavedCopyBelongsToOneAccountAndGoesWithRemove()
         {
             var root = Path.Combine(Path.GetTempPath(), "Univer.Desktop.QA", Guid.NewGuid().ToString("N"));

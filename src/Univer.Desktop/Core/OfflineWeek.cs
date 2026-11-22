@@ -39,7 +39,8 @@ namespace Univer.Desktop.Core
             var month = Months[Index(lang)][day.Month - 1];
             return day.Day.ToString(CultureInfo.InvariantCulture) + " " + month;
         }
-        internal static string DayTitle(DateTime day, string lang) { return Days[Index(lang)][((int)day.DayOfWeek + 6) % 7] + ", " + Date(day, lang); }
+        internal static string DayName(DateTime day, string lang) { return Days[Index(lang)][((int)day.DayOfWeek + 6) % 7]; }
+        internal static string DayTitle(DateTime day, string lang) { return DayName(day, lang) + ", " + Date(day, lang); }
         // 16–22 November, or 30 November – 6 December across a month.
         internal static string Range(ScheduleWeek week, string lang)
         {

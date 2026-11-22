@@ -66,12 +66,16 @@ namespace Univer.Desktop.Core
         // A tray notification when «Текущая аттестация» shows changed scores (Core/GradeWatch.cs), read this many minutes apart.
         public bool Grades { get; set; } = true;
         public int GradeInterval { get; set; } = GradeNotice.DefaultInterval;
+        // The order of «Загрузки» (DownloadOrder.Name) and the section the app opens with (StartPages); older files have none.
+        public string DownloadsOrder { get; set; } = "newest";
+        public string StartPage { get; set; } = StartPages.Home;
         public Preferences Clone()
         {
             return new Preferences { Language = Language, AutoLoginPaused = AutoLoginPaused, SessionClearPending = SessionClearPending, Readable = Readable, Sidebar = Sidebar,
                 Profile = Profile, Zoom = Zoom, Window = Window, Tray = Tray, Animations = Animations, LegacyWarningDismissed = LegacyWarningDismissed, Theme = Theme,
                 UpdateVersion = UpdateVersion, UpdateSkipped = UpdateSkipped, UpdateChecked = UpdateChecked,
                 ExternalLinks = ExternalLinks, WebProfile = WebProfile, PinOffered = PinOffered, Reminders = Reminders, ReminderLead = ReminderLead, Grades = Grades, GradeInterval = GradeInterval,
+                DownloadsOrder = DownloadsOrder, StartPage = StartPage,
                 Pins = (Pins ?? new List<PinnedLink>()).Select(p => p?.Clone()).ToList(), TileOrder = (TileOrder ?? new List<string>()).ToList(), HiddenTiles = (HiddenTiles ?? new List<string>()).ToList() };
         }
     }
@@ -119,6 +123,8 @@ namespace Univer.Desktop.Core
             if (!Updates.IsVersion(value.UpdateSkipped)) value.UpdateSkipped = "";
             if (value.UpdateChecked < 0) value.UpdateChecked = 0;
             value.GradeInterval = GradeNotice.Interval(value.GradeInterval);
+            value.DownloadsOrder = DownloadOrder.Name(DownloadOrder.Parse(value.DownloadsOrder));
+            value.StartPage = StartPages.Normalize(value.StartPage);
             if (!IsProfileName(value.WebProfile)) value.WebProfile = Guid.NewGuid().ToString("N");
             return value;
         }
@@ -284,6 +290,19 @@ namespace Univer.Desktop.Core
         public Task SaveGradesAsync(GradeSheet sheet) { return writes.RunAsync(() => Task.Run(() => GradeFile.Write(root, sheet))); }
         public Task RemoveGradesAsync() { return writes.RunAsync(() => Task.Run(() => GradeFile.Remove(root))); }
         public Task CleanOldProfilesAsync(string active) { return writes.RunAsync(() => Task.Run(() => CleanOldProfiles(active))); }
+        // The start's housekeeping, after the window is shown: in line with the settings writes, and only while the saved
+        // settings still name the profiles it was given. A logout or account change saves the new names before it opens
+        // their profiles, so a cleanup queued before it can never delete a profile in use.
+        public Task CleanAtStartAsync(string profile, string webProfile)
+        {
+            return writes.RunAsync(() => Task.Run(() =>
+            {
+                var path = Path.Combine(root, "preferences.json");
+                var saved = File.Exists(path) ? LoadPreferences() : null;
+                if (saved == null || saved.Profile == profile) CleanOldProfiles(profile);
+                if (saved != null && saved.WebProfile == webProfile) CleanOldWebProfiles(webProfile);
+            }));
+        }
         public string BrowserRoot { get { return Path.Combine(root, browserFlavor == BrowserProfileFlavor.Modern ? "Browser-Modern" : "Browser"); } }
         public string ProfilePath(string profile)
         {
