@@ -211,6 +211,8 @@ namespace Univer.Desktop.UI
             { "offlineSavedOn", new[] { "Сохранено {0} в {1}", "Сақталған уақыты: {0}, {1}", "Saved {0} at {1}" } },
             { "offlinePast", new[] { "Это прошлая неделя. Копия обновится, когда вы откроете расписание при работающем интернете.", "Бұл өткен апта. Интернет болғанда кестені ашсаңыз, көшірме жаңарады.", "This is a past week. The copy is updated when you open the schedule while online." } },
             { "offlineAhead", new[] { "Эта неделя ещё не началась.", "Бұл апта әлі басталған жоқ.", "This week has not started yet." } },
+            { "offlineNoWeek", new[] { "Копии расписания пока нет.", "Кестенің көшірмесі әлі жоқ.", "There is no copy of the schedule yet." } },
+            { "offlineGrades", new[] { "Последние оценки", "Соңғы бағалар", "Latest grades" } },
             { "offlineToday", new[] { "Сегодня", "Бүгін", "Today" } },
             { "exportWeekHeading", new[] { "Неделя {0}, {1}", "{0}-апта, {1}", "Week {0}, {1}" } },
             { "exportOdd", new[] { "нечётная", "тақ", "odd" } },

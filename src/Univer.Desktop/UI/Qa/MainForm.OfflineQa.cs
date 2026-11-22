@@ -81,7 +81,7 @@ namespace Univer.Desktop.UI
         // once the cut is confirmed, and the pages that do load come from fixtures.
         private async Task OfflineQaAsync(string qa, List<string> results)
         {
-            var previousWeek = scheduleWeek; var previousFactory = main.ResourceRequestHandlerFactory; var now = DateTime.Now;
+            var previousWeek = scheduleWeek; var previousGrades = lastGrades; var previousFactory = main.ResourceRequestHandlerFactory; var now = DateTime.Now;
             var before = await ProxyForQaAsync();
             var cut = await SetProxyForQaAsync(ProxyAt(9));
             Check(cut, "the self-test can cut this profile's network before it loads a site address", results);
@@ -91,7 +91,7 @@ namespace Univer.Desktop.UI
             main.ResourceRequestHandlerFactory = fixtures;
             try
             {
-                scheduleWeek = OfflineWeekForQa(now, ScheduleAccount);
+                scheduleWeek = OfflineWeekForQa(now, ScheduleAccount); lastGrades = OfflineGradesForQa(now, ScheduleAccount);
                 var target = SitePolicy.Origin + "/student/myschedule/";
                 main.Load(target);
                 var shown = await UntilForQa(() => OfflineShown && error, 15000);
@@ -101,7 +101,9 @@ namespace Univer.Desktop.UI
                 var words = offlineView.WordsForQa;
                 Check(words.Contains(OfflineWeek.Saved(scheduleWeek.SavedAt, now, "ru")) && words.Contains(OfflineWeek.Range(scheduleWeek, "ru")) && words.Contains("08:00–08:50 QA Политология 1 · Лекция · ауд. 300 · Синтетический П. П."),
                     "the screen says which week, when it was saved, and each class with its room and teacher", results);
-                Check(offlineView.TitlesDrawnForQa, "each day's name is painted in its card's heading", results);
+                Check(offlineView.TitlesDrawnForQa, "each day's name and each course's name is painted in its card's heading", results);
+                Check(words.Contains(Strings.Get("offlineGrades", "ru")) && words.Contains(OfflineWeek.Saved(lastGrades.SavedAt, now, "ru")) && words.Contains("QA Алгебра: РК1 71/100 РК2 88.5/100") && words.Contains("QA Физика: Итог 93") &&
+                    offlineView.GradesBelowWeekForQa, "«Последние оценки» stands below the week with its saved time and each course's totals", results);
                 QaTrace("offline-layout " + offlineView.LayoutForQa);
                 Check(offlineView.TodayInViewForQa && offlineView.PaintedForQa, "today's card is scrolled into view when the screen appears (" + offlineView.LayoutForQa + ")", results);
                 foreach (var lang in new[] { "ru", "kz", "en" })
@@ -115,6 +117,8 @@ namespace Univer.Desktop.UI
                 // The student's own scrolling is kept: a redraw (here the same language again) no longer jumps to today.
                 Check(offlineView.FocusedForQa || !main.ContainsFocus, "the keys go to the schedule, not to the failed page", results);
                 offlineView.PressForQa(Keys.End); var bottom = offlineView.ScrollForQa;
+                Check(offlineView.GradesInViewForQa && offlineView.PaintedForQa && offlineView.TitlesDrawnForQa, "at the end of the screen the last grades are in view and painted", results);
+                SaveBitmap(offlineView, Path.Combine(qa, "offline-grades-ru.png"));
                 offlineView.PressForQa(Keys.Home); Localize(); offlineView.SetZoom(chromeZoom);
                 Check(bottom > 0 && offlineView.ScrollForQa == 0 && offlineView.PaintedForQa, "End and Home scroll the week, and a redraw keeps the student's place", results);
                 // A retry the app sends by itself into a network that leads nowhere: the screen stays in front of the
@@ -150,11 +154,26 @@ namespace Univer.Desktop.UI
                 var themeBefore = prefs.Theme; prefs.Theme = ThemeChoice.Dark; ApplyTheme();
                 try { await Task.Delay(150); SaveBitmap(offlineView, Path.Combine(qa, "offline-dark.png")); Check(offlineView.TitlesDrawnForQa, "the day names are painted in the dark theme too", results); }
                 finally { prefs.Theme = themeBefore; ApplyTheme(false); }
-                // Without a kept week only the banner speaks.
+                // Totals without a week: the screen still stands, with the totals alone.
                 scheduleWeek = null; UpdateOffline();
-                Check(!OfflineShown && error, "without a kept week a failed page has the banner alone", results);
+                offlineView.PressForQa(Keys.Home);
+                var alone = offlineView.WordsForQa;
+                Check(OfflineShown && offlineView.DaysForQa == 0 && alone.Contains(Strings.Get("offlineNoWeek", "ru")) && alone.Contains("QA Физика: Итог 93") && offlineView.PaintedForQa && offlineView.TitlesDrawnForQa && offlineView.FitsForQa,
+                    "kept totals without a kept week still show the offline screen, with the totals alone", results);
+                SaveBitmap(offlineView, Path.Combine(qa, "offline-grades-only.png"));
+                // The schedule picture never has the totals: the same sheet turned into a picture column drops them.
+                using (var column = new OfflineWeekView.WeekSheet())
+                {
+                    var export = OfflineWeekForQa(now, ScheduleAccount);
+                    column.Set(export, lastGrades, now, "ru"); column.SetExport(export, "QA", null, "ru"); column.Arrange(800, 1);
+                    Check(column.Words.Contains("QA Политология 1") && !column.Words.Contains(Strings.Get("offlineGrades", "ru")) && !column.Words.Contains("QA Алгебра") && column.GradesTop < 0, "the schedule picture does not carry the last grades", results);
+                }
+                // Without a kept week and without kept totals only the banner speaks.
+                var gradesNow = lastGrades; lastGrades = null; UpdateOffline();
+                Check(!OfflineShown && error, "without a kept week or kept totals a failed page has the banner alone", results);
+                lastGrades = gradesNow;
                 scheduleWeek = OfflineWeekForQa(now, ScheduleAccount); UpdateOffline();
-                Check(OfflineShown, "the kept week comes back while the page still fails", results);
+                Check(OfflineShown && offlineView.DaysForQa == 6, "the kept week comes back while the page still fails", results);
                 // The connection returns: the next automatic retry is answered (a fixture, ahead of the proxy) and the screen goes.
                 var retried = RetryTarget();
                 fixtures.Pages[retried] = "<!doctype html><html><head><meta charset='utf-8'><title>back</title></head><body><div id='l4'>back</div></body></html>";
@@ -168,7 +187,7 @@ namespace Univer.Desktop.UI
                 main.ResourceRequestHandlerFactory = previousFactory;
                 var previous = before as IDictionary<string, object>;
                 var restored = await SetProxyForQaAsync(previous != null && previous.Count > 0 ? previous : new Dictionary<string, object> { { "mode", "system" } });
-                scheduleWeek = previousWeek; siteUnreachable = false; UpdateOffline();
+                scheduleWeek = previousWeek; lastGrades = previousGrades; siteUnreachable = false; UpdateOffline();
                 messages.Withdraw("networkError"); RenderFeedback();
                 Check(restored, "the profile's network is given back after the offline step", results);
             }
@@ -182,7 +201,7 @@ namespace Univer.Desktop.UI
         {
             var output = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "qa-offline"); Directory.CreateDirectory(output);
             var trace = new StringBuilder();
-            trace.AppendLine("kept " + (scheduleWeek != null) + " classes=" + (scheduleWeek?.Classes.Count ?? 0));
+            trace.AppendLine("kept " + (scheduleWeek != null) + " classes=" + (scheduleWeek?.Classes.Count ?? 0) + " grades=" + (lastGrades?.Courses.Count ?? 0));
             var clock = Stopwatch.StartNew(); var shot = false; bool seen = false, today = false; var gaps = 0; var start = recoveries;
             while (clock.Elapsed < TimeSpan.FromSeconds(45) && !closing)
             {

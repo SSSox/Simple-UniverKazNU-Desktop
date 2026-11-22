@@ -179,6 +179,9 @@ namespace Univer.Desktop.Core
             try { ExamFile.Remove(root); }
             catch (IOException) { }
             catch (UnauthorizedAccessException) { }
+            try { LastGradesFile.Remove(root); }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
             // A failed write leaves the mark on disk, and the next start finishes the change again.
             SavePreferences(preferences);
             return true;
@@ -293,6 +296,10 @@ namespace Univer.Desktop.Core
         public ExamPlan LoadExams(string account) { return ExamFile.Read(root, account); }
         public Task SaveExamsAsync(ExamPlan plan) { return writes.RunAsync(() => Task.Run(() => ExamFile.Write(root, plan))); }
         public Task RemoveExamsAsync() { return writes.RunAsync(() => Task.Run(() => ExamFile.Remove(root))); }
+        // The course totals last seen, for the offline screen (Core/LastGrades.cs), by the same rules.
+        public LastGrades LoadLastGrades(string account) { return LastGradesFile.Read(root, account); }
+        public Task SaveLastGradesAsync(LastGrades grades) { return writes.RunAsync(() => Task.Run(() => LastGradesFile.Write(root, grades))); }
+        public Task RemoveLastGradesAsync() { return writes.RunAsync(() => Task.Run(() => LastGradesFile.Remove(root))); }
         public GradeSheet LoadGrades(string account) { return GradeFile.Read(root, account); }
         public Task SaveGradesAsync(GradeSheet sheet) { return writes.RunAsync(() => Task.Run(() => GradeFile.Write(root, sheet))); }
         public Task RemoveGradesAsync() { return writes.RunAsync(() => Task.Run(() => GradeFile.Remove(root))); }

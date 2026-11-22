@@ -34,10 +34,10 @@ namespace Univer.Desktop.UI
         public void FocusSheet() { scroller.Focus(); }
         internal bool FocusedForQa { get { return scroller.Focused; } }
         internal void PressForQa(Keys key) { scroller.Press(key); }
-        public void Render(ScheduleWeek week, DateTime now, string lang)
+        public void Render(ScheduleWeek week, LastGrades grades, DateTime now, string lang)
         {
             var again = sheet.Same(week, lang);
-            sheet.Set(week, now, lang);
+            sheet.Set(week, grades, now, lang);
             if (!again) followToday = true;
             Arrange();
         }
@@ -63,6 +63,9 @@ namespace Univer.Desktop.UI
         internal string TitleForQa { get { return sheet.Title; } }
         internal string WordsForQa { get { return sheet.Words; } }
         internal int DaysForQa { get { return sheet.DayCount; } }
+        // The totals' heading starts below the week's last card, and shows once the student scrolls to the end.
+        internal bool GradesBelowWeekForQa { get { return sheet.GradesTop >= 0 && sheet.GradesTop >= sheet.WeekBottom; } }
+        internal bool GradesInViewForQa { get { var top = sheet.GradesTop - ScrollForQa; return sheet.GradesTop >= 0 && top >= 0 && top < scroller.ClientSize.Height; } }
         internal bool TodayMarkedForQa { get { return sheet.TodayTop >= 0; } }
         internal bool FitsForQa { get { return sheet.Fits; } }
         internal int ScrollForQa { get { return -scroller.AutoScrollPosition.Y; } }
@@ -160,25 +163,26 @@ namespace Univer.Desktop.UI
                 return true;
             }
         }
-        // One week laid out as day cards: the offline screen's sheet, and (SetExport) one column of the schedule picture.
+        // One week laid out as day cards, then the last seen course totals: the offline screen's sheet. With SetExport it is one
+        // column of the schedule picture, which never has the totals.
         internal sealed class WeekSheet : IDisposable
         {
-            private ScheduleWeek week; private DateTime now; private string lang = "ru";
+            private ScheduleWeek week; private LastGrades grades; private DateTime now; private string lang = "ru";
             // The picture's column: its heading, and a note in place of the days (a week that could not be read).
             private string exportHeading, exportNote;
             private float scale = 1;
             private Font titleFont, bodyFont, strongFont, metaFont;
             private readonly List<Action<Graphics>> paint = new List<Action<Graphics>>();
             internal string Title = "", Words = "";
-            internal int TodayTop = -1, DayCount;
+            internal int TodayTop = -1, DayCount, GradesTop = -1, WeekBottom;
             internal readonly List<Rectangle> TitleBoxes = new List<Rectangle>();
             internal bool Fits = true;
             internal Size Size { get; private set; }
             internal bool Same(ScheduleWeek other, string language) { return other == week && language == lang; }
-            internal void Set(ScheduleWeek value, DateTime at, string language) { week = value; now = at; lang = language; exportHeading = exportNote = null; }
+            internal void Set(ScheduleWeek value, LastGrades totals, DateTime at, string language) { week = value; grades = totals; now = at; lang = language; exportHeading = exportNote = null; }
             // A week of the schedule picture: no saved time, no offline notes, no today or past marks; null week with a note
             // for a week that could not be read.
-            internal void SetExport(ScheduleWeek value, string heading, string note, string language) { week = value; now = DateTime.MinValue; lang = language; exportHeading = heading; exportNote = note; }
+            internal void SetExport(ScheduleWeek value, string heading, string note, string language) { week = value; grades = null; now = DateTime.MinValue; lang = language; exportHeading = heading; exportNote = note; }
             private int D(float value) { return (int)Math.Round(value * scale); }
             private void Fonts(float value)
             {
@@ -194,7 +198,7 @@ namespace Univer.Desktop.UI
             // One pass lays the sheet out and records what to paint, so painting draws exactly what was measured.
             internal void Arrange(int width, float value)
             {
-                Fonts(value); scale = value; paint.Clear(); TitleBoxes.Clear(); TodayTop = -1; DayCount = 0; Fits = true;
+                Fonts(value); scale = value; paint.Clear(); TitleBoxes.Clear(); TodayTop = -1; DayCount = 0; GradesTop = -1; WeekBottom = 0; Fits = true;
                 var words = new StringBuilder();
                 if (exportHeading != null) { ArrangeExport(width, words); return; }
                 Title = Strings.Get("offlineTitle", lang);
@@ -227,9 +231,28 @@ namespace Univer.Desktop.UI
                         y = Card(day.Key, day.Value, today, past, left, y, column, words) + D(12);
                     }
                 }
+                else if (grades != null)
+                {
+                    var none = Strings.Get("offlineNoWeek", lang);
+                    y = Write(none, metaFont, () => Theme.Muted, left, y + D(4), column) + D(4);
+                    words.AppendLine(none);
+                }
+                WeekBottom = y;
+                if (grades != null) { GradesTop = y + D(8); y = ArrangeGrades(left, GradesTop, column, words); }
                 y += D(16);
                 Words = words.ToString().Trim();
                 Size = new Size(width, y);
+            }
+            // «Последние оценки»: the saved time, then one card a course with each of its totals.
+            private int ArrangeGrades(int left, int top, int column, StringBuilder words)
+            {
+                var heading = Strings.Get("offlineGrades", lang); var saved = OfflineWeek.Saved(grades.SavedAt, now, lang);
+                var y = Write(heading, titleFont, () => Theme.Ink, left, top, column) + D(2);
+                y = Write(saved, metaFont, () => Theme.Muted, left, y, column) + D(4);
+                words.AppendLine(heading).AppendLine(saved);
+                y += D(16);
+                foreach (var course in grades.Courses) y = CourseCard(course, left, y, column, words) + D(12);
+                return y;
             }
             private void ArrangeExport(int width, StringBuilder words)
             {
@@ -311,6 +334,46 @@ namespace Univer.Desktop.UI
                 {
                     using (var path = Theme.Rounded(new RectangleF(card.X + .5f, card.Y + .5f, card.Width - 1, card.Height - 1), D(Kit.RadiusCard)))
                     using (var fill = new SolidBrush(Theme.Surface)) using (var pen = new Pen(today ? Theme.AccentInk : Theme.Border))
+                    { g.SmoothingMode = SmoothingMode.AntiAlias; g.FillPath(fill, path); g.DrawPath(pen, path); g.SmoothingMode = SmoothingMode.None; }
+                });
+                paint.AddRange(steps);
+                return card.Bottom;
+            }
+            private int CourseCard(LastGradeCourse course, int left, int top, int width, StringBuilder words)
+            {
+                var pad = D(16); var labelWidth = D(92); var gap = D(8);
+                var inner = width - pad * 2;
+                var steps = new List<Action<Graphics>>();
+                var title = course.Name; var titleHeight = Measure(title, strongFont, inner);
+                var y = top + D(14);
+                var titleBox = new Rectangle(left + pad, y, inner, titleHeight); TitleBoxes.Add(titleBox);
+                steps.Add(g => TextRenderer.DrawText(g, title, strongFont, titleBox, Theme.Ink, Wrap));
+                var line = new StringBuilder(title).Append(':');
+                y += titleHeight + D(10);
+                foreach (var score in course.Scores)
+                {
+                    var lineTop = y; var label = score.Label; var value = LastGrades.Score(score);
+                    var valueWidth = inner - labelWidth;
+                    var labelHeight = TextRenderer.MeasureText(label, bodyFont, Size.Empty, Line).Height;
+                    if (label.Length > 0 && TextRenderer.MeasureText(label, bodyFont, Size.Empty, Line).Width > labelWidth - gap) Fits = false;
+                    var valueHeight = Measure(value, strongFont, valueWidth);
+                    var rowTop = lineTop + D(10);
+                    var rowHeight = Math.Max(labelHeight, valueHeight);
+                    steps.Add(g =>
+                    {
+                        using (var pen = new Pen(Theme.Border)) g.DrawLine(pen, left + pad, lineTop, left + width - pad, lineTop);
+                        TextRenderer.DrawText(g, label, bodyFont, new Rectangle(left + pad, rowTop, labelWidth, labelHeight), Theme.Muted, Line);
+                        TextRenderer.DrawText(g, value, strongFont, new Rectangle(left + pad + labelWidth, rowTop, valueWidth, valueHeight), Theme.Ink, Wrap);
+                    });
+                    line.Append(' ').Append(label).Append(' ').Append(value);
+                    y = rowTop + rowHeight + D(10);
+                }
+                words.AppendLine(line.ToString());
+                var card = new Rectangle(left, top, width, y + D(4) - top);
+                paint.Add(g =>
+                {
+                    using (var path = Theme.Rounded(new RectangleF(card.X + .5f, card.Y + .5f, card.Width - 1, card.Height - 1), D(Kit.RadiusCard)))
+                    using (var fill = new SolidBrush(Theme.Surface)) using (var pen = new Pen(Theme.Border))
                     { g.SmoothingMode = SmoothingMode.AntiAlias; g.FillPath(fill, path); g.DrawPath(pen, path); g.SmoothingMode = SmoothingMode.None; }
                 });
                 paint.AddRange(steps);

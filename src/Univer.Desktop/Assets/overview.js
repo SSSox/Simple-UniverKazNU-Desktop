@@ -646,6 +646,20 @@
         // The week export the student pressed: the prepared JSON string once, then empty. exported() ends the busy state.
         // The exam or midterm list for the exam reminders (see exams() above): a JSON string, or ''.
         exams: exams,
+        // The course totals the home page's grades panel last read from the journal, for the app's offline screen
+        // (MainForm.LastGrades.cs, which checks every field again): this account's kept reading in any language, a JSON string
+        // {v, at, courses:[{name, scores:[{label, max, value}]}]} with the scores that have a value, or ''. No request is
+        // made; the extension keeps nothing (__univerOverviewKeep === false), so it gives ''.
+        grades: function () {
+            try {
+                var all = kept(), part = all && all.grades;
+                if (!part || !Number.isFinite(part.at) || part.at > Date.now() + 60000 || !isCourses(part)) return '';
+                var courses = part.list.map(function (c) {
+                    return {name:c.name.slice(0, 200), scores:c.scores.filter(function (s) { return s.value; }).slice(0, 10).map(function (s) { return {label:s.label, max:s.max, value:s.value}; })};
+                }).filter(function (c) { return c.name && c.scores.length; }).slice(0, 60);
+                return courses.length ? JSON.stringify({v:1, at:part.at, courses:courses}) : '';
+            } catch (_) { return ''; }
+        },
         exportData: function () { var data = exportJson; exportJson = ''; return data; },
         exported: function () { exportDone(); },
         // Test hooks: the same readers on a supplied document.

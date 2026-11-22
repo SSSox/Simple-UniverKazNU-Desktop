@@ -8,7 +8,8 @@ namespace Univer.Desktop.UI
     // that offers Retry. Only a failed connection raises it (a server that answers, even with an error, shows its own
     // page). It stays through the automatic retries, which would otherwise cover it with the loading placeholder each
     // time, and goes when the site answers, when the student opens something themselves or presses Retry, and with the
-    // session (no kept week, nothing to show).
+    // session (no kept week and no kept totals, nothing to show). The kept course totals (MainForm.LastGrades.cs) stand
+    // below the week, or alone when no week was kept.
     internal sealed partial class MainForm
     {
         private OfflineWeekView offlineView;
@@ -34,12 +35,14 @@ namespace Univer.Desktop.UI
         private void UpdateOffline()
         {
             if (offlineView == null || closing) return;
-            var show = siteUnreachable && OfflineWeek.Shows(scheduleWeek) && main != null && Active == main && document == null && !DownloadsVisible && !rotating;
+            var show = siteUnreachable && (OfflineWeek.Shows(scheduleWeek) || lastGrades != null) && main != null && Active == main && document == null && !DownloadsVisible && !rotating;
             if (!show) { if (offlineView.Visible) offlineView.Visible = false; return; }
             // Drawn again when the week, the language or the minute changes (finished classes turn quiet as the day goes).
             var now = DateTime.Now;
-            var drawn = scheduleWeek.GetHashCode() + "|" + scheduleWeek.SavedAt.Ticks + "|" + prefs.Language + "|" + now.ToString("yyyyMMddHHmm");
-            if (drawn != offlineDrawn) { offlineDrawn = drawn; offlineView.Render(scheduleWeek, now, prefs.Language); }
+            var weekPart = OfflineWeek.Shows(scheduleWeek) ? scheduleWeek.GetHashCode() + "/" + scheduleWeek.SavedAt.Ticks : "-";
+            var gradesPart = lastGrades != null ? lastGrades.GetHashCode() + "/" + lastGrades.SavedAt.Ticks : "-";
+            var drawn = weekPart + "|" + gradesPart + "|" + prefs.Language + "|" + now.ToString("yyyyMMddHHmm");
+            if (drawn != offlineDrawn) { offlineDrawn = drawn; offlineView.Render(OfflineWeek.Shows(scheduleWeek) ? scheduleWeek : null, lastGrades, now, prefs.Language); }
             var appearing = !offlineView.Visible;
             if (appearing) offlineView.Visible = true;
             offlineView.BringToFront();
