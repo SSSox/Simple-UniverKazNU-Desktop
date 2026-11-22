@@ -256,6 +256,34 @@ namespace Univer.Desktop.Tests
         }
 
         [Fact]
+        public void BehindThePinAnEveningExamInACombinedBalloonStillSaysTomorrow()
+        {
+            var now = new DateTime(2026, 12, 14, 19, 5, 0);
+            var classes = ClassAt(now.AddMinutes(10), "Политология", "");
+            var plan = Plan(new ExamItem { Kind = ExamKind.Exam, Subject = "Физика", Start = new DateTime(2026, 12, 15, 9, 0, 0), Place = "" },
+                new ExamItem { Kind = ExamKind.Exam, Subject = "Химия", Start = new DateTime(2026, 12, 15, 9, 0, 0), Place = "" });
+            var body = CombinedReminder.Body(classes, plan.Due(now, 15), "ru", true).Split(new[] { Environment.NewLine }, StringSplitOptions.None);
+            Assert.Equal(new[] { "Пара в 19:15", "Завтра экзамен · начало в 09:00" }, body);
+        }
+
+        [Fact]
+        public void ACombinedBalloonNamesTwoOfEachAndOnlyThoseCountAsAnnounced()
+        {
+            var now = new DateTime(2026, 12, 14, 19, 5, 0);
+            var start = new DateTime(2026, 12, 15, 9, 0, 0);
+            var exams = Plan(new ExamItem { Kind = ExamKind.Exam, Subject = "Физика", Start = start, Place = "" },
+                new ExamItem { Kind = ExamKind.Exam, Subject = "Химия", Start = start.AddHours(2), Place = "" },
+                new ExamItem { Kind = ExamKind.Exam, Subject = "История", Start = start.AddHours(4), Place = "" }).Due(now, 15);
+            var classes = ClassAt(now.AddMinutes(10), "A").Concat(ClassAt(now.AddMinutes(10), "B")).Concat(ClassAt(now.AddMinutes(10), "C")).ToList();
+            Assert.Equal(3, exams.Count);
+            var named = CombinedReminder.NamedExams(exams); var namedClasses = CombinedReminder.NamedClasses(classes, false);
+            Assert.Equal(2, named.Count); Assert.Equal(2, namedClasses.Count);
+            var body = CombinedReminder.Body(namedClasses, named, "ru", false);
+            Assert.Contains("Физика", body); Assert.Contains("Химия", body); Assert.DoesNotContain("История", body);
+            Assert.Equal(3, CombinedReminder.NamedClasses(classes, true).Count);
+        }
+
+        [Fact]
         public void BehindThePinACombinedBalloonNamesNoClassOrSubjectOrRoomOnlyKindsAndTimes()
         {
             var now = new DateTime(2026, 12, 15, 12, 40, 0);

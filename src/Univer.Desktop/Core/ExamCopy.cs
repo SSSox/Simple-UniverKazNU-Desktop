@@ -214,6 +214,11 @@ namespace Univer.Desktop.Core
     internal static class CombinedReminder
     {
         internal const int TitleLimit = 63, BodyLimit = 255;
+        // What one combined balloon names: two exams, and two classes (with the PIN, one line per start time covers them all).
+        // Only these are marked announced; the rest come in the next balloon instead of being dropped unsaid.
+        internal const int Named = 2;
+        internal static List<ScheduleClass> NamedClasses(IList<ScheduleClass> classes, bool hidden) { return hidden ? classes.ToList() : classes.Take(Named).ToList(); }
+        internal static List<ExamReminder> NamedExams(IList<ExamReminder> exams) { return exams.Take(Named).ToList(); }
         internal static string Title(IList<ScheduleClass> classes, IList<ExamReminder> exams, DateTime now, string lang, bool hidden)
         {
             var examFirst = !exams[0].Evening && exams[0].Item.Start < classes[0].Start;
@@ -226,7 +231,9 @@ namespace Univer.Desktop.Core
             if (hidden)
             {
                 lines.AddRange(classes.Select(c => c.Start).Distinct().Take(2).Select(t => Cap(string.Format(Strings.Get("reminderClassAt", lang), Time(t)))));
-                lines.AddRange(exams.Take(2).Select(r => Cap(ExamReminders.KindWord(r.Item.Kind, lang)) + " · " + string.Format(Strings.Get("examStarts", lang), Time(r.Item.Start))));
+                // The evening one says it is tomorrow, as it does with the PIN off; two exams at one time are one line.
+                lines.AddRange(exams.Take(2).Select(r => (r.Evening ? Cap(string.Format(Strings.Get("examTomorrow", lang), ExamReminders.KindWord(r.Item.Kind, lang)))
+                    : Cap(ExamReminders.KindWord(r.Item.Kind, lang))) + " · " + string.Format(Strings.Get("examStarts", lang), Time(r.Item.Start))).Distinct());
             }
             else
             {

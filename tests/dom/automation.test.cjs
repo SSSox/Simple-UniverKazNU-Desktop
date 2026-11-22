@@ -138,6 +138,15 @@ test('the login form notes a hash of the account it signs in, by a click or Ente
   p.w.document.querySelector('input').value = 'student.two'; p.w.document.querySelector('button').click();
   assert.notEqual(p.w.localStorage.getItem('univer.app.account.v1'), mark); p.close();
 });
+// The site's own submit handler may rewrite the visible field (its JS encrypts the form): the mark the press took stays.
+test('a submit after the press does not replace the mark with what the site wrote into the field', () => {
+  const p = page('<form id="login_frm"><input type="text" value="student.one"><input type="password" value="x"><button type="submit">Войти</button></form>', 'https://univer.kaznu.kz/user/login');
+  const form = p.w.document.getElementById('login_frm'), field = p.w.document.querySelector('input');
+  form.addEventListener('submit', event => { event.preventDefault(); });
+  p.w.document.querySelector('button').addEventListener('click', () => { field.value = 'X9f0e1d2c3b4a'; });
+  p.w.document.querySelector('button').click();
+  assert.equal(p.w.localStorage.getItem('univer.app.account.v1'), 'ad6afa8d2', 'the typed login is the mark'); p.close();
+});
 // The app compares the page's mark with Core/PageAccount.cs's (the readings it keeps): the same vectors are pinned in
 // tests/Univer.Desktop.Tests/PageAccountTests.cs, so neither side can change its hash alone.
 test('the login mark of the page is the FNV-1a hash the app computes for the same login', () => {

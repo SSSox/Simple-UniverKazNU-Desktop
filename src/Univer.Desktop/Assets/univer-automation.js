@@ -18,8 +18,12 @@
         for (var i = 0; i < text.length; i++) { hash ^= text.charCodeAt(i); hash = Math.imul(hash, 0x01000193) >>> 0; }
         return text ? 'a' + hash.toString(16) : '';
     }
+    // The mark is taken from the press (capture phase, before the site's own handler encrypts the form); a submit only marks
+    // when no press did just before, since by then the site's script may have changed the field the login was typed in.
+    var markedAt = 0;
     if (window === window.top && /^\/user\/login\/?$/i.test(location.pathname)) ['click', 'keydown', 'submit'].forEach(function (type) {
         document.addEventListener(type, function (event) {
+            if (type === 'submit' && Date.now() - markedAt < 2000) return;
             var form = event.target && event.target.closest ? event.target.closest('form#login_frm') : null;
             if (!form || (type === 'keydown' && event.key !== 'Enter')) return;
             if (type === 'click' && !event.target.closest('button,input[type=submit],input[type=button],input[type=image],a')) return;
@@ -28,7 +32,7 @@
                 return (kind === 'text' || kind === 'email') && input.value.trim();
             });
             var mark = field ? accountMark(field.value) : '';
-            if (mark) { try { localStorage.setItem(ACCOUNT_KEY, mark); } catch (_) { } }
+            if (mark) { try { localStorage.setItem(ACCOUNT_KEY, mark); markedAt = Date.now(); } catch (_) { } }
         }, true);
     });
     function visible(el) {
