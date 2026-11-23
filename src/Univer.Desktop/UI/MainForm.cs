@@ -89,6 +89,7 @@ namespace Univer.Desktop.UI
             }
             // Housekeeping of old profiles must never discard successfully loaded settings or credentials.
             // Housekeeping of old profiles waits until the window is shown (Shown, CleanAtStartAsync).
+            scheduleClearPending = examClearPending = lastGradesClearPending = prefs.KeptCopiesClearPending;
             LoadScheduleCopy(); LoadExamPlan(); LoadGradeSheet(); LoadLastGrades();
             // Automated checks read settled layouts, so they always run without motion.
             Motion.Enabled = prefs.Animations && !selfTest && !accountReview;
@@ -582,7 +583,11 @@ namespace Univer.Desktop.UI
         // Self-test's own quiet stretch (QA step "idle"); otherwise a self-test page never counts as settled.
         private bool settledForQa;
         // What every tick on a signed-in page does for the app; a quiet page's skipped ticks do it too.
-        private void SignedInWork() { RecoverySucceeded(); OfflineSiteWorks(); ResumeDownload(); NoticeContent(); ScheduleContent(); ExamContent(); GradeContent(); LastGradesContent(); MaybeOfferPin(); }
+        private void SignedInWork()
+        {
+            _ = FinishKeptCopiesClearAsync();
+            RecoverySucceeded(); OfflineSiteWorks(); ResumeDownload(); NoticeContent(); ScheduleContent(); ExamContent(); GradeContent(); LastGradesContent(); MaybeOfferPin();
+        }
         // The user pressed something on the shown page or came back to the window: a page that was being asked rarely is
         // asked now, and every second for a while (ProbePace.Active).
         private void PageWoken(ChromiumWebBrowser browser)

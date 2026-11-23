@@ -14,7 +14,7 @@ namespace Univer.Desktop.UI
         private readonly System.Diagnostics.Stopwatch lastGradesClock = System.Diagnostics.Stopwatch.StartNew();
         private static readonly System.Text.RegularExpressions.Regex HomePath = new System.Text.RegularExpressions.Regex(@"^/student/bachelor/?$", System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.CultureInvariant);
         private LastGrades lastGrades;
-        private bool lastGradesBusy, lastGradesClearPending;
+        private bool lastGradesBusy, lastGradesClearPending, lastGradesClearInFlight;
         private long lastGradesReadAt = long.MinValue;
         private string lastGradesReadAddress, lastGradesAccountForQa;
         // The login mark the copy belongs to; the QA step sets its own synthetic one.
@@ -25,8 +25,12 @@ namespace Univer.Desktop.UI
         // has nothing to give yet (it reads the journal a moment after it opens).
         private void LastGradesContent()
         {
-            if (lastGradesClearPending) { lastGradesClearPending = false; QueueAsync(ClearLastGradesAsync); return; }
-            if (lastGradesBusy || closing || rotating || document != null || main == null || Active != main) return;
+            if (lastGradesClearPending)
+            {
+                QueueCopyClear(ref lastGradesClearInFlight, ClearLastGradesAsync, () => lastGradesClearInFlight = false);
+                return;
+            }
+            if (KeptCopiesClearBlocked || lastGradesBusy || closing || rotating || document != null || main == null || Active != main) return;
             var address = main.Address; Uri uri;
             if (!SitePolicy.Trusted(address) || !Uri.TryCreate(address, UriKind.Absolute, out uri) || !HomePath.IsMatch(uri.AbsolutePath) || LastGradesAccount.Length == 0) return;
             var now = lastGradesClock.ElapsedMilliseconds;
@@ -38,7 +42,7 @@ namespace Univer.Desktop.UI
         private async Task ReadLastGradesAsync(string address)
         {
             var browser = main;
-            if (lastGradesBusy || closing || rotating || browser == null || browser.IsDisposed || document != null || browser.Address != address) return;
+            if (lastGradesClearPending || KeptCopiesClearBlocked || lastGradesBusy || closing || rotating || browser == null || browser.IsDisposed || document != null || browser.Address != address) return;
             lastGradesBusy = true;
             try
             {
@@ -66,6 +70,7 @@ namespace Univer.Desktop.UI
         // holds is removed on the next signed-in page; Storage.FinishSessionClear removes it at the next start too.
         private async Task ClearLastGradesAsync()
         {
+            lastGradesClearPending = true;
             lastGrades = null; lastGradesReadAt = long.MinValue; lastGradesReadAddress = null; lastGradesRetry.Reset(); UpdateOffline();
             try { await storage.RemoveLastGradesAsync(); lastGradesClearPending = false; }
             catch (Exception) { lastGradesClearPending = true; }

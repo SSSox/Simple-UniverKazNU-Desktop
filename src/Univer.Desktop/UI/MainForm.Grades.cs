@@ -18,7 +18,7 @@ namespace Univer.Desktop.UI
     internal sealed partial class MainForm
     {
         private GradeSheet gradeSheet;
-        private bool gradesBusy, gradesClearPending;
+        private bool gradesBusy, gradesClearPending, gradesClearInFlight;
         private long gradesDueAt = long.MinValue;
         private const long GradeRetryMs = 60000;
         private string gradeAgent;
@@ -32,7 +32,11 @@ namespace Univer.Desktop.UI
         // A signed-in page: a reading is due once the interval has passed since the last one (the first, a minute after start).
         private void GradeContent()
         {
-            if (gradesClearPending) { gradesClearPending = false; QueueAsync(ClearGradesAsync); return; }
+            if (gradesClearPending)
+            {
+                QueueCopyClear(ref gradesClearInFlight, ClearGradesAsync, () => gradesClearInFlight = false);
+                return;
+            }
             if (!prefs.Grades || gradesBusy || closing || rotating || accountReview || trayIcon == null || main == null || context == null || GradeAccount.Length == 0) return;
             var now = scheduleClock.ElapsedMilliseconds;
             if (gradesDueAt == long.MinValue) { gradesDueAt = now + 60000; return; }
@@ -43,7 +47,7 @@ namespace Univer.Desktop.UI
         // Never throws: a background check that fails says nothing (QueueAsync would show a network error).
         private async Task ReadGradesAsync()
         {
-            if (gradesBusy || closing || rotating || main == null || main.IsDisposed || context == null) return;
+            if (!prefs.Grades || gradesClearPending || gradesBusy || closing || rotating || main == null || main.IsDisposed || context == null) return;
             gradesBusy = true;
             try
             {
@@ -86,7 +90,7 @@ namespace Univer.Desktop.UI
         }
         private bool Current(long epoch, string account, IRequestContext source)
         {
-            return !closing && !rotating && prefs.Grades && epoch == sessionEpoch && source == context && account == GradeAccount;
+            return !closing && !rotating && prefs.Grades && !gradesClearPending && epoch == sessionEpoch && source == context && account == GradeAccount;
         }
         private async Task<string> ReadAttestationAsync(IRequestContext source, string url, CancellationToken token)
         {
@@ -109,13 +113,22 @@ namespace Univer.Desktop.UI
         // interval brings the next reading closer.
         private void GradesChanged(bool wereOn)
         {
-            if (!prefs.Grades) { if (wereOn) QueueAsync(ClearGradesAsync); return; }
+            if (!prefs.Grades)
+            {
+                if (wereOn)
+                {
+                    gradesClearPending = true;
+                    QueueCopyClear(ref gradesClearInFlight, ClearGradesAsync, () => gradesClearInFlight = false);
+                }
+                return;
+            }
             if (gradesDueAt != long.MinValue) gradesDueAt = Math.Min(gradesDueAt, scheduleClock.ElapsedMilliseconds + GradeNotice.Interval(prefs.GradeInterval) * 60000L);
         }
         // Every logout, Remove and account change (RotateSessionAsync), and the option turned off. A file another program
         // holds is removed on the next signed-in page; Storage.FinishSessionClear removes it at the next start too.
         private async Task ClearGradesAsync()
         {
+            gradesClearPending = true;
             gradeSheet = null; gradesDueAt = long.MinValue; gradeAgent = null;
             try { await storage.RemoveGradesAsync(); gradesClearPending = false; }
             catch (Exception) { gradesClearPending = true; }

@@ -8,26 +8,34 @@ namespace Univer.Desktop.Tests
         [Fact]
         public void APausedOrMissingSignInLoadsNothing()
         {
-            Assert.False(KeptCopies.Readable(false, false, false));
+            Assert.False(KeptCopies.Readable(false, false, false, false));
         }
 
         [Fact]
         public void AnAppThatSignsInByItselfLoadsTheCopies()
         {
-            Assert.True(KeptCopies.Readable(true, false, false));
+            Assert.True(KeptCopies.Readable(true, false, false, false));
         }
 
         [Fact]
         public void AFailedStorageLoadsNothing()
         {
-            Assert.False(KeptCopies.Readable(true, true, false));
-            Assert.False(KeptCopies.Readable(false, true, true));
+            Assert.False(KeptCopies.Readable(true, true, false, false));
+            Assert.False(KeptCopies.Readable(false, true, true, false));
         }
 
         [Fact]
         public void TheOfflineQaRunReadsItsOwnCopies()
         {
-            Assert.True(KeptCopies.Readable(false, false, true));
+            Assert.True(KeptCopies.Readable(false, false, true, false));
+        }
+
+        [Theory]
+        [InlineData(true, false)]
+        [InlineData(false, true)]
+        public void PendingStartupCleanupBlocksDiskReads(bool signsInByItself, bool qaAccount)
+        {
+            Assert.False(KeptCopies.Readable(signsInByItself, false, qaAccount, true));
         }
 
         [Fact]
@@ -42,10 +50,10 @@ namespace Univer.Desktop.Tests
         public void APausedStartThenASameAccountResumeReadsTheRetainedCopy()
         {
             // Paused start: the copy on disk stays unread.
-            var start = KeptCopies.Step(KeptCopies.Readable(false, false, false), false, false);
+            var start = KeptCopies.Step(KeptCopies.Readable(false, false, false, false), false, false);
             Assert.Equal(KeptCopyStep.Keep, start);
             // Automatic sign-in resumes for the same login: the retained copy is read again.
-            var resumed = KeptCopies.Step(KeptCopies.Readable(true, false, false), false, false);
+            var resumed = KeptCopies.Step(KeptCopies.Readable(true, false, false, false), false, false);
             Assert.Equal(KeptCopyStep.Load, resumed);
         }
 
@@ -53,6 +61,7 @@ namespace Univer.Desktop.Tests
         public void AResumeLeavesACopyWhoseDeleteIsPendingUnread()
         {
             Assert.Equal(KeptCopyStep.Keep, KeptCopies.Step(true, false, true));
+            Assert.Equal(KeptCopyStep.Drop, KeptCopies.Step(true, true, true));
         }
 
         [Fact]

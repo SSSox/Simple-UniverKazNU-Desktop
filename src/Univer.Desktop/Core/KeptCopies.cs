@@ -9,9 +9,9 @@ namespace Univer.Desktop.Core
     // The visible --qa-offline run gives its own synthetic account and reads the copies Program wrote for it.
     internal static class KeptCopies
     {
-        public static bool Readable(bool signsInByItself, bool storageFailed, bool qaAccount)
+        public static bool Readable(bool signsInByItself, bool storageFailed, bool qaAccount, bool clearPending)
         {
-            return !storageFailed && (signsInByItself || qaAccount);
+            return !storageFailed && !clearPending && (signsInByItself || qaAccount);
         }
 
         // A copy leaves memory as soon as the copies stop being readable (the pause takes effect before any disk write). Once
@@ -19,8 +19,8 @@ namespace Univer.Desktop.Core
         // delete is still pending: that file belongs to a session that ended.
         public static KeptCopyStep Step(bool readable, bool held, bool clearPending)
         {
-            if (!readable) return held ? KeptCopyStep.Drop : KeptCopyStep.Keep;
-            return !held && !clearPending ? KeptCopyStep.Load : KeptCopyStep.Keep;
+            if (!readable || clearPending) return held ? KeptCopyStep.Drop : KeptCopyStep.Keep;
+            return held ? KeptCopyStep.Keep : KeptCopyStep.Load;
         }
     }
 }

@@ -14,7 +14,8 @@ namespace Univer.Desktop.UI
         private static readonly Regex ScheduleSources = new Regex(@"^/student/(?:bachelor|myschedule)/?$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
         private readonly System.Diagnostics.Stopwatch scheduleClock = System.Diagnostics.Stopwatch.StartNew();
         private ScheduleWeek scheduleWeek;
-        private bool scheduleBusy, scheduleClearPending;
+        private bool scheduleBusy, scheduleClearPending, scheduleClearInFlight;
+        private bool keptCopiesClearSaving;
         private long scheduleReadAt = long.MinValue;
         private string scheduleReadAddress;
         // The visible --qa-offline run has no saved login: it gives its own synthetic mark, under which Program wrote its week
@@ -23,7 +24,9 @@ namespace Univer.Desktop.UI
         private string ScheduleAccount { get { return scheduleAccountForQa ?? ScheduleWeek.AccountMark(credentials?.Login); } }
         // The kept copies are read and used only while the app signs in by itself (Core/KeptCopies.cs): after the site's own
         // logout the login stays saved with automatic sign-in paused, and a copy a failed delete left must stay unread.
-        private bool KeptCopiesReadable { get { return KeptCopies.Readable(SignsInByItself(), storageFailed, scheduleAccountForQa != null); } }
+        private bool KeptCopyDeletesPending { get { return scheduleClearPending || examClearPending || lastGradesClearPending; } }
+        private bool KeptCopiesClearBlocked { get { return prefs.KeptCopiesClearPending || keptCopiesClearSaving; } }
+        private bool KeptCopiesReadable { get { return KeptCopies.Readable(SignsInByItself(), storageFailed, scheduleAccountForQa != null, KeptCopiesClearBlocked); } }
         private void LoadScheduleCopy() { scheduleWeek = KeptCopiesReadable ? storage.LoadSchedule(ScheduleAccount) : null; }
         // Called wherever automatic sign-in pauses or resumes (Core/KeptCopies.Step): a pause takes the copies out of memory at
         // once, before any disk write that could fail (the tray, the reminders and the offline screen read memory only); a
@@ -49,11 +52,38 @@ namespace Univer.Desktop.UI
             }
             if (changed && !closing) { UpdateOffline(); UpdateOfflineOffer(); UpdateTrayHint(); }
         }
+        private void QueueCopyClear(ref bool inFlight, Func<Task> clear, Action finished)
+        {
+            if (inFlight || rotating || closing || accountReview) return;
+            inFlight = true;
+            var epoch = sessionEpoch;
+            QueueAsync(async () =>
+            {
+                try { if (!rotating && epoch == sessionEpoch) await clear(); }
+                finally { finished(); }
+                await FinishKeptCopiesClearAsync();
+            });
+        }
+        private async Task FinishKeptCopiesClearAsync()
+        {
+            if (!prefs.KeptCopiesClearPending || storageFailed || KeptCopyDeletesPending || keptCopiesClearSaving || commandBusy || rotating || closing || accountReview) return;
+            var epoch = sessionEpoch;
+            keptCopiesClearSaving = true;
+            // Snapshot the new value before another Settings save can copy the old marker.
+            prefs.KeptCopiesClearPending = false;
+            try { await storage.SavePreferencesAsync(prefs); }
+            catch (Exception) { if (epoch == sessionEpoch) prefs.KeptCopiesClearPending = true; }
+            finally { keptCopiesClearSaving = false; }
+        }
         // A signed-in page of the main window: the two pages that know the week are asked once a minute while shown.
         private void ScheduleContent()
         {
-            if (scheduleClearPending) { scheduleClearPending = false; QueueAsync(ClearScheduleAsync); return; }
-            if (scheduleBusy || closing || rotating || document != null || main == null || Active != main) return;
+            if (scheduleClearPending)
+            {
+                QueueCopyClear(ref scheduleClearInFlight, ClearScheduleAsync, () => scheduleClearInFlight = false);
+                return;
+            }
+            if (KeptCopiesClearBlocked || scheduleBusy || closing || rotating || document != null || main == null || Active != main) return;
             var address = main.Address; Uri uri;
             if (!SitePolicy.Trusted(address) || !Uri.TryCreate(address, UriKind.Absolute, out uri) || !ScheduleSources.IsMatch(uri.AbsolutePath)) return;
             var now = scheduleClock.ElapsedMilliseconds;
@@ -64,7 +94,7 @@ namespace Univer.Desktop.UI
         private async Task ReadScheduleAsync(string address)
         {
             var browser = main;
-            if (scheduleBusy || closing || rotating || browser == null || browser.IsDisposed || document != null || browser.Address != address) return;
+            if (scheduleClearPending || KeptCopiesClearBlocked || scheduleBusy || closing || rotating || browser == null || browser.IsDisposed || document != null || browser.Address != address) return;
             scheduleBusy = true;
             try
             {
@@ -89,6 +119,7 @@ namespace Univer.Desktop.UI
         // holds is removed on the next signed-in page; Storage.FinishSessionClear removes it at the next start too.
         private async Task ClearScheduleAsync()
         {
+            scheduleClearPending = true;
             scheduleWeek = null; scheduleReadAt = long.MinValue; scheduleReadAddress = null; UpdateOffline(); UpdateTrayHint();
             try { await storage.RemoveScheduleAsync(); scheduleClearPending = false; }
             catch (Exception) { scheduleClearPending = true; }

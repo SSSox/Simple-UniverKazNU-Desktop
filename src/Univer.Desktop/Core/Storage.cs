@@ -33,6 +33,7 @@ namespace Univer.Desktop.Core
         // with the pause and cleared with the new profile names; a start that finds it finishes the change
         // (Storage.FinishSessionClear). Older preference files have none.
         public bool SessionClearPending { get; set; }
+        public bool KeptCopiesClearPending { get; set; }
         public bool Readable { get; set; } = true;
         public bool Sidebar { get; set; } = true;
         public string Profile { get; set; } = Guid.NewGuid().ToString("N");
@@ -71,7 +72,7 @@ namespace Univer.Desktop.Core
         public string StartPage { get; set; } = StartPages.Home;
         public Preferences Clone()
         {
-            return new Preferences { Language = Language, AutoLoginPaused = AutoLoginPaused, SessionClearPending = SessionClearPending, Readable = Readable, Sidebar = Sidebar,
+            return new Preferences { Language = Language, AutoLoginPaused = AutoLoginPaused, SessionClearPending = SessionClearPending, KeptCopiesClearPending = KeptCopiesClearPending, Readable = Readable, Sidebar = Sidebar,
                 Profile = Profile, Zoom = Zoom, Window = Window, Tray = Tray, Animations = Animations, LegacyWarningDismissed = LegacyWarningDismissed, Theme = Theme,
                 UpdateVersion = UpdateVersion, UpdateSkipped = UpdateSkipped, UpdateChecked = UpdateChecked,
                 ExternalLinks = ExternalLinks, WebProfile = WebProfile, PinOffered = PinOffered, Reminders = Reminders, ReminderLead = ReminderLead, Grades = Grades, GradeInterval = GradeInterval,
@@ -160,31 +161,40 @@ namespace Univer.Desktop.Core
         // The previous run began a logout or an account change and ended before the browser profiles were replaced, so
         // they may still hold that session. This start leaves them behind: the settings name new, empty profiles (the old
         // ones are deleted as obsolete profiles), the stored notifications of that account go, and automatic sign-in
-        // stays paused. Returns whether there was such a change to finish. A review run changes nothing on disk.
+        // stays paused. A start also retries any pending kept copy deletes. A review run changes nothing on disk.
         public bool FinishSessionClear(Preferences preferences, bool save = true)
         {
-            if (!preferences.SessionClearPending) return false;
-            preferences.Profile = Guid.NewGuid().ToString("N"); preferences.WebProfile = Guid.NewGuid().ToString("N");
-            preferences.AutoLoginPaused = true; preferences.SessionClearPending = false;
+            var sessionPending = preferences.SessionClearPending;
+            if (!sessionPending && !preferences.KeptCopiesClearPending) return false;
+            if (sessionPending)
+            {
+                preferences.Profile = Guid.NewGuid().ToString("N"); preferences.WebProfile = Guid.NewGuid().ToString("N");
+                preferences.AutoLoginPaused = true; preferences.SessionClearPending = false;
+            }
             if (!save) return true;
-            try { File.Delete(Path.Combine(root, "notices.json")); }
-            catch (IOException) { }
-            catch (UnauthorizedAccessException) { }
-            try { ScheduleFile.Remove(root); }
-            catch (IOException) { }
-            catch (UnauthorizedAccessException) { }
-            try { GradeFile.Remove(root); }
-            catch (IOException) { }
-            catch (UnauthorizedAccessException) { }
-            try { ExamFile.Remove(root); }
-            catch (IOException) { }
-            catch (UnauthorizedAccessException) { }
-            try { LastGradesFile.Remove(root); }
-            catch (IOException) { }
-            catch (UnauthorizedAccessException) { }
-            // A failed write leaves the mark on disk, and the next start finishes the change again.
-            SavePreferences(preferences);
+            if (sessionPending)
+            {
+                TryRemoveSessionFile(path => File.Delete(Path.Combine(path, "notices.json")));
+                TryRemoveSessionFile(GradeFile.Remove);
+            }
+            preferences.KeptCopiesClearPending = true;
+            // Attempt every delete, even if another copy is locked.
+            var removed = TryRemoveSessionFile(ScheduleFile.Remove) & TryRemoveSessionFile(ExamFile.Remove) & TryRemoveSessionFile(LastGradesFile.Remove);
+            if (sessionPending || removed)
+            {
+                var updated = preferences.Clone();
+                updated.KeptCopiesClearPending = !removed;
+                SavePreferences(updated);
+                preferences.KeptCopiesClearPending = updated.KeptCopiesClearPending;
+            }
             return true;
+        }
+
+        private bool TryRemoveSessionFile(Action<string> remove)
+        {
+            try { remove(root); return true; }
+            catch (IOException) { return false; }
+            catch (UnauthorizedAccessException) { return false; }
         }
         // A plain account lives in credentials.dpapi. A login whose password is sealed under the PIN lives in account.dpapi,
         // which older builds (and the installed app, sharing this folder) do not read: they would send its missing password

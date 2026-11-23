@@ -107,6 +107,7 @@ namespace Univer.Desktop.Tests
             File.WriteAllText(Path.Combine(root, "preferences.json"), "{\"Language\":\"kz\",\"AutoLoginPaused\":false,\"Profile\":\"" + profile + "\"}");
             var prefs = storage.Load().Preferences;
             Assert.False(prefs.SessionClearPending);
+            Assert.False(prefs.KeptCopiesClearPending);
             Assert.False(storage.FinishSessionClear(prefs));
             Assert.Equal(profile, prefs.Profile); Assert.False(prefs.AutoLoginPaused);
         }
@@ -126,6 +127,88 @@ namespace Univer.Desktop.Tests
         [Fact]
         public void PreferencesCopy_KeepsThePendingSessionClear()
         { Assert.True(new Preferences { SessionClearPending = true }.Clone().SessionClearPending); }
+        [Fact]
+        public async Task PendingKeptCopiesClear_RoundTripsThroughAQueuedSave()
+        {
+            var storage = new Storage(root);
+            Assert.False(storage.LoadPreferences().KeptCopiesClearPending);
+            await storage.SavePreferencesAsync(new Preferences { KeptCopiesClearPending = true });
+            Assert.True(new Storage(root).LoadPreferences().KeptCopiesClearPending);
+        }
+
+        [Fact]
+        public void PendingKeptCopiesClear_StartupDeletesCopiesAndSavesClearedMarker()
+        {
+            var storage = new Storage(root);
+            var saved = new Preferences { KeptCopiesClearPending = true };
+            storage.SavePreferences(saved);
+            WriteKeptCopies();
+            var gradePath = Path.Combine(root, GradeFile.Name);
+            File.WriteAllText(gradePath, "{}");
+
+            var next = new Storage(root);
+            var prefs = next.LoadPreferences();
+            Assert.True(next.FinishSessionClear(prefs));
+
+            Assert.False(prefs.KeptCopiesClearPending);
+            Assert.False(next.LoadPreferences().KeptCopiesClearPending);
+            Assert.Equal(saved.Profile, prefs.Profile);
+            Assert.Equal(saved.WebProfile, prefs.WebProfile);
+            Assert.False(prefs.AutoLoginPaused);
+            Assert.All(KeptCopyNames, name => Assert.False(File.Exists(Path.Combine(root, name))));
+            Assert.True(File.Exists(gradePath));
+        }
+
+        [Theory]
+        [InlineData("schedule.json", false)]
+        [InlineData("exams.json", false)]
+        [InlineData("last-grades.json", false)]
+        [InlineData("exams.json", true)]
+        public void LockedKeptCopy_StartupKeepsMarkerUntilTheNextSuccessfulCleanup(string lockedName, bool interruptedLogout)
+        {
+            var storage = new Storage(root);
+            storage.SavePreferences(new Preferences { SessionClearPending = interruptedLogout, KeptCopiesClearPending = !interruptedLogout });
+            WriteKeptCopies();
+            var lockedPath = Path.Combine(root, lockedName);
+
+            using (File.Open(lockedPath, FileMode.Open, FileAccess.Read, FileShare.None))
+            {
+                var prefs = storage.LoadPreferences();
+                Assert.True(storage.FinishSessionClear(prefs));
+                Assert.True(prefs.KeptCopiesClearPending);
+                var saved = storage.LoadPreferences();
+                Assert.True(saved.KeptCopiesClearPending);
+                Assert.False(saved.SessionClearPending);
+                Assert.All(KeptCopyNames, name => Assert.Equal(name == lockedName, File.Exists(Path.Combine(root, name))));
+            }
+
+            var next = new Storage(root);
+            Assert.True(next.FinishSessionClear(next.LoadPreferences()));
+            Assert.False(File.Exists(lockedPath));
+            Assert.False(next.LoadPreferences().KeptCopiesClearPending);
+        }
+
+        [Fact]
+        public void PendingKeptCopiesClear_ReviewLeavesFilesAndMarkerOnDisk()
+        {
+            var storage = new Storage(root);
+            storage.SavePreferences(new Preferences { KeptCopiesClearPending = true });
+            WriteKeptCopies();
+
+            var prefs = storage.LoadPreferences();
+            Assert.True(storage.FinishSessionClear(prefs, false));
+            Assert.True(prefs.KeptCopiesClearPending);
+            Assert.True(storage.LoadPreferences().KeptCopiesClearPending);
+            Assert.All(KeptCopyNames, name => Assert.True(File.Exists(Path.Combine(root, name))));
+        }
+
+        private static readonly string[] KeptCopyNames = { ScheduleFile.Name, ExamFile.Name, LastGradesFile.Name };
+
+        private void WriteKeptCopies()
+        {
+            foreach (var name in KeptCopyNames) File.WriteAllText(Path.Combine(root, name), "{}");
+        }
+
         public void Dispose()
         {
             if (Directory.Exists(root) && Path.GetFullPath(root).StartsWith(Path.GetFullPath(Path.Combine(Path.GetTempPath(), "Univer.Desktop.UnitTests")) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)) Directory.Delete(root, true);

@@ -16,7 +16,7 @@ namespace Univer.Desktop.UI
     {
         private readonly System.Diagnostics.Stopwatch examClock = System.Diagnostics.Stopwatch.StartNew();
         private ExamPlan examPlan;
-        private bool examBusy, examClearPending;
+        private bool examBusy, examClearPending, examClearInFlight;
         private readonly ReadRetry examRetry = new ReadRetry();
         private long examReadAt = long.MinValue;
         private string examReadAddress, examAccountForQa, examTitleShown, examBodyShown;
@@ -29,8 +29,12 @@ namespace Univer.Desktop.UI
         // A signed-in page of the main window: the exam and midterm schedule pages are asked once a minute while shown.
         private void ExamContent()
         {
-            if (examClearPending) { examClearPending = false; QueueAsync(ClearExamsAsync); return; }
-            if (examBusy || closing || rotating || document != null || main == null || Active != main) return;
+            if (examClearPending)
+            {
+                QueueCopyClear(ref examClearInFlight, ClearExamsAsync, () => examClearInFlight = false);
+                return;
+            }
+            if (KeptCopiesClearBlocked || examBusy || closing || rotating || document != null || main == null || Active != main) return;
             var address = main.Address;
             if (!SitePolicy.ExamPage(address) || ExamAccount.Length == 0) return;
             var now = examClock.ElapsedMilliseconds;
@@ -42,7 +46,7 @@ namespace Univer.Desktop.UI
         private async Task ReadExamsAsync(string address)
         {
             var browser = main;
-            if (examBusy || closing || rotating || browser == null || browser.IsDisposed || document != null || browser.Address != address) return;
+            if (examClearPending || KeptCopiesClearBlocked || examBusy || closing || rotating || browser == null || browser.IsDisposed || document != null || browser.Address != address) return;
             examBusy = true;
             try
             {
@@ -108,6 +112,7 @@ namespace Univer.Desktop.UI
         // holds is removed on the next signed-in page; Storage.FinishSessionClear removes it at the next start too.
         private async Task ClearExamsAsync()
         {
+            examClearPending = true;
             examPlan = null; examReadAt = long.MinValue; examReadAddress = null; examRetry.Reset();
             try { await storage.RemoveExamsAsync(); examClearPending = false; }
             catch (Exception) { examClearPending = true; }
