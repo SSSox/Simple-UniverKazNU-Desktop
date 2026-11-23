@@ -15,7 +15,7 @@ namespace Univer.Desktop.Tests
         // The site's own Kazakh names are ОӘК, Moodle ҚОЖ and құпиясөз; «Ауд.» and «через» are Russian.
         private static readonly Regex RussianInKazakh = new Regex(@"УМКД|СДО|[Пп]арол|Ауд\.|[Чч]ерез |құпия сөз");
         // Words Kazakh writes the same way as Russian.
-        private static readonly HashSet<string> SameInKazakh = new HashSet<string> { "Логин", "Кабинет", "Аккаунт", "Силлабус.pdf", "Файл", "Семинар", "Транскрипт", "6 цифр" };
+        private static readonly HashSet<string> SameInKazakh = new HashSet<string> { "Логин", "Кабинет", "Аккаунт", "Силлабус.pdf", "Файл", "Семинар", "Бакалавр", "Транскрипт", "6 цифр" };
 
         private static Dictionary<string, string[]> All()
         { return (Dictionary<string, string[]>)typeof(Strings).GetField("values", BindingFlags.NonPublic | BindingFlags.Static).GetValue(null); }

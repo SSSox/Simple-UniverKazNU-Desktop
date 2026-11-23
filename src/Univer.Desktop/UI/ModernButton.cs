@@ -148,7 +148,9 @@ namespace Univer.Desktop.UI
         {
             var scale = Theme.DpiScale * zoom;
             var text = TextRenderer.MeasureText(Text, Font, Size.Empty, TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine | TextFormatFlags.NoPadding).Width;
-            return text + (int)(28 * scale) + (Icon != UiIcon.None || busy ? (int)(22 * scale) : 0);
+            // A chevron button draws its label with DrawText's own padding and keeps the arrow's place on the right (OnPaint's trail).
+            var chevron = Chevron ? TextRenderer.MeasureText(Text, Font, Size.Empty, TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine).Width - text + (int)(22 * scale) : 0;
+            return text + (int)(28 * scale) + (Icon != UiIcon.None || busy ? (int)(22 * scale) : 0) + chevron;
         }
         private void FitWidth()
         {

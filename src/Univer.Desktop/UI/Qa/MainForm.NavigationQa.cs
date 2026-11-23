@@ -98,6 +98,9 @@ namespace Univer.Desktop.UI
                     form.Show(this); form.SelectAppearanceForQa(); await Task.Delay(150);
                     var button = form.StartPageForQa;
                     var named = button.Text == Strings.Get("home", lang) && button.AccessibleName.StartsWith(Strings.Get("startPageTitle", lang), StringComparison.Ordinal);
+                    form.ChooseStartPageForQa("bachelor"); await Task.Delay(50);
+                    Check(form.StartPage == "bachelor" && button.Text == Strings.Get("bachelor", lang) && form.StartPageFitsForQa, "Settings offers the Bachelor page as the start page (" + lang + ")", results);
+                    if (lang == "ru") SaveBitmap(form, Path.Combine(qa, "settings-start-bachelor.png"));
                     form.ChooseStartPageForQa("attestation"); await Task.Delay(50);
                     Check(named && form.StartPage == "attestation" && button.Text == Strings.Get("attestation", lang) && form.SaveButton.Enabled && form.StartPageFitsForQa,
                         "Settings offers the start page with its name, fits it on the View tab and offers the choice to Save (" + lang + ")", results);

@@ -47,6 +47,7 @@ namespace Univer.Desktop.Tests
         {
             Assert.Equal(SitePolicy.Home, StartPages.Address("home"));
             Assert.Equal(SitePolicy.Origin + "/student/myschedule/", StartPages.Address("schedule"));
+            Assert.Equal(SitePolicy.Origin + "/student/bachelor/", StartPages.Address("bachelor"));
             Assert.Equal(SitePolicy.Home, StartPages.Address("../user/logout"));
             Assert.Equal(SitePolicy.Home, StartPages.Address(null));
             foreach (var key in StartPages.Keys.Where(k => k != "home"))

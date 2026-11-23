@@ -9,8 +9,8 @@ namespace Univer.Desktop.Core
     {
         internal const string Home = "home";
         // The words are the sidebar's (Strings: the same keys).
-        internal static readonly string[] Keys = { Home, "schedule", "journal", "attestation", "materials", "distance" };
-        private static readonly string[] Paths = { "/", "/student/myschedule/", "/student/attendance/full/", "/student/attestation/", "/student/umkd/", "/student/discussion/index/" };
+        internal static readonly string[] Keys = { Home, "bachelor", "schedule", "journal", "attestation", "materials", "distance" };
+        private static readonly string[] Paths = { "/", "/student/bachelor/", "/student/myschedule/", "/student/attendance/full/", "/student/attestation/", "/student/umkd/", "/student/discussion/index/" };
         internal static string Normalize(string key) { return Array.IndexOf(Keys, key) >= 0 ? key : Home; }
         internal static string Address(string key) { return SitePolicy.Origin + Paths[Array.IndexOf(Keys, Normalize(key))]; }
     }

@@ -345,6 +345,7 @@ namespace Univer.Desktop.UI
             { "attestationHint", new[] { "Оценки текущей аттестации по предметам", "Пәндер бойынша ағымдағы аттестация бағалары", "Current attestation grades by course" } },
             { "distance", new[] { "Дистанционные курсы", "Қашықтан оқыту курстары", "Distance courses" } },
             { "distanceHint", new[] { "Задания и обсуждения дистанционных курсов", "Қашықтан оқыту курстарының тапсырмалары мен талқылаулары", "Assignments and discussions of distance courses" } },
+            { "bachelor", new[] { "Бакалавр", "Бакалавр", "Bachelor" } },
             { "cabinet", new[] { "Мой кабинет", "Менің кабинетім", "My account" } },
             { "journal", new[] { "Успеваемость", "Үлгерім", "Attendance & grades" } },
             { "university", new[] { "КазНУ имени аль-Фараби", "Әл-Фараби атындағы ҚазҰУ", "Al-Farabi KazNU" } },
