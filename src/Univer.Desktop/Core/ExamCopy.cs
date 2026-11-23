@@ -192,11 +192,38 @@ namespace Univer.Desktop.Core
             if (hidden) return string.Format(Strings.Get("examSoon", lang), kind);
             return string.Format(Strings.Get("examIn", lang), Math.Max(1, (int)Math.Ceiling((first.Item.Start - now).TotalMinutes)), kind);
         }
+        // A balloon names at most three: three exams, or behind the PIN three times (every exam at those times is covered by
+        // its line). Only what it names is marked announced; the rest come in the next balloon.
+        internal const int Named = 3;
+        internal static List<ExamReminder> NamedOf(IList<ExamReminder> due, bool hidden, int lines = Named)
+        {
+            return hidden ? TimeGroups(due).Take(lines).SelectMany(g => g).ToList() : due.Take(lines).ToList();
+        }
+        // Behind the PIN exams are told apart only by when and what kind: reminders of one kind at one time (and both the
+        // evening one or both not) share a line, in the order of the first of each.
+        internal static List<List<ExamReminder>> TimeGroups(IList<ExamReminder> due)
+        {
+            return due.GroupBy(r => new { r.Evening, r.Item.Kind, r.Item.Start }).Select(g => g.ToList()).ToList();
+        }
+        // One such line: "Завтра экзамен ×2 · начало в 09:00"; the count only when more than one exam shares it.
+        internal static string HiddenLine(IList<ExamReminder> group, string lang)
+        {
+            var first = group[0]; var kind = KindWord(first.Item.Kind, lang);
+            var head = first.Evening ? string.Format(Strings.Get("examTomorrow", lang), kind) : kind;
+            if (group.Count > 1) head += " ×" + group.Count.ToString(CultureInfo.InvariantCulture);
+            return Cap(head) + " · " + string.Format(Strings.Get("examStarts", lang), first.Item.Start.ToString("HH:mm", CultureInfo.InvariantCulture));
+        }
+        internal static string Cap(string text) { return text.Length == 0 ? text : char.ToUpperInvariant(text[0]) + text.Substring(1); }
         internal static string Body(IList<ExamReminder> due, string lang, bool hidden)
         {
-            var starts = string.Format(Strings.Get("examStarts", lang), due[0].Item.Start.ToString("HH:mm", CultureInfo.InvariantCulture));
-            if (hidden) return char.ToUpperInvariant(starts[0]) + starts.Substring(1);
-            var text = string.Join(Environment.NewLine, due.Take(3).Select(r =>
+            if (hidden)
+            {
+                var groups = TimeGroups(due).Take(Named).ToList();
+                // One exam: the title already says its kind, the body its time.
+                if (groups.Count == 1 && groups[0].Count == 1) return Cap(string.Format(Strings.Get("examStarts", lang), due[0].Item.Start.ToString("HH:mm", CultureInfo.InvariantCulture)));
+                return string.Join(Environment.NewLine, groups.Select(g => HiddenLine(g, lang)));
+            }
+            var text = string.Join(Environment.NewLine, due.Take(Named).Select(r =>
             {
                 var parts = new List<string> { r.Item.Subject };
                 if (r.Item.Place.Length > 0) parts.Add(string.Format(Strings.Get("reminderRoom", lang), r.Item.Place));
@@ -218,7 +245,7 @@ namespace Univer.Desktop.Core
         // Only these are marked announced; the rest come in the next balloon instead of being dropped unsaid.
         internal const int Named = 2;
         internal static List<ScheduleClass> NamedClasses(IList<ScheduleClass> classes, bool hidden) { return hidden ? classes.ToList() : classes.Take(Named).ToList(); }
-        internal static List<ExamReminder> NamedExams(IList<ExamReminder> exams) { return exams.Take(Named).ToList(); }
+        internal static List<ExamReminder> NamedExams(IList<ExamReminder> exams, bool hidden) { return ExamReminders.NamedOf(exams, hidden, Named); }
         internal static string Title(IList<ScheduleClass> classes, IList<ExamReminder> exams, DateTime now, string lang, bool hidden)
         {
             var examFirst = !exams[0].Evening && exams[0].Item.Start < classes[0].Start;
@@ -231,9 +258,9 @@ namespace Univer.Desktop.Core
             if (hidden)
             {
                 lines.AddRange(classes.Select(c => c.Start).Distinct().Take(2).Select(t => Cap(string.Format(Strings.Get("reminderClassAt", lang), Time(t)))));
-                // The evening one says it is tomorrow, as it does with the PIN off; two exams at one time are one line.
-                lines.AddRange(exams.Take(2).Select(r => (r.Evening ? Cap(string.Format(Strings.Get("examTomorrow", lang), ExamReminders.KindWord(r.Item.Kind, lang)))
-                    : Cap(ExamReminders.KindWord(r.Item.Kind, lang))) + " · " + string.Format(Strings.Get("examStarts", lang), Time(r.Item.Start))).Distinct());
+                // The evening one says it is tomorrow, as it does with the PIN off; exams of one kind at one time share a line
+                // that counts them.
+                lines.AddRange(ExamReminders.TimeGroups(exams).Take(Named).Select(g => ExamReminders.HiddenLine(g, lang)));
             }
             else
             {

@@ -53,7 +53,7 @@ namespace Univer.Desktop.UI
         private void AnnounceBoth(List<ScheduleClass> classes, List<ExamReminder> exams, DateTime now)
         {
             var lang = prefs.Language; var hidden = ExamsHidden;
-            classes = CombinedReminder.NamedClasses(classes, hidden); exams = CombinedReminder.NamedExams(exams);
+            classes = CombinedReminder.NamedClasses(classes, hidden); exams = CombinedReminder.NamedExams(exams, hidden);
             foreach (var lesson in classes) remindersShown.Add(ClassReminders.Key(lesson));
             MarkExamsAnnounced(exams);
             balloonOpens = "schedule";

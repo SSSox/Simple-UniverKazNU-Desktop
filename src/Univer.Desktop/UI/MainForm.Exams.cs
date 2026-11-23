@@ -87,16 +87,18 @@ namespace Univer.Desktop.UI
         private List<ExamReminder> RemindExams(DateTime now)
         {
             var due = ExamsDue(now);
-            if (due.Count > 0) AnnounceExams(due, now);
-            return due;
+            return due.Count > 0 ? AnnounceExams(due, now) : due;
         }
-        private void AnnounceExams(List<ExamReminder> due, DateTime now)
+        // Says and marks only what the balloon names (ExamReminders.NamedOf); returns that.
+        private List<ExamReminder> AnnounceExams(List<ExamReminder> due, DateTime now)
         {
-            MarkExamsAnnounced(due);
             var lang = prefs.Language; var hidden = ExamsHidden;
+            due = ExamReminders.NamedOf(due, hidden);
+            MarkExamsAnnounced(due);
             balloonOpens = due[0].Item.Kind == ExamKind.Exam ? "exams" : "midterms";
             examTitleShown = ExamReminders.Title(due, now, lang, hidden); examBodyShown = ExamReminders.Body(due, lang, hidden);
             trayIcon.ShowBalloonTip(10000, examTitleShown, examBodyShown, ToolTipIcon.Info);
+            return due;
         }
         private async Task SaveExamPlanQuietAsync(ExamPlan plan)
         {

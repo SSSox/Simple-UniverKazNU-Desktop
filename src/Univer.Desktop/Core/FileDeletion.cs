@@ -9,9 +9,9 @@ using Microsoft.Win32.SafeHandles;
 
 namespace Univer.Desktop.Core
 {
-    // Whether a file's place keeps a Recycle Bin. Busy: the file could not be opened (another program holds it), so
-    // nothing was decided about its drive.
-    internal enum RecycleSupport { Yes, NoBin, Busy }
+    // Whether a file's place keeps a Recycle Bin. Busy: another program holds the file, so nothing was decided about its
+    // drive. Denied: Windows refuses this user even a look at the file.
+    internal enum RecycleSupport { Yes, NoBin, Busy, Denied }
     // Where a deleted download goes. The app moves a file only through this, so self-test, the review and xUnit use the
     // in-memory copy and never touch the user's Downloads folder or Recycle Bin.
     internal interface IFileRecycler
@@ -26,12 +26,13 @@ namespace Univer.Desktop.Core
     {
         public readonly List<string> Calls = new List<string>();
         public readonly List<IntPtr> Owners = new List<IntPtr>();
-        public bool Available = true, Busy;
-        public RecycleSupport Support(string path) { return Busy ? RecycleSupport.Busy : Available ? RecycleSupport.Yes : RecycleSupport.NoBin; }
+        public bool Available = true, Busy, Denied = false;
+        public RecycleSupport Support(string path) { return Busy ? RecycleSupport.Busy : Denied ? RecycleSupport.Denied : Available ? RecycleSupport.Yes : RecycleSupport.NoBin; }
         public Task RecycleAsync(string path, IntPtr owner) { Calls.Add(path); Owners.Add(owner); return Task.FromResult(0); }
     }
-    // Only a fixed local drive is trusted to have a Recycle Bin, and "fixed" is read from where the file really is (a
-    // SUBST drive or a junction to a share resolves to its target). SHFileOperation with FOF_ALLOWUNDO deletes for good on
+    // Only a fixed local volume is trusted to have a Recycle Bin, and "fixed" is read from the volume the file really is on
+    // (its \\?\Volume{…}\ name: a SUBST drive, a junction or a volume mounted in a folder resolve to it, a share has none).
+    // The shell gets the file's resolved DOS path, so it moves the very file whose volume was judged. SHFileOperation with FOF_ALLOWUNDO deletes for good on
     // a removable or network drive (they have no bin), so those are refused before the call. The flags add
     // FOF_WANTNUKEWARNING: on a fixed drive whose bin is switched off or too small for the file the shell then asks before
     // destroying it, and a "No" aborts, so a quiet permanent deletion cannot happen. The call runs on its own STA thread
@@ -45,42 +46,66 @@ namespace Univer.Desktop.Core
         internal static ApartmentState LastApartment = ApartmentState.Unknown;
         public RecycleSupport Support(string path)
         {
+            string target;
+            return Resolve(path, out target);
+        }
+        // The volume decides; target is the path the shell gets (the resolved DOS path, or the typed one when that is too long
+        // for the shell or the volume has no drive letter).
+        private static RecycleSupport Resolve(string path, out string target)
+        {
+            target = null;
             try
             {
                 if (string.IsNullOrEmpty(path) || DownloadHistory.Remote(path) || !Path.IsPathRooted(path)) return RecycleSupport.NoBin;
-                string resolved;
-                using (var handle = CreateFileW(path, 0x80000000, 7, IntPtr.Zero, 3, 0, IntPtr.Zero))
+                string volume, dos;
+                // GENERIC_READ first; a file this user may not read is opened for its attributes only, which still names its volume.
+                var handle = CreateFileW(path, 0x80000000, 7, IntPtr.Zero, 3, 0, IntPtr.Zero);
+                if (handle.IsInvalid)
                 {
-                    if (handle.IsInvalid)
-                    {
-                        var error = Marshal.GetLastWin32Error();
-                        return error == 5 || error == 32 || error == 33 ? RecycleSupport.Busy : RecycleSupport.NoBin;
-                    }
-                    var text = new StringBuilder(520);
-                    var length = GetFinalPathNameByHandleW(handle, text, (uint)text.Capacity, 0);
-                    if (length >= text.Capacity) { text = new StringBuilder((int)length + 1); length = GetFinalPathNameByHandleW(handle, text, (uint)text.Capacity, 0); }
-                    resolved = length == 0 || length >= text.Capacity ? null : text.ToString();
+                    var error = Marshal.GetLastWin32Error();
+                    handle.Dispose();
+                    if (error == 32 || error == 33) return RecycleSupport.Busy;
+                    if (error != 5) return RecycleSupport.NoBin;
+                    handle = CreateFileW(path, 0x80, 7, IntPtr.Zero, 3, 0, IntPtr.Zero);
+                    if (handle.IsInvalid) { handle.Dispose(); return RecycleSupport.Denied; }
                 }
-                var root = FileDeletion.LocalDriveRoot(resolved);
-                return root != null && GetDriveTypeW(root) == DriveFixed ? RecycleSupport.Yes : RecycleSupport.NoBin;
+                using (handle) { volume = FinalPath(handle, 1); dos = FinalPath(handle, 0); }
+                var root = FileDeletion.VolumeRoot(volume);
+                if (root == null || GetDriveTypeW(root) != DriveFixed) return RecycleSupport.NoBin;
+                target = FileDeletion.ShellPath(dos) ?? path;
+                return RecycleSupport.Yes;
             }
             catch (Exception) { return RecycleSupport.NoBin; }
+        }
+        // GetFinalPathNameByHandle: flags 0 gives \\?\X:\…, flags 1 (VOLUME_NAME_GUID) \\?\Volume{…}\…; null when it fails.
+        private static string FinalPath(SafeFileHandle handle, uint flags)
+        {
+            var text = new StringBuilder(520);
+            var length = GetFinalPathNameByHandleW(handle, text, (uint)text.Capacity, flags);
+            if (length >= text.Capacity) { text = new StringBuilder((int)length + 1); length = GetFinalPathNameByHandleW(handle, text, (uint)text.Capacity, flags); }
+            return length == 0 || length >= text.Capacity ? null : text.ToString();
         }
         public Task RecycleAsync(string path, IntPtr owner)
         {
             var done = new TaskCompletionSource<bool>();
             var thread = new Thread(() =>
             {
-                try { LastApartment = Thread.CurrentThread.GetApartmentState(); Move(path, owner); done.SetResult(true); }
+                try
+                {
+                    LastApartment = Thread.CurrentThread.GetApartmentState();
+                    string target;
+                    if (Resolve(path, out target) != RecycleSupport.Yes) throw new IOException("The file's place has no Recycle Bin now.");
+                    Move(path, target, owner); done.SetResult(true);
+                }
                 catch (Exception ex) { done.SetException(ex); }
             }) { IsBackground = true, Name = "Univer.Recycle" };
             thread.SetApartmentState(ApartmentState.STA);
             thread.Start();
             return done.Task;
         }
-        private static void Move(string path, IntPtr owner)
+        private static void Move(string path, string target, IntPtr owner)
         {
-            var from = path + "\0\0";
+            var from = target + "\0\0";
             var flags = (ushort)(Silent | NoConfirmation | AllowUndo | NoErrorUi | WantNukeWarning);
             int code; bool aborted;
             if (IntPtr.Size == 8)
@@ -93,7 +118,7 @@ namespace Univer.Desktop.Core
                 var op = new Op32 { hwnd = owner, wFunc = Delete, pFrom = from, fFlags = flags };
                 code = SHFileOperation32(ref op); aborted = op.fAnyOperationsAborted != 0;
             }
-            if (code != 0 || aborted || File.Exists(path)) throw new IOException("The Recycle Bin did not take the file (code " + code + ").");
+            if (code != 0 || aborted || File.Exists(path) || File.Exists(target)) throw new IOException("The Recycle Bin did not take the file (code " + code + ").");
         }
         // The structure of the running bitness as the marshaller lays it out (shellapi.h: 30 bytes packed on x86, 56 on
         // x64; fFlags and fAnyOperationsAborted at 16 and 18, or 32 and 36).
@@ -125,7 +150,7 @@ namespace Univer.Desktop.Core
         [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
         private static extern uint GetFinalPathNameByHandleW(SafeFileHandle file, StringBuilder text, uint size, uint flags);
     }
-    internal enum DeleteVerdict { Ok, NotAFile, Partial, Missing, Directory, Link, Changed, NoBin, Busy, Failed }
+    internal enum DeleteVerdict { Ok, NotAFile, Partial, Missing, Directory, Link, Changed, NoBin, Busy, Denied, Failed }
     // Whether a downloaded file may be deleted, and the deletion itself. Only the record's own path is ever touched, and
     // only while it is still the file the app saved: a plain file of the same size.
     internal static class FileDeletion
@@ -158,17 +183,36 @@ namespace Univer.Desktop.Core
             if (rest.Length < 3 || !((rest[0] >= 'A' && rest[0] <= 'Z') || (rest[0] >= 'a' && rest[0] <= 'z')) || rest[1] != ':' || rest[2] != '\\') return null;
             return rest.Substring(0, 3);
         }
-        // After a preview let go: waits until the file opens for exclusive use, up to timeoutMs. False when it never did.
+        // A VOLUME_NAME_GUID answer \\?\Volume{…}\path gives its volume root \\?\Volume{…}\ (GetDriveType takes it); null otherwise.
+        public static string VolumeRoot(string resolved)
+        {
+            const string prefix = @"\\?\Volume{";
+            if (resolved == null || !resolved.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) return null;
+            var close = resolved.IndexOf("}\\", prefix.Length, StringComparison.Ordinal);
+            if (close <= prefix.Length || resolved.IndexOfAny(new[] { '\\', '{' }, prefix.Length, close - prefix.Length) >= 0) return null;
+            return resolved.Substring(0, close + 2);
+        }
+        // The path the shell can take for a DOS-form answer \\?\X:\…: the same without \\?\, or null for anything else
+        // (UNC, no drive letter) or a path too long for SHFileOperation (MAX_PATH).
+        public static string ShellPath(string resolved)
+        {
+            if (LocalDriveRoot(resolved) == null) return null;
+            var path = resolved.Substring(4);
+            return path.Length < 260 ? path : null;
+        }
+        // After a preview let go: waits until the file opens with no sharing (no other handle on it), up to timeoutMs. False
+        // when it never did. Read access is enough, so a read-only file is not mistaken for a held one; a file this user may
+        // not open at all is no release problem and ends the wait.
         public static async Task<bool> WaitReleasedAsync(string path, int timeoutMs = 2000, int stepMs = 100)
         {
             var until = DateTime.UtcNow.AddMilliseconds(timeoutMs);
             while (true)
             {
-                try { using (File.Open(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None)) return true; }
+                try { using (File.Open(path, FileMode.Open, FileAccess.Read, FileShare.None)) return true; }
                 catch (FileNotFoundException) { return true; }
                 catch (DirectoryNotFoundException) { return true; }
+                catch (UnauthorizedAccessException) { return true; }
                 catch (IOException) { }
-                catch (UnauthorizedAccessException) { }
                 if (DateTime.UtcNow >= until) return false;
                 await Task.Delay(stepMs);
             }
@@ -182,6 +226,7 @@ namespace Univer.Desktop.Core
             var support = recycler.Support(record.Path);
             if (support == RecycleSupport.NoBin) return DeleteVerdict.NoBin;
             if (support == RecycleSupport.Busy) return DeleteVerdict.Busy;
+            if (support == RecycleSupport.Denied) return DeleteVerdict.Denied;
             try { await recycler.RecycleAsync(record.Path, owner); }
             catch (Exception) { return DeleteVerdict.Failed; }
             return DeleteVerdict.Ok;
@@ -196,6 +241,7 @@ namespace Univer.Desktop.Core
                 case DeleteVerdict.Changed: return "deleteChanged";
                 case DeleteVerdict.NoBin: return "deleteNoBin";
                 case DeleteVerdict.Busy: return "deleteBusy";
+                case DeleteVerdict.Denied: return "deleteDenied";
                 case DeleteVerdict.Partial: case DeleteVerdict.NotAFile: case DeleteVerdict.Directory: case DeleteVerdict.Link: return "deleteNotFile";
                 default: return "deleteFailed";
             }

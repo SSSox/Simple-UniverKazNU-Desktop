@@ -20,6 +20,7 @@ namespace Univer.Desktop.UI
         private GradeSheet gradeSheet;
         private bool gradesBusy, gradesClearPending;
         private long gradesDueAt = long.MinValue;
+        private const long GradeRetryMs = 60000;
         private string gradeAgent;
         // The last balloon's words, for the self-test.
         private string gradeTitleShown, gradeBodyShown;
@@ -55,7 +56,14 @@ namespace Univer.Desktop.UI
                 }
                 // The shown page must be the saved login's (ReadingAllowed), before the request and again before anything is kept:
                 // a student who signed in by hand after the site's own logout gets no check under the saved login.
-                if (!await PageAllowedAsync(epoch, account, source)) return;
+                // Not allowed yet (the mark could not be read while a page was being replaced, or another account's page is
+                // shown): asked again in a minute, not after the whole interval. That ask is a local read of the page only; the
+                // site is requested only once the page is allowed.
+                if (!await PageAllowedAsync(epoch, account, source))
+                {
+                    if (Current(epoch, account, source)) gradesDueAt = Math.Min(gradesDueAt, scheduleClock.ElapsedMilliseconds + GradeRetryMs);
+                    return;
+                }
                 var html = await (gradeReadForQa ?? ((url, token) => ReadAttestationAsync(source, url, token)))(SitePolicy.Origin + GradeFetch.Path, stopping);
                 // The session ended, the account changed or the app is closing while the page answered: the reading is dropped.
                 if (html == null || !Current(epoch, account, source) || !await PageAllowedAsync(epoch, account, source)) return;

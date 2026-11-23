@@ -42,12 +42,14 @@ namespace Univer.Desktop.UI
             var previousTray = trayIcon; var previousOpens = balloonOpens; var previousSheet = gradeSheet;
             var page = AttestationFixture(false);
             string answer = page; var reads = 0;
+            var markBefore = await KeepMarkForQaAsync();
             gradeAccountForQa = ScheduleWeek.AccountMark("qa-grades"); gateLoginForQa = "qa-grades";
             // The check reads the shown page's account mark before it asks the site (ReadingAllowed): a site page that carries it.
             Func<string, Task> showMark = async mark =>
             {
                 main.LoadHtml("<!doctype html><html><head><title>grades-mark-qa</title></head><body><script>localStorage.setItem('" + PageAccount.Key + "','" + mark + "');</script><div id=\"l4\">QA</div></body></html>", SitePolicy.Origin + "/student/news/");
-                for (var until = DateTime.UtcNow.AddSeconds(8); DateTime.UtcNow < until && await AutomationController.EvaluateAsync(main, "document.title") != "grades-mark-qa";) await Task.Delay(100);
+                // The title is there before the body's script has set the mark: wait for the mark itself.
+                for (var until = DateTime.UtcNow.AddSeconds(8); DateTime.UtcNow < until && await AutomationController.EvaluateAsync(main, "document.title+'|'+localStorage.getItem('" + PageAccount.Key + "')") != "grades-mark-qa|" + mark;) await Task.Delay(100);
             };
             await showMark(PageAccount.Mark("qa-grades"));
             gradeReadForQa = (url, token) => { reads++; return Task.FromResult(url == SitePolicy.Origin + "/student/attestation/" ? answer : null); };
@@ -89,8 +91,10 @@ namespace Univer.Desktop.UI
                     // request is made and nothing is kept or announced; the saved login's own page brings the check back.
                     await showMark(PageAccount.Mark("qa-other"));
                     var sheetKept = gradeSheet; var countOther = reads; gradeTitleShown = null; answer = page.Replace("<td>60</td><td>0</td><td>0</td><td>18</td>", "<td>60</td><td>71</td><td>0</td><td>38</td>");
+                    gradesDueAt = scheduleClock.ElapsedMilliseconds + 120 * 60000L;
                     await ReadGradesAsync();
                     Check(reads == countOther && gradeSheet == sheetKept && gradeTitleShown == null, "a page of another account than the saved login gets no grade check and nothing is announced", results);
+                    Check(gradesDueAt - scheduleClock.ElapsedMilliseconds <= GradeRetryMs, "a page not allowed yet is asked again in a minute, not after the whole interval", results);
                     await showMark(PageAccount.Mark("qa-grades")); answer = page;
                     // Behind a PIN the balloon names nothing.
                     var body = GradeNotice.Body(new List<GradeChange> { new GradeChange { Course = "Психология", Cells = new List<string> { "РК2 71" } } }, prefs.Language, true);
@@ -117,7 +121,7 @@ namespace Univer.Desktop.UI
                 {
                     trayIcon = previousTray; balloonOpens = previousOpens; gradeSheet = previousSheet;
                     gradeAccountForQa = null; gateLoginForQa = null; gradeReadForQa = null;
-                    await AutomationController.EvaluateAsync(main, "localStorage.removeItem('" + PageAccount.Key + "');'cleared'"); gradeTitleShown = gradeBodyShown = null; gradesDueAt = long.MinValue;
+                    await RestoreMarkForQaAsync(markBefore); gradeTitleShown = gradeBodyShown = null; gradesDueAt = long.MinValue;
                     prefs.Grades = true; prefs.GradeInterval = GradeNotice.DefaultInterval;
                 }
             }

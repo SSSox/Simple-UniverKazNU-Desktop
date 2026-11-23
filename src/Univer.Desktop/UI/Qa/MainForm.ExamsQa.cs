@@ -37,6 +37,7 @@ namespace Univer.Desktop.UI
             var today = DateTime.Today; var day = today.AddDays(30);
             var file = Path.Combine(storage.Root, ExamFile.Name);
             var previousTray = trayIcon; var previousOpens = balloonOpens; var previousLead = prefs.ReminderLead; var previousReminders = prefs.Reminders;
+            var markBefore = await KeepMarkForQaAsync();
             examAccountForQa = ScheduleWeek.AccountMark("qa-exams"); gateLoginForQa = "qa-exams";
             try
             {
@@ -62,6 +63,14 @@ namespace Univer.Desktop.UI
                 for (var i = 0; i < 4; i++) { await ReadExamsAsync(main.Address); waits.Add(examClock.ElapsedMilliseconds - examReadAt); }
                 QaTrace("exams-retry " + string.Join(",", waits));
                 Check(waits[0] >= 49000 && waits[1] >= 49000 && waits[2] >= 49000 && waits[3] < 5000 && examRetry.Used == ReadRetry.ShortTries, "a list that is not on the page yet is asked again after ten seconds, three times, then every minute", results);
+                // The same address loaded again (F5): the reader starts over, at once and with its short retries.
+                var sameAddress = main.Address; examReadAddress = sameAddress;
+                main.LoadHtml(ExamPageFixture("exams-wait-qa2", "").Replace("<table id=\"scheduleList\"></table>", ""), sameAddress);
+                var startedOver = await UntilForQa(() => examReadAddress == null, 8000);
+                for (var until = DateTime.UtcNow.AddSeconds(8); DateTime.UtcNow < until && await AutomationController.EvaluateAsync(main, "document.title") != "exams-wait-qa2";) await Task.Delay(100);
+                ExamContent(); await UntilForQa(() => examRetry.Used == 1 && !examBusy, 5000);
+                QaTrace("exams-f5 " + startedOver + " " + (examReadAddress == sameAddress) + " used=" + examRetry.Used + " wait=" + (examClock.ElapsedMilliseconds - examReadAt));
+                Check(startedOver && examReadAddress == sameAddress && examRetry.Used == 1 && examClock.ElapsedMilliseconds - examReadAt >= 49000, "the same page loaded again is read at once and gets its short retries back", results);
                 ExamKind kind; List<ExamItem> items;
                 Check(!ExamPlan.Parse("{\"v\":2,\"kind\":\"exam\",\"items\":[]}", DateTime.Now, out kind, out items) && !ExamPlan.Parse("{\"v\":1,\"kind\":\"consult\",\"items\":[]}", DateTime.Now, out kind, out items) &&
                     !ExamPlan.Parse("{\"v\":1,\"kind\":\"exam\",\"items\":[{\"kind\":\"exam\",\"subject\":\"\",\"start\":\"2030-01-01T10:00\"}]}", DateTime.Now, out kind, out items), "an answer out of shape is refused", results);
@@ -101,7 +110,7 @@ namespace Univer.Desktop.UI
             finally
             {
                 trayIcon = previousTray; balloonOpens = previousOpens; prefs.ReminderLead = previousLead; prefs.Reminders = previousReminders; examHiddenForQa = null; examAccountForQa = null; gateLoginForQa = null;
-                await AutomationController.EvaluateAsync(main, "localStorage.removeItem('" + PageAccount.Key + "');'cleared'");
+                await RestoreMarkForQaAsync(markBefore);
                 await ClearExamsAsync();
             }
             Check(!File.Exists(file) && examPlan == null, "clearing the session's copy removes the exam file", results);

@@ -124,6 +124,64 @@ namespace Univer.Desktop.Tests
         }
 
         [Fact]
+        public void TheVolumeAndTheShellPathAreReadFromTheResolvedNames()
+        {
+            const string guid = @"\\?\Volume{01234567-89ab-cdef-0123-456789abcdef}\";
+            Assert.Equal(guid, FileDeletion.VolumeRoot(guid + @"Users\a\b.pdf"));
+            Assert.Null(FileDeletion.VolumeRoot(@"\\?\Volume{0123\x}\b.pdf"));
+            Assert.Null(FileDeletion.VolumeRoot(@"\\?\C:\b.pdf"));
+            Assert.Null(FileDeletion.VolumeRoot(@"\\?\UNC\srv\share\b.pdf"));
+            Assert.Null(FileDeletion.VolumeRoot(@"\\?\Volume{}\b.pdf"));
+            Assert.Null(FileDeletion.VolumeRoot(null));
+            Assert.Equal(@"D:\Загрузки\b.pdf", FileDeletion.ShellPath(@"\\?\D:\Загрузки\b.pdf"));
+            Assert.Null(FileDeletion.ShellPath(@"\\?\UNC\srv\share\b.pdf"));
+            Assert.Null(FileDeletion.ShellPath(guid + "b.pdf"));
+            Assert.Null(FileDeletion.ShellPath(@"\\?\C:\" + new string('a', 260)));
+        }
+
+        [Fact]
+        public void TheRealRecyclerAcceptsAFileOnTheFixedTempDriveByItsVolume()
+        {
+            var record = Saved("a.pdf");
+            var fixedDrive = new DriveInfo(Path.GetPathRoot(record.Path)).DriveType == DriveType.Fixed;
+            Assert.Equal(fixedDrive ? RecycleSupport.Yes : RecycleSupport.NoBin, new RecycleBinRecycler().Support(record.Path));
+        }
+
+        [Fact]
+        public void AFileThisUserMayNotReadIsStillJudgedByItsVolumeNotCalledBusy()
+        {
+            var record = Saved("a.pdf");
+            var user = System.Security.Principal.WindowsIdentity.GetCurrent().User;
+            var deny = new System.Security.AccessControl.FileSystemAccessRule(user, System.Security.AccessControl.FileSystemRights.ReadData, System.Security.AccessControl.AccessControlType.Deny);
+            var security = File.GetAccessControl(record.Path); security.AddAccessRule(deny); File.SetAccessControl(record.Path, security);
+            try
+            {
+                Assert.Throws<UnauthorizedAccessException>(() => File.OpenRead(record.Path).Dispose());
+                var fixedDrive = new DriveInfo(Path.GetPathRoot(record.Path)).DriveType == DriveType.Fixed;
+                Assert.Equal(fixedDrive ? RecycleSupport.Yes : RecycleSupport.NoBin, new RecycleBinRecycler().Support(record.Path));
+            }
+            finally { security = File.GetAccessControl(record.Path); security.RemoveAccessRule(deny); File.SetAccessControl(record.Path, security); }
+            var denied = new MemoryRecycler { Denied = true };
+            Assert.Equal(DeleteVerdict.Denied, FileDeletion.DeleteAsync(record, denied, IntPtr.Zero).GetAwaiter().GetResult());
+            Assert.Empty(denied.Calls);
+            Assert.Equal("deleteDenied", FileDeletion.StatusKey(DeleteVerdict.Denied));
+        }
+
+        [Fact]
+        public void AReadOnlyFileNobodyHoldsIsReleasedAtOnce()
+        {
+            var record = Saved("a.pdf");
+            File.SetAttributes(record.Path, FileAttributes.ReadOnly);
+            try
+            {
+                var watch = Stopwatch.StartNew();
+                Assert.True(FileDeletion.WaitReleasedAsync(record.Path, 1500, 50).GetAwaiter().GetResult());
+                Assert.InRange(watch.ElapsedMilliseconds, 0, 1000);
+            }
+            finally { File.SetAttributes(record.Path, FileAttributes.Normal); }
+        }
+
+        [Fact]
         public void AFileAnotherProgramHoldsIsBusyNotWithoutABin()
         {
             var record = Saved("a.pdf");

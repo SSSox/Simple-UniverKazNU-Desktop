@@ -263,7 +263,30 @@ namespace Univer.Desktop.Tests
             var plan = Plan(new ExamItem { Kind = ExamKind.Exam, Subject = "Физика", Start = new DateTime(2026, 12, 15, 9, 0, 0), Place = "" },
                 new ExamItem { Kind = ExamKind.Exam, Subject = "Химия", Start = new DateTime(2026, 12, 15, 9, 0, 0), Place = "" });
             var body = CombinedReminder.Body(classes, plan.Due(now, 15), "ru", true).Split(new[] { Environment.NewLine }, StringSplitOptions.None);
-            Assert.Equal(new[] { "Пара в 19:15", "Завтра экзамен · начало в 09:00" }, body);
+            Assert.Equal(new[] { "Пара в 19:15", "Завтра экзамен ×2 · начало в 09:00" }, body);
+        }
+
+        [Fact]
+        public void BehindThePinExamsAtOneTimeShareALineThatCountsThemAndAllTheyCoverAreMarked()
+        {
+            var now = new DateTime(2026, 12, 14, 19, 5, 0);
+            var start = new DateTime(2026, 12, 15, 9, 0, 0);
+            var exams = Plan(new ExamItem { Kind = ExamKind.Exam, Subject = "Физика", Start = start, Place = "" },
+                new ExamItem { Kind = ExamKind.Exam, Subject = "Химия", Start = start, Place = "" },
+                new ExamItem { Kind = ExamKind.Exam, Subject = "История", Start = start.AddHours(2), Place = "" },
+                new ExamItem { Kind = ExamKind.Exam, Subject = "Право", Start = start.AddHours(4), Place = "" }).Due(now, 15);
+            var classes = ClassAt(now.AddMinutes(10), "A");
+            // Combined: two lines (two times), and the three exams they cover are what is marked; the fourth comes next time.
+            var named = CombinedReminder.NamedExams(exams, true);
+            Assert.Equal(new[] { "Физика", "Химия", "История" }, named.Select(r => r.Item.Subject).ToArray());
+            var body = CombinedReminder.Body(classes, named, "ru", true).Split(new[] { Environment.NewLine }, StringSplitOptions.None);
+            Assert.Equal(new[] { "Пара в 19:15", "Завтра экзамен ×2 · начало в 09:00", "Завтра экзамен · начало в 11:00" }, body);
+            // Alone: three lines (three times) cover all four; with the PIN off three exams are named.
+            Assert.Equal(4, ExamReminders.NamedOf(exams, true).Count);
+            Assert.Equal(new[] { "Завтра экзамен ×2 · начало в 09:00", "Завтра экзамен · начало в 11:00", "Завтра экзамен · начало в 13:00" },
+                ExamReminders.Body(exams, "ru", true).Split(new[] { Environment.NewLine }, StringSplitOptions.None));
+            Assert.Equal(3, ExamReminders.NamedOf(exams, false).Count);
+            Assert.DoesNotContain("Физика", ExamReminders.Body(exams, "en", true));
         }
 
         [Fact]
@@ -276,7 +299,7 @@ namespace Univer.Desktop.Tests
                 new ExamItem { Kind = ExamKind.Exam, Subject = "История", Start = start.AddHours(4), Place = "" }).Due(now, 15);
             var classes = ClassAt(now.AddMinutes(10), "A").Concat(ClassAt(now.AddMinutes(10), "B")).Concat(ClassAt(now.AddMinutes(10), "C")).ToList();
             Assert.Equal(3, exams.Count);
-            var named = CombinedReminder.NamedExams(exams); var namedClasses = CombinedReminder.NamedClasses(classes, false);
+            var named = CombinedReminder.NamedExams(exams, false); var namedClasses = CombinedReminder.NamedClasses(classes, false);
             Assert.Equal(2, named.Count); Assert.Equal(2, namedClasses.Count);
             var body = CombinedReminder.Body(namedClasses, named, "ru", false);
             Assert.Contains("Физика", body); Assert.Contains("Химия", body); Assert.DoesNotContain("История", body);

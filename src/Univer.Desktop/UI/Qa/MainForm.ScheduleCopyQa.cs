@@ -30,6 +30,7 @@ namespace Univer.Desktop.UI
             var file = Path.Combine(storage.Root, ScheduleFile.Name);
             await ClearScheduleAsync();
             var address = SitePolicy.Origin + "/student/myschedule/";
+            var markBefore = await KeepMarkForQaAsync();
             gateLoginForQa = "qa-schedule";
             try
             {
@@ -61,7 +62,7 @@ namespace Univer.Desktop.UI
             finally
             {
                 gateLoginForQa = null;
-                await AutomationController.EvaluateAsync(main, "localStorage.removeItem('" + PageAccount.Key + "');'cleared'");
+                await RestoreMarkForQaAsync(markBefore);
             }
         }
     }

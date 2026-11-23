@@ -28,6 +28,7 @@ namespace Univer.Desktop.UI
         private async Task LastGradesQaAsync(List<string> results)
         {
             var file = Path.Combine(storage.Root, LastGradesFile.Name);
+            var markBefore = await KeepMarkForQaAsync();
             lastGradesAccountForQa = ScheduleWeek.AccountMark("qa-last-grades"); gateLoginForQa = "qa-last-grades";
             try
             {
@@ -67,7 +68,7 @@ namespace Univer.Desktop.UI
             }
             finally
             {
-                await AutomationController.EvaluateAsync(main, "localStorage.removeItem('univer.desktop.overview.v1');localStorage.removeItem('univer.app.account.v1');'cleared'");
+                await AutomationController.EvaluateAsync(main, "localStorage.removeItem('univer.desktop.overview.v1');'cleared'"); await RestoreMarkForQaAsync(markBefore);
                 lastGradesAccountForQa = null; gateLoginForQa = null; lastGradesBusy = false; await ClearLastGradesAsync();
             }
         }

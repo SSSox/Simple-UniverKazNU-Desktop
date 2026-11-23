@@ -104,6 +104,15 @@ namespace Univer.Desktop.UI
                     Check(released && watch.ElapsedMilliseconds >= 250 && watch.ElapsedMilliseconds < 1800, "the wait for a preview to let go ends when the file opens", results);
                     await letGo;
                 }
+                // A read-only file nobody holds is free at once (the probe needs read access only).
+                File.SetAttributes(held.Path, FileAttributes.ReadOnly);
+                try
+                {
+                    var watch = System.Diagnostics.Stopwatch.StartNew();
+                    var released = await FileDeletion.WaitReleasedAsync(held.Path);
+                    Check(released && watch.ElapsedMilliseconds < 500, "a read-only file is not waited on as if a preview held it", results);
+                }
+                finally { File.SetAttributes(held.Path, FileAttributes.Normal); }
 
                 // The real shell path, short of moving anything into the user's bin: struct layout, drive decision, STA call.
                 int structSize, flagsAt, abortedAt;
@@ -131,7 +140,7 @@ namespace Univer.Desktop.UI
                 deleteAnswerForQa = null; downloadsView.PreferBuiltIn = false; Recycler = saved;
                 downloadsView.ClosePreview();
                 foreach (var id in ids) ForgetRecord(id);
-                messages.Withdraw("fileDeleted"); messages.Withdraw("deleteChanged"); messages.Withdraw("deleteNoBin"); messages.Withdraw("deleteBusy"); RenderFeedback();
+                messages.Withdraw("fileDeleted"); messages.Withdraw("deleteChanged"); messages.Withdraw("deleteNoBin"); messages.Withdraw("deleteBusy"); messages.Withdraw("deleteDenied"); RenderFeedback();
                 HideDownloads();
                 downloadsView.SetItems(history.Items);
                 try { Directory.Delete(folder, true); } catch (IOException) { } catch (UnauthorizedAccessException) { }

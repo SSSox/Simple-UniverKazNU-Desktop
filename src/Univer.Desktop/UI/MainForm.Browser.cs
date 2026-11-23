@@ -290,6 +290,9 @@ namespace Univer.Desktop.UI
             awaitingCommit = browser; awaitingSince = DateTime.UtcNow; if (viewer || !KeepsPlaceholder(url, afterFlag)) ShowRoute(route);
             error = false; messages.BeginNavigation(); automation.Navigating(); presentationBegan = DateTime.UtcNow; SetPresentation(browser, true); RenderFeedback(); UpdatePollingRate();
             if (browser == main) OfflineNavigation();
+            // A new document of the site window (F5 and Retry included, even to the same address): the exam and home readers
+            // start over, asked at once and with their short retries again.
+            if (browser == main && !viewer) { examReadAddress = null; lastGradesReadAddress = null; }
         }
         private void ReceivePageMessage(ChromiumWebBrowser browser, bool viewer, string value, bool trusted, bool mainFrame)
         {
