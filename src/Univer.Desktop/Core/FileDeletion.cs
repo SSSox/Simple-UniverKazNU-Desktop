@@ -118,7 +118,14 @@ namespace Univer.Desktop.Core
                 var op = new Op32 { hwnd = owner, wFunc = Delete, pFrom = from, fFlags = flags };
                 code = SHFileOperation32(ref op); aborted = op.fAnyOperationsAborted != 0;
             }
-            if (code != 0 || aborted || File.Exists(path) || File.Exists(target)) throw new IOException("The Recycle Bin did not take the file (code " + code + ").");
+            if (code != 0 || aborted || File.Exists(path) || File.Exists(target))
+            {
+                // Why, without a second shell call: a file this account may not delete is told apart from one that is held.
+                if (!aborted && File.Exists(target))
+                    using (var probe = CreateFileW(target, 0x10000, 7, IntPtr.Zero, 3, 0, IntPtr.Zero))
+                        if (probe.IsInvalid && Marshal.GetLastWin32Error() == 5) throw new UnauthorizedAccessException("This account may not delete the file.");
+                throw new IOException("The Recycle Bin did not take the file (code " + code + ").");
+            }
         }
         // The structure of the running bitness as the marshaller lays it out (shellapi.h: 30 bytes packed on x86, 56 on
         // x64; fFlags and fAnyOperationsAborted at 16 and 18, or 32 and 36).
@@ -228,6 +235,7 @@ namespace Univer.Desktop.Core
             if (support == RecycleSupport.Busy) return DeleteVerdict.Busy;
             if (support == RecycleSupport.Denied) return DeleteVerdict.Denied;
             try { await recycler.RecycleAsync(record.Path, owner); }
+            catch (UnauthorizedAccessException) { return DeleteVerdict.Denied; }
             catch (Exception) { return DeleteVerdict.Failed; }
             return DeleteVerdict.Ok;
         }

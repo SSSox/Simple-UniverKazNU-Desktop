@@ -226,6 +226,13 @@ namespace Univer.Desktop.Tests
         }
 
         [Fact]
+        public void AFileThisAccountMayNotDeleteIsDeniedNotFailed()
+        {
+            var record = Saved("a.pdf");
+            Assert.Equal(DeleteVerdict.Denied, FileDeletion.DeleteAsync(record, new Throwing(new UnauthorizedAccessException()), IntPtr.Zero).GetAwaiter().GetResult());
+        }
+
+        [Fact]
         public void EveryVerdictHasAStatusLineInAllThreeLanguages()
         {
             foreach (DeleteVerdict verdict in Enum.GetValues(typeof(DeleteVerdict)))
@@ -240,8 +247,10 @@ namespace Univer.Desktop.Tests
 
         private sealed class Throwing : IFileRecycler
         {
+            private readonly Exception error;
+            public Throwing(Exception error = null) { this.error = error ?? new IOException("open elsewhere"); }
             public RecycleSupport Support(string path) { return RecycleSupport.Yes; }
-            public Task RecycleAsync(string path, IntPtr owner) { var failed = new TaskCompletionSource<bool>(); failed.SetException(new IOException("open elsewhere")); return failed.Task; }
+            public Task RecycleAsync(string path, IntPtr owner) { var failed = new TaskCompletionSource<bool>(); failed.SetException(error); return failed.Task; }
         }
         private static bool MakeLink(string link, string target)
         {
