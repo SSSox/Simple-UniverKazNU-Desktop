@@ -4,7 +4,7 @@ using System.Collections.Generic;
 namespace Univer.Desktop.Core
 {
     internal enum MessageTone { Info, Working, Success, Warning, Error }
-    internal enum MessageAction { None, Retry, Settings, Downloads, Notices }
+    internal enum MessageAction { None, Retry, Settings, Downloads, Notices, Offline }
     internal sealed class UiMessage
     {
         public string Key { get; private set; }
@@ -110,6 +110,9 @@ namespace Univer.Desktop.Core
             if (key == "signOnOpened") return new UiMessage(key, MessageTone.Success, MessageAction.None, 52, true);
             if (key == "signOnLogin" || key == "signOnFailed") return new UiMessage(key, MessageTone.Warning, MessageAction.None, 68, true);
             if (key == "trayHint") return new UiMessage(key, MessageTone.Info, MessageAction.None, 20, true);
+            // The site fails or waits and a copy is kept: above the sign-in progress; a problem banner above it carries the same
+            // button (MainForm.RenderFeedback).
+            if (key == "offlineOffer") return new UiMessage(key, MessageTone.Info, MessageAction.Offline, 57, true);
             if (key == "pinFailed") return new UiMessage(key, MessageTone.Warning, MessageAction.None, 48, true);
             // New notifications from the site: below every problem and running download, above quiet hints.
             if (key == "noticesNew") return new UiMessage(key, MessageTone.Info, MessageAction.Notices, 47, true);
@@ -139,6 +142,7 @@ namespace Univer.Desktop.Core
             // The grade summary's answers stay apart from page automation, which would replace them on its next tick.
             if (key.StartsWith("report", StringComparison.Ordinal)) return "report";
             if (key == "trayHint") return "tray";
+            if (key == "offlineOffer") return "offline";
             if (key == "pinFailed") return "pins";
             if (key == "noticesNew") return "notices";
             if (key == "manualSignIn" || key == "credentialsUnreadable" || key == "sessionReset") return "account";

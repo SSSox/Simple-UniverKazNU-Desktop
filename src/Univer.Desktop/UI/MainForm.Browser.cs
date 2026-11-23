@@ -96,8 +96,8 @@ namespace Univer.Desktop.UI
             if (!sessionStarted) { sessionStarted = true; profileAbsentAtStart = absent; }
             var fresh = (!selfTest || freshForQa) && absent;
             context = new RequestContext(new RequestContextSettings { CachePath = storage.ProfilePath(prefs.Profile), PersistSessionCookies = true });
-            guard = new SessionGuard();
-            automation = new AutomationController(guard, key => { if (epoch == sessionEpoch) SetStatus(key); }, CloseDocument, SetPresentation);
+            guard = new SessionGuard(); OfflineNewSession();
+            automation =new AutomationController(guard, key => { if (epoch == sessionEpoch) SetStatus(key); }, CloseDocument, SetPresentation);
             automation.SignedInContent = () => { if (epoch == sessionEpoch) SignedInWork(); };
             automation.RecoveryNeeded = () => { if (epoch == sessionEpoch) PageNeedsRecovery(); };
             automation.Dark = Theme.Dark;

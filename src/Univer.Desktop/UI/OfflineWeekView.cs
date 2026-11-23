@@ -9,13 +9,19 @@ using Univer.Desktop.Core;
 
 namespace Univer.Desktop.UI
 {
-    // Shown over the site window when its page cannot be reached: the app's own copy of the week (Core/ScheduleCopy.cs),
-    // its dates and when it was saved, one card a day. Past days and finished classes are quieter; today's card is marked
-    // and scrolled into view. The banner above keeps Retry and the automatic retry.
+    // Shown over the site window when its page cannot be reached, or when the student opens it while the site fails or waits:
+    // the app's own copy of the week (Core/ScheduleCopy.cs), its dates and when it was saved, one card a day, then the coming
+    // exams and the last course totals, each with its own saved time. Past days and finished classes are quieter; today's card
+    // is marked and scrolled into view. A bar that does not scroll keeps Retry, and «Вернуться на сайт» when the student
+    // opened the screen.
     internal sealed class OfflineWeekView : Panel
     {
-        private readonly ScrollHost scroller = new ScrollHost { Dock = DockStyle.Fill };
+        private readonly ScrollHost scroller = new ScrollHost { Dock = DockStyle.Fill, TabIndex = 1 };
         private readonly WeekSheet sheet = new WeekSheet();
+        private readonly Panel bar = new Panel { Dock = DockStyle.Top, TabIndex = 0, AccessibleRole = AccessibleRole.ToolBar };
+        private readonly ModernButton retry = new ModernButton { Look = ButtonLook.Primary, Hug = true, TabIndex = 0 };
+        private readonly ModernButton back = new ModernButton { Look = ButtonLook.Outline, Hug = true, TabIndex = 1, Visible = false };
+        public event Action RetryPressed, BackPressed;
         private readonly float baseScale;
         private float zoom = 1;
         // Until the student scrolls, every layout (the panel appearing, a resize, a zoom) keeps today's card in view.
@@ -26,21 +32,51 @@ namespace Univer.Desktop.UI
             BackColor = scroller.BackColor = Theme.Background;
             AccessibleRole = AccessibleRole.Document;
             scroller.Sheet = sheet; Controls.Add(scroller);
-            scroller.Resize += (s, e) => Arrange();
+            // Added after the scrolling area, so it docks first and the sheet fills what is left below it.
+            bar.BackColor = Theme.Background; bar.Controls.Add(retry); bar.Controls.Add(back); Controls.Add(bar);
+            bar.Paint += (s, e) => { using (var pen = new Pen(Theme.Border)) e.Graphics.DrawLine(pen, 0, bar.Height - 1, bar.Width, bar.Height - 1); };
+            retry.Click += (s, e) => RetryPressed?.Invoke(); back.Click += (s, e) => BackPressed?.Invoke();
+            scroller.Resize += (s, e) => Arrange(); bar.Resize += (s, e) => ArrangeBar();
             scroller.UserScrolled += () => followToday = false;
         }
-        public void SetZoom(float value) { zoom = value; Arrange(); }
+        public void SetZoom(float value) { zoom = value; UiZoom.ApplyFonts(bar, value); retry.Zoom = back.Zoom = value; retry.SnapWidth(); back.SnapWidth(); ArrangeBar(); Arrange(); }
         // The page under it is an error page, so the keys go to the schedule: arrows, Page Up/Down, Home and End scroll it.
         public void FocusSheet() { scroller.Focus(); }
         internal bool FocusedForQa { get { return scroller.Focused; } }
         internal void PressForQa(Keys key) { scroller.Press(key); }
-        public void Render(ScheduleWeek week, LastGrades grades, DateTime now, string lang)
+        // chosen: the student opened the screen while the site waits (Retry signs in again, «Вернуться на сайт» only hides it);
+        // otherwise the site cannot be reached and Retry reloads the page.
+        public void Render(ScheduleWeek week, LastGrades grades, ExamPlan exams, DateTime now, string lang, bool chosen)
         {
             var again = sheet.Same(week, lang);
-            sheet.Set(week, grades, now, lang);
+            sheet.Set(week, grades, exams, now, lang, chosen);
             if (!again) followToday = true;
-            Arrange();
+            retry.Text = retry.AccessibleName = Strings.Get(chosen ? "offlineRetry" : "retry", lang);
+            back.Text = back.AccessibleName = Strings.Get("offlineBack", lang); back.Visible = chosen;
+            retry.SnapWidth(); back.SnapWidth();
+            ArrangeBar(); Arrange();
         }
+        private void ArrangeBar()
+        {
+            var unit = baseScale * zoom; Func<float, int> px = value => (int)Math.Round(value * unit);
+            bar.Height = px(56);
+            // The sheet's column, which the scroll bar narrows: the buttons stand over its left edge.
+            var width = scroller.ClientSize.Width > 0 ? scroller.ClientSize.Width : bar.ClientSize.Width;
+            var column = Math.Min(px(720), Math.Max(px(200), width - px(48)));
+            var left = Math.Max(px(16), (width - column) / 2);
+            retry.SetBounds(left, px(12), retry.HugWidth, px(32));
+            back.SetBounds(retry.Right + px(8), px(12), back.HugWidth, px(32));
+            bar.AccessibleName = sheet.Title;
+            bar.Invalidate();
+        }
+        internal bool BackShownForQa { get { return back.Visible; } }
+        internal string RetryTextForQa { get { return retry.Text; } }
+        internal void PressRetryForQa() { retry.PerformClick(); }
+        internal void PressBackForQa() { back.PerformClick(); }
+        // Both buttons lie inside the bar, side by side, and the bar does not cover the sheet.
+        internal bool BarFitsForQa { get { return retry.Width > 0 && retry.Right <= bar.ClientSize.Width && (!back.Visible || (back.Left >= retry.Right && back.Right <= bar.ClientSize.Width)) && scroller.Top >= bar.Bottom; } }
+        internal bool ExamsBetweenForQa { get { return sheet.ExamsTop >= sheet.WeekBottom && (sheet.GradesTop < 0 || sheet.GradesTop > sheet.ExamsTop); } }
+        internal int ExamDaysForQa { get { return sheet.ExamDays; } }
         private void Arrange()
         {
             if (scroller.ClientSize.Width <= 0) return;
@@ -49,6 +85,7 @@ namespace Univer.Desktop.UI
             // set while the panel was hidden (it was drawn a screen further down, and the window stayed empty).
             scroller.AutoScrollMinSize = new Size(0, sheet.Size.Height); scroller.Invalidate();
             AccessibleName = sheet.Title; AccessibleDescription = sheet.Words;
+            scroller.PerformLayout(); ArrangeBar();
             // Today's card stays in view (the top when it is already in the upper part of the window). The scroll range
             // follows the sheet's new height only after layout.
             if (followToday && sheet.TodayTop >= 0 && scroller.ClientSize.Height > 0)
@@ -167,22 +204,22 @@ namespace Univer.Desktop.UI
         // column of the schedule picture, which never has the totals.
         internal sealed class WeekSheet : IDisposable
         {
-            private ScheduleWeek week; private LastGrades grades; private DateTime now; private string lang = "ru";
+            private ScheduleWeek week; private LastGrades grades; private ExamPlan exams; private DateTime now; private string lang = "ru"; private bool chosen;
             // The picture's column: its heading, and a note in place of the days (a week that could not be read).
             private string exportHeading, exportNote;
             private float scale = 1;
             private Font titleFont, bodyFont, strongFont, metaFont;
             private readonly List<Action<Graphics>> paint = new List<Action<Graphics>>();
             internal string Title = "", Words = "";
-            internal int TodayTop = -1, DayCount, GradesTop = -1, WeekBottom;
+            internal int TodayTop = -1, DayCount, GradesTop = -1, WeekBottom, ExamsTop = -1, ExamDays;
             internal readonly List<Rectangle> TitleBoxes = new List<Rectangle>();
             internal bool Fits = true;
             internal Size Size { get; private set; }
             internal bool Same(ScheduleWeek other, string language) { return other == week && language == lang; }
-            internal void Set(ScheduleWeek value, LastGrades totals, DateTime at, string language) { week = value; grades = totals; now = at; lang = language; exportHeading = exportNote = null; }
+            internal void Set(ScheduleWeek value, LastGrades totals, ExamPlan plan, DateTime at, string language, bool opened) { week = value; grades = totals; exams = plan; now = at; lang = language; chosen = opened; exportHeading = exportNote = null; }
             // A week of the schedule picture: no saved time, no offline notes, no today or past marks; null week with a note
             // for a week that could not be read.
-            internal void SetExport(ScheduleWeek value, string heading, string note, string language) { week = value; grades = null; now = DateTime.MinValue; lang = language; exportHeading = heading; exportNote = note; }
+            internal void SetExport(ScheduleWeek value, string heading, string note, string language) { week = value; grades = null; exams = null; chosen = false; now = DateTime.MinValue; lang = language; exportHeading = heading; exportNote = note; }
             private int D(float value) { return (int)Math.Round(value * scale); }
             private void Fonts(float value)
             {
@@ -198,15 +235,18 @@ namespace Univer.Desktop.UI
             // One pass lays the sheet out and records what to paint, so painting draws exactly what was measured.
             internal void Arrange(int width, float value)
             {
-                Fonts(value); scale = value; paint.Clear(); TitleBoxes.Clear(); TodayTop = -1; DayCount = 0; GradesTop = -1; WeekBottom = 0; Fits = true;
+                Fonts(value); scale = value; paint.Clear(); TitleBoxes.Clear(); TodayTop = -1; DayCount = 0; GradesTop = -1; WeekBottom = 0; ExamsTop = -1; ExamDays = 0; Fits = true;
                 var words = new StringBuilder();
                 if (exportHeading != null) { ArrangeExport(width, words); return; }
-                Title = Strings.Get("offlineTitle", lang);
+                Title = Strings.Get(chosen ? "offlineSavedTitle" : "offlineTitle", lang);
                 var column = Math.Min(D(720), Math.Max(D(200), width - D(48)));
                 var left = Math.Max(D(16), (width - column) / 2);
-                var y = D(28);
-                y = Write(Title, titleFont, () => Theme.Ink, left, y, column) + D(6);
-                words.AppendLine(Title);
+                var y = D(20);
+                y = Write(Title, titleFont, () => Theme.Ink, left, y, column) + D(4);
+                var intro = Strings.Get("offlineNote", lang);
+                y = Write(intro, metaFont, () => Theme.Muted, left, y, column) + D(14);
+                words.AppendLine(Title).AppendLine(intro);
+                var coming = OfflineWeek.Exams(exams, now);
                 if (OfflineWeek.Shows(week))
                 {
                     var range = string.Format(Strings.Get("offlineWeek", lang), OfflineWeek.Range(week, lang));
@@ -231,13 +271,14 @@ namespace Univer.Desktop.UI
                         y = Card(day.Key, day.Value, today, past, left, y, column, words) + D(12);
                     }
                 }
-                else if (grades != null)
+                else if (grades != null || coming.Count > 0)
                 {
                     var none = Strings.Get("offlineNoWeek", lang);
                     y = Write(none, metaFont, () => Theme.Muted, left, y + D(4), column) + D(4);
                     words.AppendLine(none);
                 }
                 WeekBottom = y;
+                if (coming.Count > 0) { ExamsTop = y + D(8); y = ArrangeExams(coming, left, ExamsTop, column, words) + D(8); }
                 if (grades != null) { GradesTop = y + D(8); y = ArrangeGrades(left, GradesTop, column, words); }
                 y += D(16);
                 Words = words.ToString().Trim();
@@ -252,6 +293,28 @@ namespace Univer.Desktop.UI
                 words.AppendLine(heading).AppendLine(saved);
                 y += D(16);
                 foreach (var course in grades.Courses) y = CourseCard(course, left, y, column, words) + D(12);
+                return y;
+            }
+            // «Ближайшие экзамены»: the saved time of each kind shown (one line when both were read together), then a card a day.
+            private int ArrangeExams(List<ExamItem> coming, int left, int top, int column, StringBuilder words)
+            {
+                var heading = Strings.Get("offlineExams", lang);
+                var y = Write(heading, titleFont, () => Theme.Ink, left, top, column) + D(2);
+                words.AppendLine(heading);
+                var kinds = OfflineWeek.ExamKinds(coming);
+                var both = kinds.Count > 1 && exams.Saved(kinds[0]) != exams.Saved(kinds[1]);
+                foreach (var kind in both ? kinds : kinds.Take(1).ToList())
+                {
+                    var saved = OfflineWeek.ExamSaved(exams, kind, both, now, lang);
+                    y = Write(saved, metaFont, () => Theme.Muted, left, y, column) + D(2);
+                    words.AppendLine(saved);
+                }
+                y += D(18);
+                foreach (var day in OfflineWeek.ExamDays(coming, lang))
+                {
+                    ExamDays++;
+                    y = Card(day.Key, day.Value, day.Key == now.Date, false, left, y, column, words) + D(12);
+                }
                 return y;
             }
             private void ArrangeExport(int width, StringBuilder words)

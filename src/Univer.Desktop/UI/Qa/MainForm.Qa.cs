@@ -55,6 +55,7 @@ namespace Univer.Desktop.UI
                     QaStep("schedule-export", () => ScheduleExportQaAsync(qa, results)),
                     QaStep("last-grades", () => LastGradesQaAsync(results)),
                     QaStep("offline", () => OfflineQaAsync(qa, results)),
+                    QaStep("offline-entry", () => OfflineEntryQaAsync(qa, results)),
                     QaStep("grades", () => GradesQaAsync(qa, results)),
                     QaStep("diagnostics", () => DiagnosticsQaAsync(qa, results)),
                     QaStep("product", () => ProductQaAsync(qa, results)),

@@ -46,10 +46,16 @@ namespace Univer.Desktop.Core
         public string Account { get; private set; }
         public IList<ExamItem> Items { get; private set; }
         public ISet<string> Announced { get; private set; }
+        // When each kind was last read from its page (the offline screen shows it). A file written before these times were
+        // kept has only `saved`, which then stands for both.
+        // Not part of SameAs: a page read again with the same list is not written again within the hour (MainForm.Exams.cs),
+        // so the time shown is that of the last write.
+        private readonly DateTime examSaved, midtermSaved;
+        internal DateTime Saved(ExamKind kind) { return kind == ExamKind.Exam ? examSaved : midtermSaved; }
         private static readonly Regex Start = new Regex(@"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$", RegexOptions.CultureInvariant);
-        internal ExamPlan(string account, DateTime savedAt, IEnumerable<ExamItem> items, IEnumerable<string> announced)
+        internal ExamPlan(string account, DateTime savedAt, IEnumerable<ExamItem> items, IEnumerable<string> announced, DateTime? examAt = null, DateTime? midtermAt = null)
         {
-            Account = account ?? ""; SavedAt = savedAt;
+            Account = account ?? ""; SavedAt = savedAt; examSaved = examAt ?? savedAt; midtermSaved = midtermAt ?? savedAt;
             Items = items.OrderBy(i => i.Start).ThenBy(i => i.Subject, StringComparer.Ordinal).ToList();
             var keys = new HashSet<string>(Items.SelectMany(i => new[] { "e|" + i.Key, "l|" + i.Key }), StringComparer.Ordinal);
             Announced = new HashSet<string>((announced ?? new string[0]).Where(keys.Contains), StringComparer.Ordinal);
@@ -83,9 +89,9 @@ namespace Univer.Desktop.Core
         internal ExamPlan Replace(ExamKind kind, IEnumerable<ExamItem> fresh, DateTime now)
         {
             var others = Items.Where(i => i.Kind != kind && i.Start > now);
-            return new ExamPlan(Account, now, others.Concat(fresh), Announced);
+            return new ExamPlan(Account, now, others.Concat(fresh), Announced, kind == ExamKind.Exam ? now : examSaved, kind == ExamKind.Midterm ? now : midtermSaved);
         }
-        internal ExamPlan WithAnnounced(IEnumerable<string> keys) { return new ExamPlan(Account, SavedAt, Items, Announced.Concat(keys)); }
+        internal ExamPlan WithAnnounced(IEnumerable<string> keys) { return new ExamPlan(Account, SavedAt, Items, Announced.Concat(keys), examSaved, midtermSaved); }
         internal bool SameAs(ExamPlan other)
         {
             return other != null && other.Account == Account && other.Items.Count == Items.Count && other.Announced.SetEquals(Announced) &&
@@ -148,7 +154,16 @@ namespace Univer.Desktop.Core
         {
             var items = Items.Select(i => new Dictionary<string, object> { { "kind", i.Kind == ExamKind.Exam ? "exam" : "midterm" }, { "subject", i.Subject }, { "start", i.Start.ToString("yyyy-MM-ddTHH:mm", CultureInfo.InvariantCulture) }, { "place", i.Place } }).ToList();
             return new JavaScriptSerializer().Serialize(new Dictionary<string, object> { { "version", Version }, { "account", Account },
-                { "saved", SavedAt.ToString("yyyy-MM-ddTHH:mm:ss", CultureInfo.InvariantCulture) }, { "items", items }, { "announced", Announced.OrderBy(k => k, StringComparer.Ordinal).ToList() } });
+                { "saved", SavedAt.ToString("yyyy-MM-ddTHH:mm:ss", CultureInfo.InvariantCulture) },
+                { "savedExam", examSaved.ToString("yyyy-MM-ddTHH:mm:ss", CultureInfo.InvariantCulture) }, { "savedMidterm", midtermSaved.ToString("yyyy-MM-ddTHH:mm:ss", CultureInfo.InvariantCulture) }, { "items", items }, { "announced", Announced.OrderBy(k => k, StringComparer.Ordinal).ToList() } });
+        }
+        // A kind's time: absent in a file written before it was kept; present, it must be a time.
+        private static bool OptionalTime(Dictionary<string, object> json, string key, out DateTime? value)
+        {
+            value = null; object raw; DateTime at;
+            if (!json.TryGetValue(key, out raw)) return true;
+            if (!(raw is string) || !DateTime.TryParseExact((string)raw, "yyyy-MM-ddTHH:mm:ss", CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out at)) return false;
+            value = at; return true;
         }
         // The saved copy, checked again as strictly as a page's answer: a damaged file, another account's or version is none.
         internal static ExamPlan Load(string raw, string account)
@@ -175,7 +190,9 @@ namespace Univer.Desktop.Core
                 var seen = json.TryGetValue("announced", out announced) ? announced as IList : null;
                 if (seen == null || seen.Count > 2 * MaxStored) return null;
                 foreach (var key in seen) { var text = key as string; if (text == null || text.Length > 400) return null; keys.Add(text); }
-                return new ExamPlan((string)owner, at, items, keys);
+                DateTime? examAt, midtermAt;
+                if (!OptionalTime(json, "savedExam", out examAt) || !OptionalTime(json, "savedMidterm", out midtermAt)) return null;
+                return new ExamPlan((string)owner, at, items, keys, examAt, midtermAt);
             }
             catch (Exception) { return null; }
         }

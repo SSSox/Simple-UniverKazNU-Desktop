@@ -105,7 +105,7 @@ namespace Univer.Desktop.UI
             timer.Tick += async (s, e) =>
             {
                 if (rotating || closing || commandBusy) return;
-                ExpireResumedDownload(); ExpireSignOn(); RunRecovery();
+                ExpireResumedDownload(); ExpireSignOn(); RunRecovery(); WatchOffline();
                 if (error) return;
                 if (loading.Visible && DateTime.UtcNow - presentationBegan > TimeSpan.FromSeconds(45))
                 {
@@ -261,13 +261,20 @@ namespace Univer.Desktop.UI
             else if (message.Key == "downloadDuplicate") OpenDuplicate();
             else if (message.Action == MessageAction.Downloads) ShowDownloads(message.Key == "downloadComplete" ? LastCompletedDownload() : null);
             else if (message.Action == MessageAction.Notices) ShowNotices();
+            else if (message.Action == MessageAction.Offline) OpenOffline();
         }
         private void FeedbackSecondary()
         {
             var key = messages.Current?.Key;
             if (key == "downloadComplete") ShowDownloads(); else if (key == "downloadDuplicate") DownloadAgain(); else Retry();
         }
-        private void DismissFeedback() { if (messages.Current?.Key == "downloadDuplicate") duplicate = null; messages.Dismiss(); RenderFeedback(); }
+        private void DismissFeedback()
+        {
+            var key = messages.Current?.Key;
+            if (key == "downloadDuplicate") duplicate = null;
+            messages.Dismiss(); RenderFeedback();
+            if (key == "offlineOffer") OfflineDeclined();
+        }
         private void ArrangeShell()
         {
             var expand = prefs.Sidebar && (ClientSize.Width >= D(1060) || manualExpanded);
@@ -424,7 +431,7 @@ namespace Univer.Desktop.UI
             var text = Strings.Get(message.Key, lang);
             if (message.Key == "httpError" || message.Key == "networkError") text += " (" + failureCode + ")";
             if (recoverAt.HasValue && (message.Action == MessageAction.Retry || message.Key == "elementsMissing")) text += " " + Strings.Get("autoRetry", lang);
-            var action = message.Action == MessageAction.Settings ? "checkCredentials" : message.Action == MessageAction.Downloads ? "openDownloads" : message.Action == MessageAction.Notices ? "noticesShow" : "retry";
+            var action = message.Action == MessageAction.Settings ? "checkCredentials" : message.Action == MessageAction.Downloads ? "openDownloads" : message.Action == MessageAction.Notices ? "noticesShow" : message.Action == MessageAction.Offline ? "offlineOpen" : "retry";
             var secondary = message.Action == MessageAction.Settings && message.Tone == MessageTone.Warning ? Strings.Get("retry", lang) : "";
             if (message.Key == "downloadComplete" && lastDownloadPath != null)
             { text = Strings.Get("fileSaved", lang) + " " + Path.GetFileName(lastDownloadPath) + StudyFolderNote(lastDownloadPath); action = "openFile"; secondary = Strings.Get("allDownloads", lang); }
@@ -433,6 +440,7 @@ namespace Univer.Desktop.UI
             else if (message.Key == "downloadAllDone" || message.Key == "downloadAllStopped") text = SectionText(message.Key, lang) ?? text;
             else if (message.Key == "externalOpened") text = string.Format(text, openedHost);
             else if (message.Key == "noticesNew") { heading = Strings.Get("noticesNew", lang); text = NoticeAnnouncement(); }
+            else if (message.Key == "offlineOffer") heading = Strings.Get("offlineOfferTitle", lang);
             else if (message.Key == "downloadDuplicate" && duplicate != null)
             {
                 var earlier = duplicate.Earlier; var when = earlier.Finished ?? earlier.Started;
@@ -449,7 +457,9 @@ namespace Univer.Desktop.UI
                 return;
             }
             toast.Render(null, "", "", "", "", "");
-            feedback.Render(message, heading, text, Strings.Get(action, lang), secondary, Strings.Get("dismiss", lang));
+            // A problem banner above the offer carries its button too, so the copies are one press away on every such page.
+            var offline = offlineOffered && message.Key != "offlineOffer" && message.Action != MessageAction.Offline ? Strings.Get("offlineOpen", lang) : "";
+            feedback.Render(message, heading, text, Strings.Get(action, lang), secondary, Strings.Get("dismiss", lang), offline);
         }
         // The sidebar's account line and its dot: saved sign-in, paused, or sign-in on the website.
         private void UpdateAccountLine()
@@ -572,7 +582,7 @@ namespace Univer.Desktop.UI
         // Self-test's own quiet stretch (QA step "idle"); otherwise a self-test page never counts as settled.
         private bool settledForQa;
         // What every tick on a signed-in page does for the app; a quiet page's skipped ticks do it too.
-        private void SignedInWork() { RecoverySucceeded(); ResumeDownload(); NoticeContent(); ScheduleContent(); ExamContent(); GradeContent(); LastGradesContent(); MaybeOfferPin(); }
+        private void SignedInWork() { RecoverySucceeded(); OfflineSiteWorks(); ResumeDownload(); NoticeContent(); ScheduleContent(); ExamContent(); GradeContent(); LastGradesContent(); MaybeOfferPin(); }
         // The user pressed something on the shown page or came back to the window: a page that was being asked rarely is
         // asked now, and every second for a while (ProbePace.Active).
         private void PageWoken(ChromiumWebBrowser browser)

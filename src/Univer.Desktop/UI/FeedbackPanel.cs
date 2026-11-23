@@ -12,6 +12,8 @@ namespace Univer.Desktop.UI
         private readonly FlowLayoutPanel actions = new FlowLayoutPanel();
         public ModernButton Primary { get; } = new ModernButton { Look = ButtonLook.Primary, Width = 148, Height = 28 };
         public ModernButton Secondary { get; } = new ModernButton { Look = ButtonLook.Outline, Width = 130, Height = 28 };
+        // «Открыть офлайн» beside a problem's own buttons while the site fails or waits and a copy is kept.
+        public ModernButton Offline { get; } = new ModernButton { Look = ButtonLook.Outline, Width = 140, Height = 28, Visible = false };
         public ModernButton Dismiss { get; } = new ModernButton { Icon = UiIcon.Close, Compact = true, Width = 28, Height = 28 };
         private MessageTone tone;
         private string renderedKey;
@@ -24,10 +26,10 @@ namespace Univer.Desktop.UI
             DoubleBuffered = true; Dock = DockStyle.Top; Padding = new Padding(16, 12, 16, 12); AccessibleRole = AccessibleRole.Alert;
             title.Font = Theme.Strong(Theme.Body); title.ForeColor = Theme.Ink; body.Font = Theme.Font(Theme.Meta); body.ForeColor = Theme.Ink;
             title.AutoSize = false; body.AutoSize = false; actions.WrapContents = false; actions.BackColor = Color.Transparent;
-            actions.Controls.Add(Primary); actions.Controls.Add(Secondary); Controls.Add(title); Controls.Add(body); Controls.Add(actions); Controls.Add(Dismiss);
+            actions.Controls.Add(Primary); actions.Controls.Add(Secondary); actions.Controls.Add(Offline); Controls.Add(title); Controls.Add(body); Controls.Add(actions); Controls.Add(Dismiss);
             Resize += (s, e) => Arrange();
         }
-        public void Render(UiMessage message, string heading, string text, string action, string secondary, string dismiss)
+        public void Render(UiMessage message, string heading, string text, string action, string secondary, string dismiss, string offline = "")
         {
             var changed = message != null && (!Visible || renderedKey != message.Key);
             if (changed) exitVisual?.Dispose();
@@ -46,6 +48,8 @@ namespace Univer.Desktop.UI
             Primary.Width = Math.Max(148, TextRenderer.MeasureText(action, Primary.Font).Width + 28);
             Secondary.Width = Math.Max(130, TextRenderer.MeasureText(secondary, Secondary.Font).Width + 28);
             Secondary.Text = secondary; Secondary.AccessibleName = secondary; Secondary.Visible = secondary.Length > 0;
+            Offline.Width = Math.Max(140, TextRenderer.MeasureText(offline, Offline.Font).Width + 28);
+            Offline.Text = offline; Offline.AccessibleName = offline; Offline.Visible = offline.Length > 0;
             Dismiss.Visible = message.CanDismiss; Dismiss.AccessibleName = dismiss; Dismiss.BackColor = BackColor; Arrange(); Invalidate();
             if (changed) MotionSurface.Reveal(this);
             // The banner does not take focus, so a new problem or result is announced to screen readers as an alert.
@@ -59,8 +63,8 @@ namespace Univer.Desktop.UI
             title.Bounds = new Rectangle(px(44), px(12), available, px(24));
             var bodyHeight = TextRenderer.MeasureText(body.Text, body.Font, new Size(available, int.MaxValue), TextFormatFlags.WordBreak).Height + 4;
             body.Bounds = new Rectangle(px(44), px(36), available, bodyHeight);
-            var hasActions = Primary.Visible || Secondary.Visible;
-            Primary.Height = Secondary.Height = px(28);
+            var hasActions = Primary.Visible || Secondary.Visible || Offline.Visible;
+            Primary.Height = Secondary.Height = Offline.Height = px(28);
             actions.Bounds = new Rectangle(px(44), px(44) + bodyHeight, available, hasActions ? px(40) : 0);
             Dismiss.Bounds = new Rectangle(Width - px(40), px(8), px(32), px(32));
             Height = px(52) + bodyHeight + (hasActions ? px(40) : 0);

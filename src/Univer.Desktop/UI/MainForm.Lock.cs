@@ -55,7 +55,7 @@ namespace Univer.Desktop.UI
             if (closing || locked || covered || !LockArmed) return;
             covered = true; hiddenAt = DateTime.UtcNow;
             lockView.Render(prefs.Language); lockView.SetUnavailable(false); lockView.Pad.Clear();
-            ShowLockView();
+            ShowLockView(); OfflineLockChanged();
         }
         // Minimizing from the title bar, the taskbar or the window menu: the cover is painted before Windows takes the
         // picture it animates and shows in the taskbar preview.
@@ -67,7 +67,7 @@ namespace Univer.Desktop.UI
             covered = false;
             var away = DateTime.UtcNow - hiddenAt;
             if (away >= AutoLockAfter || away < TimeSpan.Zero) Lock();
-            else lockView.Visible = false;
+            else { lockView.Visible = false; OfflineLockChanged(); }
         }
         private void Lock()
         {
@@ -85,7 +85,7 @@ namespace Univer.Desktop.UI
                 try { storage.LoadLock(); unreadable = false; } catch (Exception) { }
             }
             lockView.Render(prefs.Language); lockView.SetUnavailable(unreadable); lockView.Pad.Clear(); lockView.Pad.ShowMessage("", false);
-            ShowLockView(); lockView.FocusInput();
+            ShowLockView(); lockView.FocusInput(); OfflineLockChanged();
             var wait = pinGuard.RemainingWait(); if (wait > 0) lockView.Pad.Wait(wait);
             // The tenth wrong guess was counted, but the app closed before the account ended: finish it now.
             if (pinGuard.Exhausted()) Dispatch(() => QueueAsync(() => WipeAsync("lockWiped")));
@@ -118,6 +118,7 @@ namespace Univer.Desktop.UI
             // A success that arrived while locked shows now.
             RenderFeedback();
             if (WebShown) webPanel.Browser?.Focus(); else if (main != null && !main.IsDisposed) main.Focus();
+            OfflineLockChanged();
             // What the start held back while locked (the first sign-in window, the Chromium 109 notice), then the update offer.
             if (startPromptsPending) { startPromptsPending = false; QueueAsync(StartPromptsAsync); }
             else EnterUpdates();

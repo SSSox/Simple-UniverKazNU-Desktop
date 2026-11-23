@@ -53,9 +53,32 @@ namespace Univer.Desktop.Core
             var time = savedAt.ToString("HH:mm", CultureInfo.InvariantCulture);
             return savedAt.Date == now.Date ? string.Format(Strings.Get("offlineSavedToday", lang), time) : string.Format(Strings.Get("offlineSavedOn", lang), Date(savedAt, lang), time);
         }
+        // A class's time range; an exam has a start only.
         internal static string Time(ScheduleClass lesson)
         {
+            if (lesson.End <= lesson.Start) return lesson.Start.ToString("HH:mm", CultureInfo.InvariantCulture);
             return lesson.Start.ToString("HH:mm", CultureInfo.InvariantCulture) + "–" + lesson.End.ToString("HH:mm", CultureInfo.InvariantCulture);
+        }
+        // «Ближайшие экзамены»: what has not begun, soonest first, at most MaxExams; empty without a kept list.
+        internal const int MaxExams = 12;
+        internal static List<ExamItem> Exams(ExamPlan plan, DateTime now)
+        {
+            if (plan?.Items == null) return new List<ExamItem>();
+            return plan.Items.Where(i => i.Start > now).OrderBy(i => i.Start).ThenBy(i => i.Subject, StringComparer.Ordinal).Take(MaxExams).ToList();
+        }
+        // The kinds the shown exams are of, each with when its page was last read: one saved line per kind.
+        internal static List<ExamKind> ExamKinds(IEnumerable<ExamItem> shown) { return shown.Select(i => i.Kind).Distinct().OrderBy(k => k).ToList(); }
+        internal static string ExamSaved(ExamPlan plan, ExamKind kind, bool both, DateTime now, string lang)
+        {
+            var saved = Saved(plan.Saved(kind), now, lang);
+            return both ? Strings.Get(kind == ExamKind.Exam ? "offlineExamsKind" : "offlineMidtermsKind", lang) + " · " + char.ToLowerInvariant(saved[0]) + saved.Substring(1) : saved;
+        }
+        // The shown exams by day, each as a class of the day cards: the start alone (no end), the subject, and its kind and room.
+        internal static List<KeyValuePair<DateTime, List<ScheduleClass>>> ExamDays(IEnumerable<ExamItem> shown, string lang)
+        {
+            return shown.OrderBy(i => i.Start).ThenBy(i => i.Subject, StringComparer.Ordinal).GroupBy(i => i.Start.Date)
+                .Select(g => new KeyValuePair<DateTime, List<ScheduleClass>>(g.Key, g.Select(i => new ScheduleClass
+                { Start = i.Start, End = i.Start, Name = i.Subject, Type = ExamReminders.Cap(ExamReminders.KindWord(i.Kind, lang)), Room = i.Place ?? "", Teacher = "" }).ToList())).ToList();
         }
         // Under the class name: its kind, room and teacher, whichever the page gave.
         internal static string Details(ScheduleClass lesson, string lang)

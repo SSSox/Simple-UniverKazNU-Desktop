@@ -83,7 +83,7 @@ namespace Univer.Desktop.UI
         // once the cut is confirmed, and the pages that do load come from fixtures.
         private async Task OfflineQaAsync(string qa, List<string> results)
         {
-            var previousWeek = scheduleWeek; var previousGrades = lastGrades; var previousFactory = main.ResourceRequestHandlerFactory; var now = DateTime.Now;
+            var previousWeek = scheduleWeek; var previousGrades = lastGrades; var previousExams = examPlan; var previousFactory = main.ResourceRequestHandlerFactory; var now = DateTime.Now;
             var before = await ProxyForQaAsync();
             var cut = await SetProxyForQaAsync(ProxyAt(9));
             Check(cut, "the self-test can cut this profile's network before it loads a site address", results);
@@ -93,7 +93,7 @@ namespace Univer.Desktop.UI
             main.ResourceRequestHandlerFactory = fixtures;
             try
             {
-                scheduleWeek = OfflineWeekForQa(now, ScheduleAccount); lastGrades = OfflineGradesForQa(now, ScheduleAccount);
+                scheduleWeek = OfflineWeekForQa(now, ScheduleAccount); lastGrades = OfflineGradesForQa(now, ScheduleAccount); examPlan = null;
                 var target = SitePolicy.Origin + "/student/myschedule/";
                 main.Load(target);
                 var shown = await UntilForQa(() => OfflineShown && error, 15000);
@@ -167,13 +167,13 @@ namespace Univer.Desktop.UI
                 using (var column = new OfflineWeekView.WeekSheet())
                 {
                     var export = OfflineWeekForQa(now, ScheduleAccount);
-                    column.Set(export, lastGrades, now, "ru"); column.SetExport(export, "QA", null, "ru"); column.Arrange(800, 1);
-                    Check(column.Words.Contains("QA Политология 1") && !column.Words.Contains(Strings.Get("offlineGrades", "ru")) && !column.Words.Contains("QA Алгебра") && column.GradesTop < 0, "the schedule picture does not carry the last grades", results);
+                    column.Set(export, lastGrades, OfflineExamsForQa(now, ScheduleAccount), now, "ru", false); column.SetExport(export, "QA", null, "ru"); column.Arrange(800, 1);
+                    Check(column.Words.Contains("QA Политология 1") && !column.Words.Contains(Strings.Get("offlineGrades", "ru")) && !column.Words.Contains("QA Алгебра") && column.GradesTop < 0 && column.ExamsTop < 0 && !column.Words.Contains("QA Микроэкономика"), "the schedule picture carries neither the last grades nor the exams", results);
                 }
                 // Without a kept week and without kept totals only the banner speaks.
-                var gradesNow = lastGrades; lastGrades = null; UpdateOffline();
-                Check(!OfflineShown && error, "without a kept week or kept totals a failed page has the banner alone", results);
-                lastGrades = gradesNow;
+                var gradesNow = lastGrades; var examsNow = examPlan; lastGrades = null; examPlan = null; UpdateOffline();
+                Check(!OfflineShown && error, "without a kept week, kept totals or coming exams a failed page has the banner alone", results);
+                lastGrades = gradesNow; examPlan = examsNow;
                 scheduleWeek = OfflineWeekForQa(now, ScheduleAccount); UpdateOffline();
                 Check(OfflineShown && offlineView.DaysForQa == 6, "the kept week comes back while the page still fails", results);
                 // The connection returns: the next automatic retry is answered (a fixture, ahead of the proxy) and the screen goes.
@@ -189,7 +189,7 @@ namespace Univer.Desktop.UI
                 main.ResourceRequestHandlerFactory = previousFactory;
                 var previous = before as IDictionary<string, object>;
                 var restored = await SetProxyForQaAsync(previous != null && previous.Count > 0 ? previous : new Dictionary<string, object> { { "mode", "system" } });
-                scheduleWeek = previousWeek; lastGrades = previousGrades; siteUnreachable = false; UpdateOffline();
+                scheduleWeek = previousWeek; lastGrades = previousGrades; examPlan = previousExams; siteUnreachable = false; UpdateOffline();
                 messages.Withdraw("networkError"); RenderFeedback();
                 Check(restored, "the profile's network is given back after the offline step", results);
             }
@@ -213,7 +213,25 @@ namespace Univer.Desktop.UI
                 await Task.Delay(500);
             }
             var retries = recoveries - start;
-            trace.AppendLine(seen && today && gaps == 0 && retries >= 2 ? "PASS the week stayed on screen through " + retries + " retries, today's card in view" : "FAIL seen=" + seen + " today=" + today + " gaps=" + gaps + " retries=" + retries);
+            var auto = seen && today && gaps == 0 && retries >= 2;
+            trace.AppendLine(auto ? "auto PASS the week stayed on screen through " + retries + " retries, today's card in view" : "auto FAIL seen=" + seen + " today=" + today + " gaps=" + gaps + " retries=" + retries);
+            // The second road: the site stops failing outright but sign-in waits. The app's own retries are held (they would fail
+            // again and bring the first road back), the offer's clock is moved past the limit, and the banner's button opens the
+            // saved data. offer.png and entry.png are PrintWindow captures of the whole window.
+            timer.Stop(); recoverAt = null; siteUnreachable = false; offlineSignsInForQa = true; UpdateOffline();
+            messages.Withdraw("networkError"); RenderFeedback();
+            offlineShiftForQa += OfflineEntry.WaitLimit + 1000; WatchOffline();
+            await Task.Delay(600);
+            var offer = offlineOffered && feedback.Visible && feedback.Primary.Visible && !OfflineShown;
+            trace.AppendLine("offer offered=" + offlineOffered + " banner=" + messages.Current?.Key + " shown=" + OfflineShown + " button=" + feedback.Primary.Text);
+            SaveNativeFrameForMotionQa(this, Path.Combine(output, "offer.png"));
+            await FeedbackPrimaryAsync(); await Task.Delay(800);
+            var entry = OfflineShown && OfflineOnTopForQa && offlineView.BackShownForQa && offlineView.ExamDaysForQa > 0 && offlineView.PaintedForQa && !offlineOffered;
+            trace.AppendLine("entry shown=" + OfflineShown + " top=" + OfflineOnTopForQa + " exams=" + offlineView.ExamDaysForQa + " title=" + offlineView.TitleForQa);
+            SaveNativeFrameForMotionQa(this, Path.Combine(output, "entry.png"));
+            offlineView.PressForQa(Keys.End); await Task.Delay(300);
+            SaveNativeFrameForMotionQa(this, Path.Combine(output, "entry-end.png"));
+            trace.AppendLine(auto && offer && entry ? "PASS the week stayed on screen through " + retries + " retries, today's card in view; the offer opened the saved data" : "FAIL auto=" + auto + " offer=" + offer + " entry=" + entry);
             File.WriteAllText(Path.Combine(output, "trace.txt"), trace.ToString());
             ExitApplication();
         }

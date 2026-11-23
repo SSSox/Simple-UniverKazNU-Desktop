@@ -432,10 +432,10 @@ namespace Univer.Desktop.UI
         private void Back()
         {
             if (DownloadsVisible) { if (downloadsView.Previewing) downloadsView.ClosePreview(); else HideDownloads(); return; }
-            if (document != null) CloseDocument(); else if (Active?.CanGoBack == true) Active.Back();
+            if (document != null) CloseDocument(); else if (Active?.CanGoBack == true) { LeaveOffline(); Active.Back(); }
         }
         // Forward belongs to the site only, as the toolbar button says (UpdateHistoryButtons): not in Downloads or the viewer.
-        private void Forward() { if (!DownloadsVisible && document == null && Active?.CanGoForward == true) Active.Forward(); }
+        private void Forward() { if (!DownloadsVisible && document == null && Active?.CanGoForward == true) { LeaveOffline(); Active.Forward(); } }
         // The mouse's side buttons (BrowserMouse over a page, WM_APPCOMMAND over the app's own parts): Back and Forward of
         // what is shown, with the gates of Alt+Left. Not through ProcessCmdKey, which would mark the input as keyboard.
         private void SideButton(bool forward)
@@ -447,7 +447,7 @@ namespace Univer.Desktop.UI
         private void NavigateSection(string path)
         {
             if (commandBusy || main == null) return;
-            CloseWeb(); CloseDocument(); HideDownloads();
+            CloseWeb(); CloseDocument(); HideDownloads(); LeaveOffline();
             var target = SitePolicy.Origin + path;
             // A repeated click on the section that is already loading would queue another server request.
             if (main.IsLoading && string.Equals(lastGet, target, StringComparison.OrdinalIgnoreCase)) return;
@@ -458,6 +458,7 @@ namespace Univer.Desktop.UI
         private void Retry()
         {
             if (commandBusy || Active == null) return;
+            if (Active == main) LeaveOffline();
             recoverAt = null; recoveries = 0;
             error = false; messages.Retry(); automation.Retry(); RenderFeedback();
             Active.Load(RetryTarget());
