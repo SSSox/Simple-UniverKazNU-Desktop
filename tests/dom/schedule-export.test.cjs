@@ -156,10 +156,11 @@ test('a neighbour that cannot be read is named in missing, not guessed', async (
     redirected: () => Promise.reject(new TypeError('redirect')),
     'other path': url => ({status: 200, url: BASE + '/student/myschedule/', text: async () => html(2, 'X')}),
     'other host': url => ({status: 200, url: 'https://example.org' + value(weeks[2]), text: async () => html(2, 'X')}),
-    'other dates': url => ({status: 200, url: String(url), text: async () => html(1, 'X')}),
+    'redirected to another week': url => ({status: 200, url: BASE + value(weeks[0]), text: async () => html(2, 'X')}),
     login: url => ({status: 200, url: String(url), text: async () => '<form id="login_frm"></form>'}),
     status: url => ({status: 500, url: String(url), text: async () => html(2, 'X')}),
-    'no table': url => ({status: 200, url: String(url), text: async () => '<select id="weekSelect">' + options(2) + '</select>'})};
+    'no table': url => ({status: 200, url: String(url), text: async () => '<select id="weekSelect">' + options(2) + '</select>'}),
+    'no week list': url => ({status: 200, url: String(url), text: async () => table('X')})};
   for (const [name, bad] of Object.entries(answers)) {
     const p = page({fetch: (url, init, fallback) => String(url).includes(weeks[2].a) ? bad(url, init) : fallback(url, init)});
     try {
@@ -171,23 +172,64 @@ test('a neighbour that cannot be read is named in missing, not guessed', async (
   }
 });
 
-test('when the shown week cannot be read, nothing is sent to the app and the buttons are freed', async () => {
+test('a week page is known by its address: a `selected` mark on another week (the current one) does not refuse it', async () => {
+  // The site may mark the current week (here week 3) in every week's page; the address alone names the week.
+  const p = page({fetch: url => ({status: 200, url: String(url), text: async () => html(0, String(url).includes(weeks[1].a) ? 'Политология' : 'Культурология')})});
+  try {
+    trusted(p.w, button(p, 'ics')); await settle();
+    assert.deepEqual(p.sent, ['univer-schedule:ics']);
+    const data = JSON.parse(p.w.__univerOverviewV1.exportData());
+    assert.deepEqual(data.missing, []);
+    assert.deepEqual(data.weeks.map(w => [w.number, w.start, w.days[0][0].name]), [[4, ms(new Date(2026, 10, 9)), 'Политология'], [5, ms(new Date(2026, 10, 16)), 'Культурология']]);
+  } finally { p.close(); }
+});
+
+test('the shown week and its neighbour are both asked for before either answers', async () => {
+  const pending = [];
+  const p = page({fetch: (url, init, fallback) => !/myschedule/.test(String(url)) ? fallback(url, init) : new Promise(resolve => pending.push({url: String(url), answer: () => resolve(fallback(url, init))}))});
+  try {
+    trusted(p.w, button(p, 'ics')); await settle();
+    assert.deepEqual(pending.map(x => x.url), [BASE + value(weeks[1]), BASE + value(weeks[2])], 'two GETs pending at once');
+    assert.deepEqual(p.sent, []);
+    // The neighbour answers first; nothing is sent until the shown week is read as well.
+    pending[1].answer(); await settle();
+    assert.deepEqual(p.sent, []);
+    pending[0].answer(); await settle();
+    assert.deepEqual(p.sent, ['univer-schedule:ics']);
+    assert.deepEqual(JSON.parse(p.w.__univerOverviewV1.exportData()).weeks.map(w => w.number), [4, 5]);
+  } finally { p.close(); }
+});
+
+// What the page answers when the shown week is unread: not a pair (SchedulePair.Parse refuses it), so the app shows
+// its failure status and frees the buttons with exported(false).
+function assertFailureAnswer(p, kind, name) {
+  assert.deepEqual(p.sent, ['univer-schedule:' + kind], name + ': the app is told');
+  const raw = p.w.__univerOverviewV1.exportData();
+  assert.notEqual(raw, '', name);
+  const data = JSON.parse(raw);
+  assert.ok(!Array.isArray(data.weeks) || !data.weeks.length, name + ': no week in the answer');
+  assert.equal(data.failed, true, name);
+  assert.equal(p.w.__univerOverviewV1.exportData(), '', name + ': given once');
+}
+
+test('when the shown week cannot be read, the app is told with an answer that is not a pair, and its reply frees the buttons', async () => {
   const answers = {
     redirected: () => Promise.reject(new TypeError('redirect')),
     'other path': url => ({status: 200, url: BASE + '/student/myschedule/', text: async () => html(1, 'X')}),
+    'redirected to another week': url => ({status: 200, url: BASE + value(weeks[0]), text: async () => html(0, 'X')}),
     'other host': url => ({status: 200, url: 'https://example.org' + value(weeks[1]), text: async () => html(1, 'X')}),
-    'other dates': url => ({status: 200, url: String(url), text: async () => html(0, 'X')}),
     login: url => ({status: 200, url: String(url), text: async () => '<form id="login_frm"></form>'}),
     status: url => ({status: 500, url: String(url), text: async () => html(1, 'X')}),
-    'no table': url => ({status: 200, url: String(url), text: async () => '<select id="weekSelect">' + options(1) + '</select>'})};
+    'no table': url => ({status: 200, url: String(url), text: async () => '<select id="weekSelect">' + options(1) + '</select>'}),
+    'no week list': url => ({status: 200, url: String(url), text: async () => table('X')})};
   for (const [name, bad] of Object.entries(answers)) {
     let failShown = true;
     const p = page({fetch: (url, init, fallback) => failShown && String(url).includes(weeks[1].a) ? bad(url, init) : fallback(url, init)});
     try {
       trusted(p.w, button(p, 'ics')); await settle();
-      assert.deepEqual(p.sent, [], name);
-      assert.equal(p.w.__univerOverviewV1.exportData(), '', name);
-      assert.deepEqual(p.requests.map(r => r.url), [BASE + value(weeks[1])], name + ': neighbour is not fetched');
+      assertFailureAnswer(p, 'ics', name);
+      assert.equal(button(p, 'ics').getAttribute('aria-busy'), 'true', name + ': busy until the app answers');
+      p.w.__univerOverviewV1.exported(false);
       for (const kind of ['ics', 'png']) {
         assert.equal(button(p, kind).hasAttribute('aria-busy'), false, name + ' ' + kind);
         assert.equal(button(p, kind).hasAttribute('aria-disabled'), false, name + ' ' + kind);
@@ -195,7 +237,8 @@ test('when the shown week cannot be read, nothing is sent to the app and the but
       // Buttons work again once the shown week can be read.
       failShown = false;
       trusted(p.w, button(p, 'png')); await settle();
-      assert.deepEqual(p.sent, ['univer-schedule:png'], name + ': recovers after failure');
+      assert.deepEqual(p.sent, ['univer-schedule:ics', 'univer-schedule:png'], name + ': recovers after failure');
+      assert.equal(JSON.parse(p.w.__univerOverviewV1.exportData()).weeks.length, 2, name);
     } finally { p.close(); }
   }
 });
@@ -213,8 +256,8 @@ test('an option that is not a dated week address is never fetched', async () => 
     badShown.d.getElementById('weekSelect').options[1].value = '/student/myschedule/2026/1/12/';
     trusted(badShown.w, button(badShown, 'ics')); await settle();
     assert.equal(badShown.requests.length, 0);
-    assert.deepEqual(badShown.sent, []);
-    assert.equal(badShown.w.__univerOverviewV1.exportData(), '');
+    assertFailureAnswer(badShown, 'ics', 'bad shown address');
+    badShown.w.__univerOverviewV1.exported(false);
     assert.equal(button(badShown, 'ics').hasAttribute('aria-busy'), false);
     assert.equal(button(badShown, 'png').hasAttribute('aria-disabled'), false);
   } finally { badShown.close(); }
@@ -244,7 +287,7 @@ test('a week after a gap is not the neighbour: the week right before is, also on
   } finally { p.close(); }
 });
 
-test('an answer before the app took the reading drops it, and cancelling mid-fetch stops before the neighbour', async () => {
+test('an answer before the app took the reading drops it, and a press cancelled mid-fetch sends nothing', async () => {
   const p = page();
   try {
     trusted(p.w, button(p, 'ics')); await settle();
@@ -261,7 +304,20 @@ test('an answer before the app took the reading drops it, and cancelling mid-fet
     c.w.__univerOverviewV1.exported(false);
     release(); await settle();
     assert.deepEqual(c.sent, []);
-    assert.deepEqual(c.requests.map(r => r.url), [BASE + value(weeks[1])]);
+    assert.deepEqual(c.requests.map(r => r.url), [BASE + value(weeks[1]), BASE + value(weeks[2])]);
     assert.equal(c.w.__univerOverviewV1.exportData(), '');
   } finally { c.close(); }
+  // A cancelled press whose shown week then fails stays silent too: no failure answer for a press nobody waits on.
+  let fail;
+  const failing = new Promise((_, reject) => { fail = reject; });
+  failing.catch(() => {});
+  const f = page({fetch: (url, init, fallback) => String(url).includes(weeks[1].a) ? failing : fallback(url, init)});
+  try {
+    trusted(f.w, button(f, 'ics'));
+    f.w.__univerOverviewV1.exported(false);
+    fail(new TypeError('network')); await settle();
+    assert.deepEqual(f.sent, []);
+    assert.equal(f.w.__univerOverviewV1.exportData(), '');
+    assert.equal(button(f, 'ics').hasAttribute('aria-busy'), false);
+  } finally { f.close(); }
 });

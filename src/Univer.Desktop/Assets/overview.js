@@ -482,7 +482,9 @@
     }
     /* The schedule page's export buttons (univer-layout.js draws them, the app builds the file). Only the student's own press
        counts. The page reads the shown week and its neighbour, keeps them as one JSON string and tells the app, which fetches
-       the string with exportData(); a neighbour that cannot be read is named in `missing` and the app says so. */
+       the string with exportData(); a neighbour that cannot be read is named in `missing` and the app says so. A shown week
+       that cannot be read still tells the app, with a string it refuses, so the press ends in its failure status; only a
+       cancelled press (reload, the minute ran out, a newer press) leaves exportData() empty and the app silent. */
     var exportBusy = false, exportJson = '', exportTimer = 0, exportToken = 0;
     var EXPORT_VALUE = /^\/student\/myschedule\/\d{4}\/[12]\/\d{1,2}\.\d{1,2}\.\d{4}\/\d{1,2}\.\d{1,2}\.\d{4}\/?$/;
     function exportButtons(on) {
@@ -507,9 +509,10 @@
             return day.map(function (l) { return {start: l.start, end: l.end, name: l.parts.name || l.subject, type: l.parts.type || '', room: l.parts.room || '', teacher: l.parts.teacher || ''}; });
         });
     }
-    // A week by GET: the address must be the site's own week address, nothing may redirect, and the page that answers
-    // must name the week that was asked for.
-    async function readWeek(option, range) {
+    // A week by GET. The site serves each week at its own address with only that week's classes, so the address names the
+    // week: it must be the site's dated week address on this origin, nothing may redirect and the answer must come from
+    // that very path. The page's `selected` option is not read (the site may mark the current week there).
+    async function readWeek(option) {
         var value = option.value, url = new URL(value, location.origin);
         if (!EXPORT_VALUE.test(value) || url.origin !== location.origin) throw new Error('Address');
         var abort = new AbortController(), timeout = setTimeout(function () { abort.abort(); }, 15000);
@@ -519,10 +522,7 @@
             if (response.status !== 200 || final.origin !== location.origin || final.pathname !== url.pathname) throw new Error('Unavailable');
             var html = await response.text(); if (html.length > 4 * 1024 * 1024) throw new Error('Oversized');
             var doc = new DOMParser().parseFromString(html, 'text/html');
-            if (doc.querySelector('#login_frm') || !doc.querySelector('table.schedule')) throw new Error('Unread');
-            var select = doc.getElementById('weekSelect'), chosen = select && Array.from(select.options).find(function (o) { return o.hasAttribute('selected'); });
-            var got = chosen && weekRange(chosen.value + ' ' + chosen.textContent);
-            if (!got || got[0].getTime() !== range[0].getTime() || got[got.length - 1].getTime() !== range[range.length - 1].getTime()) throw new Error('Other week');
+            if (doc.querySelector('#login_frm') || !doc.getElementById('weekSelect') || !doc.querySelector('table.schedule')) throw new Error('Unread');
             return weekDays(doc);
         } finally { clearTimeout(timeout); }
     }
@@ -530,7 +530,7 @@
         var select = document.getElementById('weekSelect'), options = select ? Array.from(select.options) : [];
         var index = select ? select.selectedIndex : -1, shown = options[index], range = shown && weekRange(shown.value + ' ' + shown.textContent);
         var term = shown && /^\/student\/myschedule\/(\d{4})\/([12])\//.exec(shown.value);
-        if (!range || !term || !document.querySelector('table.schedule')) throw new Error('No week');
+        if (!range || !term || !EXPORT_VALUE.test(shown.value) || !document.querySelector('table.schedule')) throw new Error('No week');
         var ranges = options.map(function (o) { return weekRange(o.value + ' ' + o.textContent); });
         var start = range[0].getTime(), end = dayAfter(range[range.length - 1]), latest = end;
         ranges.forEach(function (r) { if (r) latest = Math.max(latest, dayAfter(r[r.length - 1])); });
@@ -546,18 +546,22 @@
         var mine = weekNumber(shown, index);
         var otherOption = other >= 0 ? options[other] : null, otherRange = other >= 0 ? ranges[other] : null, otherNumber = other >= 0 ? weekNumber(otherOption, other) : null;
         // Read the shown week by GET too: after picking another week, selectedIndex moves before AJAX replaces the table.
-        var shownDays = await readWeek(shown, range);
+        // Both reads start at once; an unread neighbour is null.
+        var shownRead = readWeek(shown), otherRead = otherOption ? readWeek(otherOption).catch(function () { return null; }) : Promise.resolve(null);
+        var read = await Promise.all([shownRead, otherRead]), shownDays = read[0], days = read[1];
         if (token !== exportToken) return;
         weeks.push({number: mine.number, labelled: mine.labelled, start: start, end: end, days: exportLessons(shownDays)});
-        if (otherOption) {
-            try {
-                var days = await readWeek(otherOption, otherRange);
-                weeks.push({number: otherNumber.number, labelled: otherNumber.labelled, start: otherRange[0].getTime(), end: dayAfter(otherRange[otherRange.length - 1]), days: exportLessons(days)});
-            } catch (_) { missing.push(otherNumber.number); }
-        }
-        if (token !== exportToken) return;
+        if (days) weeks.push({number: otherNumber.number, labelled: otherNumber.labelled, start: otherRange[0].getTime(), end: dayAfter(otherRange[otherRange.length - 1]), days: exportLessons(days)});
+        else if (otherOption) missing.push(otherNumber.number);
         exportJson = JSON.stringify({term: term[1] + '/' + term[2], until: latest, weeks: weeks, missing: missing});
         __univerNative('univer-schedule:' + kind);
+    }
+    // The shown week could not be read: the app still hears of the press and, finding no pair in this answer
+    // (SchedulePair.Parse refuses it), shows its failure status and frees the buttons.
+    function exportFailed(kind, token) {
+        if (token !== exportToken) return;
+        exportJson = '{"failed":true}';
+        try { __univerNative('univer-schedule:' + kind); } catch (_) { exportDone(); }
     }
     document.addEventListener('click', function (event) {
         var button = event.isTrusted && event.target && event.target.closest ? event.target.closest('.univer-app-schedule-export button[data-univer-export]') : null;
@@ -565,7 +569,7 @@
         var kind = button.getAttribute('data-univer-export'); if (kind !== 'ics' && kind !== 'png') return;
         exportToken++; var token = exportToken; exportJson = ''; exportButtons(true);
         clearTimeout(exportTimer); exportTimer = setTimeout(function () { exportToken++; exportJson = ''; exportButtons(false); }, 60000);
-        prepare(kind, token).catch(function () { if (token === exportToken) exportDone(); });
+        prepare(kind, token).catch(function () { exportFailed(kind, token); });
     }, true);
     /* The exam or midterm schedule page's list for the app's exam reminders (MainForm.Exams.cs asks for it and checks every
        field again): {v, kind, items:[{kind, subject, start:'yyyy-MM-ddTHH:mm' local, place}]}, or '' when the page is not

@@ -62,6 +62,8 @@ namespace Univer.Desktop.Tests
             yield return new object[] { "a missing number as text", Json("2026/1", SemesterEnd, new object[] { Week(3, Monday3) }, new object[] { "4" }) };
             yield return new object[] { "a broken class", Json("2026/1", SemesterEnd, new object[] { Week(3, Monday3, new object[] { new object[] { Lesson(600, 590, "Наоборот") } }) }, new object[0]) };
             yield return new object[] { "not JSON", "{weeks:" };
+            // overview.js sends this when the shown week cannot be read, so the press ends in the failure status.
+            yield return new object[] { "the page's failure answer", "{\"failed\":true}" };
         }
         [Theory]
         [MemberData(nameof(Broken))]
