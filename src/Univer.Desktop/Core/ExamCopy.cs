@@ -244,7 +244,13 @@ namespace Univer.Desktop.Core
         // What one combined balloon names: two exams, and two classes (with the PIN, one line per start time covers them all).
         // Only these are marked announced; the rest come in the next balloon instead of being dropped unsaid.
         internal const int Named = 2;
-        internal static List<ScheduleClass> NamedClasses(IList<ScheduleClass> classes, bool hidden) { return hidden ? classes.ToList() : classes.Take(Named).ToList(); }
+        // Behind the PIN a line per start time (two of them) covers every class at that time.
+        internal static List<ScheduleClass> NamedClasses(IList<ScheduleClass> classes, bool hidden)
+        {
+            if (!hidden) return classes.Take(Named).ToList();
+            var times = classes.Select(c => c.Start).Distinct().Take(Named).ToList();
+            return classes.Where(c => times.Contains(c.Start)).ToList();
+        }
         internal static List<ExamReminder> NamedExams(IList<ExamReminder> exams, bool hidden) { return ExamReminders.NamedOf(exams, hidden, Named); }
         internal static string Title(IList<ScheduleClass> classes, IList<ExamReminder> exams, DateTime now, string lang, bool hidden)
         {
@@ -257,7 +263,7 @@ namespace Univer.Desktop.Core
             var lines = new List<string>();
             if (hidden)
             {
-                lines.AddRange(classes.Select(c => c.Start).Distinct().Take(2).Select(t => Cap(string.Format(Strings.Get("reminderClassAt", lang), Time(t)))));
+                lines.AddRange(classes.Select(c => c.Start).Distinct().Take(Named).Select(t => Cap(string.Format(Strings.Get("reminderClassAt", lang), Time(t)))));
                 // The evening one says it is tomorrow, as it does with the PIN off; exams of one kind at one time share a line
                 // that counts them.
                 lines.AddRange(ExamReminders.TimeGroups(exams).Take(Named).Select(g => ExamReminders.HiddenLine(g, lang)));

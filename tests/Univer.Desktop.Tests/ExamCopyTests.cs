@@ -304,6 +304,10 @@ namespace Univer.Desktop.Tests
             var body = CombinedReminder.Body(namedClasses, named, "ru", false);
             Assert.Contains("Физика", body); Assert.Contains("Химия", body); Assert.DoesNotContain("История", body);
             Assert.Equal(3, CombinedReminder.NamedClasses(classes, true).Count);
+            // Behind the PIN only the classes at the two times the balloon shows are marked.
+            var spread = ClassAt(now.AddMinutes(5), "A").Concat(ClassAt(now.AddMinutes(10), "B")).Concat(ClassAt(now.AddMinutes(10), "C")).Concat(ClassAt(now.AddMinutes(14), "D")).ToList();
+            Assert.Equal(new[] { "A", "B", "C" }, CombinedReminder.NamedClasses(spread, true).Select(c => c.Name).ToArray());
+            Assert.Equal(2, CombinedReminder.Body(spread, named, "ru", true).Split(new[] { Environment.NewLine }, StringSplitOptions.None).Count(l => l.StartsWith("Пара", StringComparison.Ordinal)));
         }
 
         [Fact]

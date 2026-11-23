@@ -50,8 +50,9 @@ namespace Univer.Desktop.Core
             return Resolve(path, out target);
         }
         // The volume decides; target is the path the shell gets (the resolved DOS path, or the typed one when that is too long
-        // for the shell or the volume has no drive letter).
-        private static RecycleSupport Resolve(string path, out string target)
+        // for the shell or the volume has no drive letter). The shell picks the bin by that path's drive, so its drive must be
+        // fixed too: a fixed volume mounted in a folder of a USB stick is reached as E:\mnt\…, where the shell has no bin.
+        internal static RecycleSupport Resolve(string path, out string target)
         {
             target = null;
             try
@@ -72,7 +73,10 @@ namespace Univer.Desktop.Core
                 using (handle) { volume = FinalPath(handle, 1); dos = FinalPath(handle, 0); }
                 var root = FileDeletion.VolumeRoot(volume);
                 if (root == null || GetDriveTypeW(root) != DriveFixed) return RecycleSupport.NoBin;
-                target = FileDeletion.ShellPath(dos) ?? path;
+                var shell = FileDeletion.ShellPath(dos) ?? path;
+                var shellRoot = Path.GetPathRoot(shell);
+                if (string.IsNullOrEmpty(shellRoot) || shellRoot.StartsWith(@"\\", StringComparison.Ordinal) || GetDriveTypeW(shellRoot) != DriveFixed) return RecycleSupport.NoBin;
+                target = shell;
                 return RecycleSupport.Yes;
             }
             catch (Exception) { return RecycleSupport.NoBin; }
@@ -121,11 +125,15 @@ namespace Univer.Desktop.Core
             if (code != 0 || aborted || File.Exists(path) || File.Exists(target))
             {
                 // Why, without a second shell call: a file this account may not delete is told apart from one that is held.
-                if (!aborted && File.Exists(target))
-                    using (var probe = CreateFileW(target, 0x10000, 7, IntPtr.Zero, 3, 0, IntPtr.Zero))
-                        if (probe.IsInvalid && Marshal.GetLastWin32Error() == 5) throw new UnauthorizedAccessException("This account may not delete the file.");
+                if (!aborted && File.Exists(target) && DeleteRefused(target)) throw new UnauthorizedAccessException("This account may not delete the file.");
                 throw new IOException("The Recycle Bin did not take the file (code " + code + ").");
             }
+        }
+        // True when Windows refuses this account DELETE access to the file (ERROR_ACCESS_DENIED); a held or missing file is not that.
+        internal static bool DeleteRefused(string path)
+        {
+            using (var probe = CreateFileW(path, 0x10000, 7, IntPtr.Zero, 3, 0, IntPtr.Zero))
+                return probe.IsInvalid && Marshal.GetLastWin32Error() == 5;
         }
         // The structure of the running bitness as the marshaller lays it out (shellapi.h: 30 bytes packed on x86, 56 on
         // x64; fFlags and fAnyOperationsAborted at 16 and 18, or 32 and 36).

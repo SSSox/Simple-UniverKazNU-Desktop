@@ -168,6 +168,63 @@ namespace Univer.Desktop.Tests
         }
 
         [Fact]
+        public void ThroughASubstDriveOrAJunctionTheShellGetsTheFilesRealPath()
+        {
+            var record = Saved("a.pdf");
+            if (new DriveInfo(Path.GetPathRoot(record.Path)).DriveType != DriveType.Fixed) return;
+            var real = Path.GetFullPath(record.Path);
+            string target;
+            // A junction to the folder.
+            var junction = folder + "-link";
+            Run("cmd.exe", "/c mklink /J \"" + junction + "\" \"" + folder + "\"");
+            try
+            {
+                Assert.True(Directory.Exists(junction));
+                Assert.Equal(RecycleSupport.Yes, RecycleBinRecycler.Resolve(Path.Combine(junction, "a.pdf"), out target));
+                Assert.Equal(real, target, StringComparer.OrdinalIgnoreCase);
+            }
+            finally { Run("cmd.exe", "/c rmdir \"" + junction + "\""); }
+            // A SUBST drive on the folder (no administrator needed).
+            char letter = '\0';
+            for (var c = 'Z'; c >= 'H'; c--) if (!Directory.Exists(c + @":\")) { letter = c; break; }
+            Assert.NotEqual('\0', letter);
+            Run("subst.exe", letter + ": \"" + folder + "\"");
+            try
+            {
+                Assert.True(File.Exists(letter + @":\a.pdf"));
+                Assert.Equal(RecycleSupport.Yes, RecycleBinRecycler.Resolve(letter + @":\a.pdf", out target));
+                Assert.Equal(real, target, StringComparer.OrdinalIgnoreCase);
+            }
+            finally { Run("subst.exe", letter + ": /D"); }
+        }
+
+        [Fact]
+        public void AFileThisAccountMayNotDeleteIsToldApartFromAnOrdinaryOne()
+        {
+            var record = Saved("a.pdf");
+            Assert.False(RecycleBinRecycler.DeleteRefused(record.Path));
+            Assert.False(RecycleBinRecycler.DeleteRefused(Path.Combine(folder, "missing.pdf")));
+            var user = System.Security.Principal.WindowsIdentity.GetCurrent().User;
+            // Delete is allowed by the file's own right or by the folder's "delete children": both are denied.
+            var onFile = new System.Security.AccessControl.FileSystemAccessRule(user, System.Security.AccessControl.FileSystemRights.Delete, System.Security.AccessControl.AccessControlType.Deny);
+            var onFolder = new System.Security.AccessControl.FileSystemAccessRule(user, System.Security.AccessControl.FileSystemRights.DeleteSubdirectoriesAndFiles, System.Security.AccessControl.AccessControlType.Deny);
+            var file = File.GetAccessControl(record.Path); file.AddAccessRule(onFile); File.SetAccessControl(record.Path, file);
+            var dir = Directory.GetAccessControl(folder); dir.AddAccessRule(onFolder); Directory.SetAccessControl(folder, dir);
+            try { Assert.True(RecycleBinRecycler.DeleteRefused(record.Path)); }
+            finally
+            {
+                dir = Directory.GetAccessControl(folder); dir.RemoveAccessRule(onFolder); Directory.SetAccessControl(folder, dir);
+                file = File.GetAccessControl(record.Path); file.RemoveAccessRule(onFile); File.SetAccessControl(record.Path, file);
+            }
+        }
+
+        private static void Run(string file, string arguments)
+        {
+            var start = new ProcessStartInfo(file, arguments) { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true };
+            using (var process = Process.Start(start)) { process.WaitForExit(10000); }
+        }
+
+        [Fact]
         public void AReadOnlyFileNobodyHoldsIsReleasedAtOnce()
         {
             var record = Saved("a.pdf");
