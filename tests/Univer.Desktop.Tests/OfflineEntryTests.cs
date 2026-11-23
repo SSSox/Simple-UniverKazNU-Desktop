@@ -132,6 +132,39 @@ namespace Univer.Desktop.Tests
             Assert.False(entry.Offers(Limit * 2, true, false));
         }
 
+        [Fact]
+        public void AStoppedSignInFailsOnlyOnTheSignInPage()
+        {
+            bool waiting, failed;
+            OfflineEntry.Look(false, false, false, false, true, true, false, "", out waiting, out failed);
+            Assert.True(waiting); Assert.True(failed);
+            // The student signed in by hand after the stop: the signed-in page is calm, so SiteWorks and the offer do not fight.
+            OfflineEntry.Look(false, false, false, false, false, true, false, "", out waiting, out failed);
+            Assert.False(waiting); Assert.False(failed);
+        }
+
+        [Fact]
+        public void AnAutomaticRetryIsAWaitUntilItsPageLoads()
+        {
+            bool waiting, failed;
+            // RunRecovery cleared the error and sent the reload; its navigation has not begun, the failed page is not the sign-in.
+            OfflineEntry.Look(false, true, false, false, false, false, false, "503", out waiting, out failed);
+            Assert.True(waiting); Assert.False(failed);
+            OfflineEntry.Look(false, false, true, false, false, false, false, "503", out waiting, out failed);
+            Assert.True(waiting);
+            OfflineEntry.Look(false, false, false, false, false, false, true, "503", out waiting, out failed);
+            Assert.True(failed);
+            OfflineEntry.Look(false, false, false, false, false, false, false, "503", out waiting, out failed);
+            Assert.False(waiting || failed);
+            // A closed offer survives the retry: the look in between is not calm.
+            var entry = new OfflineEntry();
+            entry.Observe(false, true, 0); entry.Decline();
+            OfflineEntry.Look(false, true, false, false, false, false, false, "503", out waiting, out failed);
+            entry.Observe(waiting, failed, 1000);
+            entry.Observe(false, true, 2000);
+            Assert.False(entry.Offers(2000, true, false));
+        }
+
         [Theory]
         [InlineData("ProxyConnectionFailed", true)]
         [InlineData("NameNotResolved", true)]

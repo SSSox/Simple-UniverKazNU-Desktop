@@ -42,6 +42,15 @@ namespace Univer.Desktop.Core
         public bool SiteWorks() { var was = Chosen; troubleSince = null; failing = false; Declined = false; Chosen = false; return was; }
         // A new session (logout, another account): nothing carries over.
         public void Reset() { troubleSince = null; failing = false; Declined = false; Chosen = false; }
+        // What one look at the site window says. A sign-in that waits for its budget stays on the sign-in page, which is a wait
+        // anyway; a stopped sign-in is a failure only there: a hard stop outlives a signed-in page (only Retry lifts it), where it
+        // must neither offer nor fight SiteWorks on every tick. A reload just sent (retrySent until its navigation begins, then
+        // pageLoading) is a wait, so an automatic retry never reads as calm.
+        public static void Look(bool cover, bool retrySent, bool pageLoading, bool recoveryPending, bool loginPage, bool guardStopped, bool error, string failureCode, out bool waiting, out bool failed)
+        {
+            failed = (error && Failure(failureCode)) || (guardStopped && loginPage);
+            waiting = cover || retrySent || pageLoading || recoveryPending || loginPage;
+        }
         // A failed load the app reloads by itself: a network error of Chromium (not a certificate error, which stays with the
         // user, nor an aborted load) or an overloaded or unavailable server. A missing page is the site answering.
         public static bool Failure(string code)

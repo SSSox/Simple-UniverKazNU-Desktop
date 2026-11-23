@@ -75,10 +75,8 @@ namespace Univer.Desktop.UI
             if (LockShown || rotating || main == null || Active != main || document != null || DownloadsVisible || !OfflineSignsIn) offlineEntry.Forget();
             else
             {
-                var failed = (error && OfflineEntry.Failure(failureCode)) || guard.Stopped;
-                // A reload just sent (recoveryLoading until its navigation begins, then the page loading) is still a wait: the offer must
-                // not blink off, nor a closed one come back, at every automatic retry.
-                var waiting = loading.Visible || recoveryLoading || main.IsLoading || guard.Blocked || recoverAt.HasValue || SitePolicy.LoginPage(main.Address);
+                bool waiting, failed;
+                OfflineEntry.Look(loading.Visible, recoveryLoading, main.IsLoading, recoverAt.HasValue, SitePolicy.LoginPage(main.Address), guard.Stopped, error, failureCode, out waiting, out failed);
                 offlineEntry.Observe(waiting, failed, OfflineNow);
             }
             UpdateOfflineOffer();
