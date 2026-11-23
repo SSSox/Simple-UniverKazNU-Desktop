@@ -507,8 +507,8 @@
             return day.map(function (l) { return {start: l.start, end: l.end, name: l.parts.name || l.subject, type: l.parts.type || '', room: l.parts.room || '', teacher: l.parts.teacher || ''}; });
         });
     }
-    // The neighbour week by GET: the address must be the site's own week address, nothing may redirect, and the page that
-    // answers must name the week that was asked for.
+    // A week by GET: the address must be the site's own week address, nothing may redirect, and the page that answers
+    // must name the week that was asked for.
     async function readWeek(option, range) {
         var value = option.value, url = new URL(value, location.origin);
         if (!EXPORT_VALUE.test(value) || url.origin !== location.origin) throw new Error('Address');
@@ -528,7 +528,7 @@
     }
     async function prepare(kind, token) {
         var select = document.getElementById('weekSelect'), options = select ? Array.from(select.options) : [];
-        var shown = options[select ? select.selectedIndex : -1], range = shown && weekRange(shown.value + ' ' + shown.textContent);
+        var index = select ? select.selectedIndex : -1, shown = options[index], range = shown && weekRange(shown.value + ' ' + shown.textContent);
         var term = shown && /^\/student\/myschedule\/(\d{4})\/([12])\//.exec(shown.value);
         if (!range || !term || !document.querySelector('table.schedule')) throw new Error('No week');
         var ranges = options.map(function (o) { return weekRange(o.value + ' ' + o.textContent); });
@@ -538,19 +538,22 @@
         // a week after a gap may be of the same parity, so it is not taken.
         var after = -1, before = -1;
         ranges.forEach(function (r, i) {
-            if (!r || i === select.selectedIndex) return;
+            if (!r || i === index) return;
             if (r[0].getTime() === end && after < 0) after = i;
             if (dayAfter(r[r.length - 1]) === start && before < 0) before = i;
         });
         var other = after >= 0 ? after : before, weeks = [], missing = [];
-        var mine = weekNumber(shown, select.selectedIndex);
-        weeks.push({number: mine.number, labelled: mine.labelled, start: start, end: end, days: exportLessons(weekDays(document))});
-        if (other >= 0) {
-            var o = ranges[other], number = weekNumber(options[other], other);
+        var mine = weekNumber(shown, index);
+        var otherOption = other >= 0 ? options[other] : null, otherRange = other >= 0 ? ranges[other] : null, otherNumber = other >= 0 ? weekNumber(otherOption, other) : null;
+        // Read the shown week by GET too: after picking another week, selectedIndex moves before AJAX replaces the table.
+        var shownDays = await readWeek(shown, range);
+        if (token !== exportToken) return;
+        weeks.push({number: mine.number, labelled: mine.labelled, start: start, end: end, days: exportLessons(shownDays)});
+        if (otherOption) {
             try {
-                var days = await readWeek(options[other], o);
-                weeks.push({number: number.number, labelled: number.labelled, start: o[0].getTime(), end: dayAfter(o[o.length - 1]), days: exportLessons(days)});
-            } catch (_) { missing.push(number.number); }
+                var days = await readWeek(otherOption, otherRange);
+                weeks.push({number: otherNumber.number, labelled: otherNumber.labelled, start: otherRange[0].getTime(), end: dayAfter(otherRange[otherRange.length - 1]), days: exportLessons(days)});
+            } catch (_) { missing.push(otherNumber.number); }
         }
         if (token !== exportToken) return;
         exportJson = JSON.stringify({term: term[1] + '/' + term[2], until: latest, weeks: weeks, missing: missing});
