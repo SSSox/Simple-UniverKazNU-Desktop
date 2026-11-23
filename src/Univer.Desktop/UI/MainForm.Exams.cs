@@ -25,7 +25,7 @@ namespace Univer.Desktop.UI
         private Task examSaving = Task.FromResult(true);
         // The login mark the plan belongs to; the QA step sets its own synthetic one.
         private string ExamAccount { get { return examAccountForQa ?? ScheduleAccount; } }
-        private void LoadExamPlan() { var account = ExamAccount; examPlan = storageFailed || account.Length == 0 ? null : storage.LoadExams(account); }
+        private void LoadExamPlan() { var account = ExamAccount; examPlan = !KeptCopiesReadable || account.Length == 0 ? null : storage.LoadExams(account); }
         // A signed-in page of the main window: the exam and midterm schedule pages are asked once a minute while shown.
         private void ExamContent()
         {

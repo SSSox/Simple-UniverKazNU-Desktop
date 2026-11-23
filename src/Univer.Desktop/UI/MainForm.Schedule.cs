@@ -21,7 +21,34 @@ namespace Univer.Desktop.UI
         // and totals (copies kept for no login at all are never read).
         private readonly string scheduleAccountForQa = Array.IndexOf(Environment.GetCommandLineArgs(), "--qa-offline") >= 0 ? OfflineRunAccount : null;
         private string ScheduleAccount { get { return scheduleAccountForQa ?? ScheduleWeek.AccountMark(credentials?.Login); } }
-        private void LoadScheduleCopy() { scheduleWeek = storageFailed ? null : storage.LoadSchedule(ScheduleAccount); }
+        // The kept copies are read and used only while the app signs in by itself (Core/KeptCopies.cs): after the site's own
+        // logout the login stays saved with automatic sign-in paused, and a copy a failed delete left must stay unread.
+        private bool KeptCopiesReadable { get { return KeptCopies.Readable(SignsInByItself(), storageFailed, scheduleAccountForQa != null); } }
+        private void LoadScheduleCopy() { scheduleWeek = KeptCopiesReadable ? storage.LoadSchedule(ScheduleAccount) : null; }
+        // Called wherever automatic sign-in pauses or resumes (Core/KeptCopies.Step): a pause takes the copies out of memory at
+        // once, before any disk write that could fail (the tray, the reminders and the offline screen read memory only); a
+        // resume for the same login reads them again. Signing in by hand (Settings) pauses without ending the session: the
+        // copies stay on disk for this login until the session ends.
+        private void SyncKeptCopies()
+        {
+            var readable = KeptCopiesReadable; var changed = false;
+            switch (KeptCopies.Step(readable, scheduleWeek != null, scheduleClearPending))
+            {
+                case KeptCopyStep.Drop: scheduleWeek = null; changed = true; break;
+                case KeptCopyStep.Load: LoadScheduleCopy(); changed |= scheduleWeek != null; break;
+            }
+            switch (KeptCopies.Step(readable, examPlan != null, examClearPending))
+            {
+                case KeptCopyStep.Drop: examPlan = null; changed = true; break;
+                case KeptCopyStep.Load: LoadExamPlan(); changed |= examPlan != null; break;
+            }
+            switch (KeptCopies.Step(readable, lastGrades != null, lastGradesClearPending))
+            {
+                case KeptCopyStep.Drop: lastGrades = null; changed = true; break;
+                case KeptCopyStep.Load: LoadLastGrades(); changed |= lastGrades != null; break;
+            }
+            if (changed && !closing) { UpdateOffline(); UpdateOfflineOffer(); UpdateTrayHint(); }
+        }
         // A signed-in page of the main window: the two pages that know the week are asked once a minute while shown.
         private void ScheduleContent()
         {

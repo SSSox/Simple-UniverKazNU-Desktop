@@ -20,7 +20,7 @@ namespace Univer.Desktop.UI
         // The login mark the copy belongs to; the QA step sets its own synthetic one.
         private string LastGradesAccount { get { return lastGradesAccountForQa ?? ScheduleAccount; } }
         private readonly ReadRetry lastGradesRetry = new ReadRetry();
-        private void LoadLastGrades() { var account = LastGradesAccount; lastGrades = storageFailed || account.Length == 0 ? null : storage.LoadLastGrades(account); }
+        private void LoadLastGrades() { var account = LastGradesAccount; lastGrades = !KeptCopiesReadable || account.Length == 0 ? null : storage.LoadLastGrades(account); }
         // A signed-in home page of the main window: asked once a minute while shown, and again after ten seconds while the page
         // has nothing to give yet (it reads the journal a moment after it opens).
         private void LastGradesContent()

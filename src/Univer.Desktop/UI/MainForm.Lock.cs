@@ -293,7 +293,7 @@ namespace Univer.Desktop.UI
             if (result.Account != null && !plain) credentials = result.Account;
             else if (credentials != null && !credentials.Usable())
             {
-                credentials = null; credentialsUnreadable = true; plainPassword = false; SetStatus("credentialsUnreadable");
+                credentials = null; credentialsUnreadable = true; plainPassword = false; SyncKeptCopies(); SetStatus("credentialsUnreadable");
                 try { await storage.RemoveCredentialsAsync(); } catch (Exception) { }
                 Localize(); return;
             }
@@ -304,6 +304,7 @@ namespace Univer.Desktop.UI
                 catch (Exception) { return; }
             }
             if (account == null || closing) return;
+            SyncKeptCopies();
             await StripPlainAsync();
             if (!before && !closing)
             {

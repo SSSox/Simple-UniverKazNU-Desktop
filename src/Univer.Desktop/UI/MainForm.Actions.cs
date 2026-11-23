@@ -56,7 +56,7 @@ namespace Univer.Desktop.UI
                 if (action == SettingsAction.Manual) updated.AutoLoginPaused = true;
                 if (change != SettingsChange.AppearanceOnly)
                 {
-                    automation.Navigating(); guard.Stop(); prefs.AutoLoginPaused = true;
+                    automation.Navigating(); guard.Stop(); prefs.AutoLoginPaused = true; SyncKeptCopies();
                     // Persist the stop before replacing credentials or clearing the browser, and with it the mark that the
                     // old session still has to go: a run that ends before the profiles are replaced is finished by the next.
                     updated.AutoLoginPaused = true; updated.SessionClearPending = true; await storage.SavePreferencesAsync(updated); prefs = updated; guard.Stop();
@@ -73,7 +73,7 @@ namespace Univer.Desktop.UI
                 }
                 else { await storage.SavePreferencesAsync(updated); prefs = updated; }
                 if (closing) return false;
-                storageFailed = false; messages.ClearStorageError(); GradesChanged(gradesWere);
+                storageFailed = false; messages.ClearStorageError(); SyncKeptCopies(); GradesChanged(gradesWere);
                 // Windows' own line, written after the preferences: a refused write leaves the rest saved and says so.
                 var startupRefused = startup.HasValue && !ApplyAutostart(startup.Value);
                 if (action == SettingsAction.Manual) { messages.FinishSettings(); SetStatus("manualSignIn"); }
@@ -90,7 +90,7 @@ namespace Univer.Desktop.UI
                 // fresh one: it signs in by itself like any other start, so the change took effect.
                 if (rotated && !StorageFault(e))
                 {
-                    prefs.AutoLoginPaused = false; QueueAsync(SavePreferencesAsync); SetStatus("sessionReset"); Localize();
+                    prefs.AutoLoginPaused = false; SyncKeptCopies(); QueueAsync(SavePreferencesAsync); SetStatus("sessionReset"); Localize();
                     return true;
                 }
                 guard.Stop(); ReportSessionFault(e, logout); Localize();
@@ -111,6 +111,8 @@ namespace Univer.Desktop.UI
         {
             var stopped = prefs.Clone(); stopped.AutoLoginPaused = true; stopped.SessionClearPending = true;
             guard.Stop(); automation.Navigating(); prefs.AutoLoginPaused = true;
+            // The copies leave memory with the pause, before the write below: a refused write must not leave them in the tray.
+            SyncKeptCopies();
             await storage.SavePreferencesAsync(stopped); prefs = stopped;
             if (remove) { await RemoveAccountAsync(); credentials = null; }
             // The sidebar says so while the old session ends: under the cover it must not still read «Вход сохранён».
