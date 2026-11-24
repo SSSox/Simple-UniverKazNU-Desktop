@@ -59,7 +59,7 @@ namespace Univer.Desktop.Web
             // The page's own clock times the bundle and the view (QA step "speed" reads __univerTimingV1); it is bound before any
             // page script runs, so a replaced performance.now is never called.
             return "const " + automationBinding + "=" + "(function(__univerNative){'use strict';var __now=performance.now.bind(performance),__start=__now(),__bundle=0,__view=0;\n" + bundle + "\nvar __automation=window.__univerAutomationV1;if(__automation)Object.freeze(__automation);__bundle=__now()-__start;" + TimingScript + WakeScript + ConfigurePaint(active) + Early(prefs) +
-                "document.addEventListener('DOMContentLoaded',function(){var at=__now();try{" + ApplyView(prefs, viewer) + "}finally{__view=__now()-at;if(__univerNative)__univerNative('univer-dom');}},{once:true});return __automation;\n})(" +
+                "document.addEventListener('DOMContentLoaded',function(){var at=__now(),__changed=false;try{" + ApplyView(prefs, viewer) + "}finally{__view=__now()-at;if(__univerNative)__univerNative('univer-dom');}},{once:true});return __automation;\n})(" +
                 NativeChannel.Script(MessageKey) + ");";
         }
         private const string TimingScript = "try{Object.defineProperty(window,'__univerTimingV1',{value:Object.freeze({get bundle(){return __bundle},get view(){return __view},wakes:!!__univerNative})});}catch(_){}";
@@ -76,18 +76,20 @@ namespace Univer.Desktop.Web
         private static string Js(bool value) { return value ? "true" : "false"; }
         private static string ConfigurePaint(bool active) { return "window.__univerPaintV1.configure(" + Js(active) + ");"; }
         // Motion, pinned shortcuts (plain data from validated preferences) and the reading layout of this view.
-        // Built once per set of values: the app asks every tick, and the three serializer calls are not free.
+        // Built once per set of values: the app asks every tick, and repeated ticks allocate nothing on a cache hit.
         private string ApplyView(Preferences prefs, bool viewer)
         {
-            var key = ViewCache.Key(new[] { Js(prefs.Animations), Theme(), Js(prefs.Readable), Js(viewer), prefs.Language },
-                (prefs.Pins ?? new List<PinnedLink>()).SelectMany(p => new[] { p.Title, p.Url }), prefs.TileOrder, prefs.HiddenTiles);
-            return viewCache.Get(key, () => BuildView(prefs, viewer));
+            string cached;
+            if (viewCache.TryGet(prefs, Dark, viewer, out cached)) return cached;
+            return viewCache.Store(prefs, Dark, viewer, BuildView(prefs, viewer, viewCache.Builds + 1));
         }
         private readonly ViewCache viewCache = new ViewCache();
-        private string BuildView(Preferences prefs, bool viewer)
+        private string lastStepView, lastStepScript;
+        private bool lastStepPaint;
+        private string BuildView(Preferences prefs, bool viewer, int version)
         {
             return "window.__univerMotion=" + Js(prefs.Animations) + ";window.__univerTheme=" + Theme() + ";window.__univerShortcutsV1&&window.__univerShortcutsV1.configure(" + Shortcuts.ToJson(prefs.Pins) + "," + Shortcuts.OrderJson(prefs.TileOrder) + "," + Shortcuts.HiddenJson(prefs.HiddenTiles) + ");" +
-                "window.__univerDesktop.apply(" + Js(prefs.Readable) + "," + Js(viewer) + "," + Quote(prefs.Language) + ");";
+                "if(window.__univerDesktop.apply(" + Js(prefs.Readable) + "," + Js(viewer) + "," + Quote(prefs.Language) + "," + version + "))__changed=true;";
         }
         // The app's dark theme, for the reading layout; Original layout ignores it.
         public bool Dark { get; set; }
@@ -166,13 +168,22 @@ namespace Univer.Desktop.Web
         // The paint gate's sign-in state and the view; each step stays isolated so a failing layout cannot hide the viewer's
         // legacy Back.
         private string ViewScript(Preferences prefs, bool viewer, bool active)
-        { return "try{" + ConfigurePaint(active && !guard.Blocked && !guard.CoverSuspended) + "}catch(_){}try{" + ApplyView(prefs, viewer) + "}catch(_){}"; }
-        // One round trip for a tick's reads: the probe the step decides on, the view, then the probe the reveal decides on.
+        { return "try{" + ConfigurePaint(active && !guard.Blocked && !guard.CoverSuspended) + "}catch(_){}try{" + ApplyView(prefs, viewer) + "}catch(_){__changed=true;}"; }
+        // One round trip for a tick's reads: the probe the step decides on, the view, then the probe the reveal decides on
+        // (reusing the first probe when the view changed nothing).
         // wakes: this document has the app's sender, so it reports presses and known forms itself.
         private string StepScript(Preferences prefs, bool viewer, bool active)
         {
-            return "(function(){'use strict';var a=" + AutomationReference + ";if(!a)return 'bootstrap';var p=a.probe();if(!p.trusted)return JSON.stringify({probe:p});" + ViewScript(prefs, viewer, active) +
-                "return JSON.stringify({probe:p,applied:window.__univerDesktop&&window.__univerDesktop.close?'close':'ok',after:a.probe(),wakes:!!(window.__univerTimingV1&&window.__univerTimingV1.wakes===true)})})()";
+            return "(function(){'use strict';var a=" + AutomationReference + ";if(!a)return 'bootstrap';var p=a.probe();if(!p.trusted)return JSON.stringify({probe:p});var __changed=false;" + ViewScript(prefs, viewer, active) +
+                "return JSON.stringify({probe:p,applied:window.__univerDesktop&&window.__univerDesktop.close?'close':'ok',after:__changed?a.probe():p,wakes:!!(window.__univerTimingV1&&window.__univerTimingV1.wakes===true)})})()";
+        }
+        private string CachedStepScript(Preferences prefs, bool viewer, bool active)
+        {
+            var paintActive = active && !guard.Blocked && !guard.CoverSuspended;
+            var view = ApplyView(prefs, viewer);
+            if (lastStepScript != null && lastStepPaint == paintActive && ReferenceEquals(lastStepView, view)) return lastStepScript;
+            lastStepView = view; lastStepPaint = paintActive;
+            return lastStepScript = StepScript(prefs, viewer, active);
         }
         // Probes the page, applies the view, then takes at most one sign-in, language, notice or agreement action. Returns
         // the probe taken after the view, or null when the reveal must read the page itself.
@@ -180,7 +191,7 @@ namespace Univer.Desktop.Web
         {
             // A password still sealed under the PIN is a wait: no sign-in is tried (and counted) until the PIN opens it.
             var active = Credentials.SignInActive(credentials, prefs);
-            var raw = await ReadAsync(browser, StepScript(prefs, viewer, active));
+            var raw = await ReadAsync(browser, CachedStepScript(prefs, viewer, active));
             Probe p, after = null; string applied; var wakes = false;
             if (raw == "bootstrap")
             {

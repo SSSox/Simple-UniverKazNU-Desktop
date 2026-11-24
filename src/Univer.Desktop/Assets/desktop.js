@@ -61,31 +61,59 @@
                 motions.set(node, a); a.onfinish = a.oncancel = function () { if (motions.get(node) === a) motions.delete(node); };
             });
         };
+        var GHOST_LIMIT = 80;
+        var GHOST_SKIP = /^(?:SCRIPT|STYLE|IFRAME|FRAME|OBJECT|EMBED|LINK|META)$/i;
+        var GHOST_PROPS = 'display position top right bottom left box-sizing width height min-width min-height max-width max-height margin padding border border-radius background color opacity font font-family font-size font-weight line-height letter-spacing text-align text-decoration white-space overflow gap align-items justify-content flex flex-direction flex-wrap grid-template-columns grid-column transform transform-origin box-shadow list-style vertical-align object-fit -webkit-mask mask'.split(' ');
+        var GHOST_BOX_PROPS = ['box-sizing', 'background', 'background-color', 'border', 'border-top', 'border-right', 'border-bottom', 'border-left', 'border-radius', 'box-shadow', 'overflow'];
         var exit = function (node) {
             if (!node?.isConnected || !allowed() || !node.animate) { stop(node); return; }
             var visual = getComputedStyle(node), opacity = visual.opacity, transform = visual.transform;
             cancel(node); var rect = node.getBoundingClientRect();
             if (!rect.width || !rect.height) { stop(node); return; }
             // A passive visual copy lets the real popup close and release focus immediately.
-            // Computed styles avoid duplicate adapter classes/IDs and preserve the already painted shape.
-            var clone = node.cloneNode(true), sources = [node].concat(Array.from(node.querySelectorAll('*'))), copies = [clone].concat(Array.from(clone.querySelectorAll('*')));
-            var properties = 'display position top right bottom left box-sizing width height min-width min-height max-width max-height margin padding border border-radius background color opacity font font-family font-size font-weight line-height letter-spacing text-align text-decoration white-space overflow gap align-items justify-content flex flex-direction flex-wrap grid-template-columns grid-column transform transform-origin box-shadow list-style vertical-align object-fit -webkit-mask mask'.split(' ');
-            copies.forEach(function (copy, index) {
-                var css = getComputedStyle(sources[index]);
-                Array.from(copy.attributes).forEach(function (attr) { if (/^(?:id|class|name|autofocus|on)/i.test(attr.name)) copy.removeAttribute(attr.name); });
-                properties.forEach(function (property) { copy.style.setProperty(property, css.getPropertyValue(property)); });
-                copy.style.pointerEvents = 'none'; copy.tabIndex = -1;
-                ['::before','::after'].forEach(function (which) {
-                    if (!window.CSS?.supports('content', '""')) return;
-                    var pseudo = getComputedStyle(sources[index], which);
-                    if (!pseudo.content || pseudo.content === 'none' || pseudo.content === 'normal') return;
-                    var span = document.createElement('span');
-                    properties.forEach(function (property) { span.style.setProperty(property, pseudo.getPropertyValue(property)); });
-                    if (/^["'].*["']$/.test(pseudo.content)) span.textContent = pseudo.content.slice(1, -1);
-                    if (which === '::before') copy.prepend(span); else copy.append(span);
+            // Computed styles avoid duplicate adapter classes/IDs and preserve the already painted shape;
+            // large subtrees fade a lightweight panel shell instead of copying every descendant's style.
+            var clone;
+            if (node.getElementsByTagName('*').length > GHOST_LIMIT) {
+                clone = document.createElement('div');
+                GHOST_BOX_PROPS.forEach(function (property) {
+                    var value = visual.getPropertyValue(property);
+                    if (value) clone.style.setProperty(property, value);
                 });
-            });
-            clone.querySelectorAll('script,style,iframe,frame,object,embed,link,meta').forEach(function (copy) { copy.remove(); });
+                clone.style.pointerEvents = 'none'; clone.tabIndex = -1;
+            } else {
+                clone = node.cloneNode(true);
+                var pairs = [];
+                (function walk(source, copy) {
+                    pairs.push([source, copy]);
+                    var sKids = source.children, cKids = copy.children;
+                    for (var i = sKids.length - 1; i >= 0; i--) {
+                        if (GHOST_SKIP.test(sKids[i].tagName)) cKids[i]?.remove();
+                    }
+                    var j = 0;
+                    for (var k = 0; k < sKids.length; k++) {
+                        if (GHOST_SKIP.test(sKids[k].tagName)) continue;
+                        if (cKids[j]) walk(sKids[k], cKids[j++]);
+                    }
+                })(node, clone);
+                var pseudos = !!window.CSS?.supports?.('content', '""');
+                pairs.forEach(function (pair, index) {
+                    var source = pair[0], copy = pair[1];
+                    var css = index === 0 ? visual : getComputedStyle(source);
+                    Array.from(copy.attributes).forEach(function (attr) { if (/^(?:id|class|name|autofocus|on)/i.test(attr.name)) copy.removeAttribute(attr.name); });
+                    GHOST_PROPS.forEach(function (property) { copy.style.setProperty(property, css.getPropertyValue(property)); });
+                    copy.style.pointerEvents = 'none'; copy.tabIndex = -1;
+                    if (!pseudos) return;
+                    ['::before','::after'].forEach(function (which) {
+                        var pseudo = getComputedStyle(source, which);
+                        if (!pseudo.content || pseudo.content === 'none' || pseudo.content === 'normal') return;
+                        var span = document.createElement('span');
+                        GHOST_PROPS.forEach(function (property) { span.style.setProperty(property, pseudo.getPropertyValue(property)); });
+                        if (/^["'].*["']$/.test(pseudo.content)) span.textContent = pseudo.content.slice(1, -1);
+                        if (which === '::before') copy.prepend(span); else copy.append(span);
+                    });
+                });
+            }
             clone.setAttribute('data-univer-motion-ghost', ''); clone.setAttribute('aria-hidden', 'true'); clone.inert = true;
             clone.style.cssText += ';position:fixed!important;left:' + rect.left + 'px!important;top:' + rect.top + 'px!important;width:' + rect.width + 'px!important;height:' + rect.height + 'px!important;margin:0!important;z-index:10000!important;pointer-events:none!important;';
             stop(node); document.body.appendChild(clone);
@@ -228,29 +256,44 @@
         openBrand: icon("<path d='M14 4h6v6'/><path d='M20 4l-9 9'/><path d='M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5'/>", '#1b5fa6'),
         openWhite: icon("<path d='M14 4h6v6'/><path d='M20 4l-9 9'/><path d='M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5'/>", '#ffffff')
     };
-    window.__univerDesktop.apply = function (enabled, viewer, language) {
+    var lastApply = null;
+    window.__univerDesktop.apply = function (enabled, viewer, language, version) {
         window.__univerDesktop.enabled = enabled;
         window.__univerDesktop.viewer = viewer;
+        var lang = language || 'ru', dark = !!(enabled && window.__univerTheme === 'dark'), still = window.__univerMotion === false;
+        var mutated = !lastApply || lastApply.enabled !== enabled || lastApply.viewer !== viewer || lastApply.lang !== lang || lastApply.dark !== dark || lastApply.still !== still || lastApply.version !== version;
+        lastApply = { enabled: enabled, viewer: viewer, lang: lang, dark: dark, still: still, version: version };
+        var wasMobile = document.documentElement.classList.contains('univer-mobile');
         // The adapter's layout reads wait for this layer's stylesheets below: the page is laid out once, with all of them.
-        var measure = !!window.__univerMobileV1 && window.__univerMobileV1.setEnabled(enabled, language || 'ru', true);
+        var measure = !!window.__univerMobileV1 && window.__univerMobileV1.setEnabled(enabled, lang, true);
+        if (measure || document.documentElement.classList.contains('univer-mobile') !== wasMobile) mutated = true;
         // The dark theme belongs to the reading layout only; Original removes it with the rest of the presentation.
         function apply(doc) {
-            present(doc);
-            if (window.__univerThemeV1) window.__univerThemeV1.apply(doc, enabled && window.__univerTheme === 'dark');
+            var changed = present(doc);
+            if (window.__univerThemeV1) {
+                var hadApp = !!doc.getElementById('univer-app-dark-app'), hadEarly = !!doc.getElementById('univer-app-dark-early'), hadDark = doc.documentElement.classList.contains('univer-app-dark');
+                window.__univerThemeV1.apply(doc, dark);
+                if (!!doc.getElementById('univer-app-dark-app') !== hadApp || !!doc.getElementById('univer-app-dark-early') !== hadEarly || doc.documentElement.classList.contains('univer-app-dark') !== hadDark) changed = true;
+            }
+            return changed;
         }
         function present(doc) {
             // The explicit app preference disables all feedback transitions; system reduction is handled by CSS.
-            var still = window.__univerMotion === false;
+            var changed = false;
             if (still || !enabled) window.__univerMotionUI.stop();
-            if (doc.documentElement.classList.contains('univer-app-still') !== still) doc.documentElement.classList.toggle('univer-app-still', still);
+            if (doc.documentElement.classList.contains('univer-app-still') !== still) { doc.documentElement.classList.toggle('univer-app-still', still); changed = true; }
             var style = doc.getElementById('univer-desktop-style');
             if (!enabled) {
-                if (openList) closeList(false);
-                doc.querySelectorAll('.univer-app-select').forEach(function (list) { list.remove(); });
-                doc.documentElement.classList.remove('univer-app-keyboard', 'univer-app-still');
-                if (style) style.remove(); return;
+                if (openList) { closeList(false); changed = true; }
+                doc.querySelectorAll('.univer-app-select').forEach(function (list) { list.remove(); changed = true; });
+                if (doc.documentElement.classList.contains('univer-app-keyboard') || doc.documentElement.classList.contains('univer-app-still')) {
+                    doc.documentElement.classList.remove('univer-app-keyboard', 'univer-app-still');
+                    changed = true;
+                }
+                if (style) { style.remove(); changed = true; }
+                return changed;
             }
-            if (style) return;
+            if (style) return changed;
             style = doc.createElement('style'); style.id = 'univer-desktop-style';
             // Reading mode's visual tokens. ":root.univer-mobile" outranks the adapter's "html.univer-mobile" rules without
             // rewriting them; the adapter keeps the original nodes and handlers.
@@ -1289,16 +1332,18 @@
 :root.univer-mobile .univer-app-add-empty { margin:24px 0!important; color:var(--u-muted); font:14px var(--u-font)!important; text-align:center; }
 `;
             (doc.head || doc.documentElement).appendChild(style);
+            return true;
         }
-        apply(document);
+        if (apply(document)) mutated = true;
         if (window.__univerKitV1) window.__univerKitV1.configure(enabled && !viewer);
         // «Наверх» reads the layout (button width, control boxes) and measure() writes scroll hints after its own reads:
         // in this order the page is laid out once, not again after the hint writes.
-        if (window.__univerTopV1) window.__univerTopV1.configure(enabled, language || 'ru');
+        if (window.__univerTopV1) window.__univerTopV1.configure(enabled, lang);
         if (measure) window.__univerMobileV1.measure();
         // Same-origin frames only. Polling sees late frames without rewriting page contents.
         Array.from(document.querySelectorAll('iframe,frame')).forEach(function (frame) {
-            try { if (frame.contentWindow.location.origin === location.origin && frame.contentDocument) apply(frame.contentDocument); } catch (_) { }
+            try { if (frame.contentWindow.location.origin === location.origin && frame.contentDocument && apply(frame.contentDocument)) mutated = true; } catch (_) { }
         });
+        return mutated;
     };
 })();

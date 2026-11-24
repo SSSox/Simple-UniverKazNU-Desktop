@@ -321,3 +321,29 @@ test('an answer before the app took the reading drops it, and a press cancelled 
     assert.equal(button(f, 'ics').hasAttribute('aria-busy'), false);
   } finally { f.close(); }
 });
+
+test('schedule export stops at the 4 MB byte cap while streaming an oversized neighbour week', async () => {
+  const chunk = new Uint8Array(1024 * 1024);
+  let reads = 0, cancels = 0;
+  const p = page({
+    fetch: (url, init, fallback) => {
+      if (!String(url).includes(weeks[2].a)) return fallback(url, init);
+      return Promise.resolve({
+        status: 200,
+        url: String(url),
+        headers: {get: () => null},
+        body: {getReader: () => ({read: async () => { reads++; return {value: chunk, done: false}; }, cancel: async () => { cancels++; }, releaseLock() {}})}
+      });
+    }
+  });
+  p.w.TextDecoder = TextDecoder;
+  try {
+    trusted(p.w, button(p, 'ics')); await settle();
+    assert.equal(reads, 5, 'stops on the 5th 1 MB chunk (> 4 MB)');
+    assert.equal(cancels, 1, 'cancels the oversized week stream');
+    assert.deepEqual(p.sent, ['univer-schedule:ics']);
+    const data = JSON.parse(p.w.__univerOverviewV1.exportData());
+    assert.equal(data.weeks.length, 1);
+    assert.deepEqual(data.missing, [5]);
+  } finally { p.close(); }
+});

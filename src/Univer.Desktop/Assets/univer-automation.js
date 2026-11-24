@@ -43,7 +43,7 @@
         }, true);
     });
     function visible(el) {
-        if (!el || el.hidden || !el.getClientRects().length) return false;
+        if (!el || el.hidden || (el.closest && el.closest('[hidden]')) || !el.getClientRects().length) return false;
         var win = el.ownerDocument.defaultView;
         var style = win.getComputedStyle(el);
         if (style.visibility === 'hidden' || style.display === 'none') return false;
@@ -115,41 +115,49 @@
     }
     function loginForm() {
         if (!/^\/user\/login(?:moodle)?\/?$/i.test(location.pathname)) return null; // Moodle hand-off uses the same Univer form
-        var form = document.querySelector('form#login_frm');
-        if (!form || !trustedAction(form)) return null;
+        var form = document.getElementById('login_frm');
+        if (!form || form.tagName !== 'FORM' || form.hidden || (form.closest && form.closest('[hidden]')) || !trustedAction(form)) return null;
         var login = Array.from(form.querySelectorAll('input[type="text"]')).find(visible);
         var password = Array.from(form.querySelectorAll('input[type="password"]')).find(visible);
         var button = form.querySelector('input[name="btn"][type="submit"]') || form.querySelector('[type="submit"]');
-        return login && password && visible(button) && !login.disabled && !password.disabled && !button.disabled
+        return login && password && button && !login.disabled && !password.disabled && !button.disabled && visible(button)
             ? {form: form, login: login, password: password, button: button} : null;
     }
     function readNotice(text) {
         return /i confirm that i have read this notice|я подтверждаю,? что проч[её]л данное уведомление|мен бұл хабарламаны оқығанымды растаймын/i.test(normalize(text));
     }
+    function matchNotice(form) {
+        if (!form || form.tagName !== 'FORM' || form.hidden || (form.closest && form.closest('[hidden]'))) return null;
+        if (!trustedAction(form) || !/^\/student\/attentionStudents\/\d+\/?$/i.test(new URL(form.action).pathname)) return null;
+        var check = form.querySelector('input#check[type="checkbox"]');
+        var label = form.querySelector('label[for="check"]');
+        var button = form.querySelector('input#btn[type="submit"], button#btn[type="submit"]');
+        if (!check || !label) {
+            for (var candidate of form.querySelectorAll('input[type="checkbox"]')) {
+                var candidateLabel = Array.from(form.querySelectorAll('label')).find(function (l) {
+                    return l.htmlFor === candidate.id || l.contains(candidate);
+                });
+                if (candidateLabel && readNotice(candidateLabel.textContent)) { check = candidate; label = candidateLabel; break; }
+            }
+        }
+        if (!button) button = Array.from(form.querySelectorAll('input[type="submit"], button[type="submit"]'))
+            .find(function (b) { return /submit|отправить|ж[іi]беру/i.test(b.value || b.textContent); });
+        if (check && !check.disabled && label && readNotice(label.textContent) && button && visible(check) && visible(button))
+            return {form: form, check: check, button: button};
+        return null;
+    }
     function noticeForm(docs) {
         for (var doc of docs) for (var form of doc.querySelectorAll('form#attentionSt, form[action*="/student/attentionStudents/"]')) {
-            if (!trustedAction(form) || !/^\/student\/attentionStudents\/\d+\/?$/i.test(new URL(form.action).pathname)) continue;
-            var check = form.querySelector('input#check[type="checkbox"]');
-            var label = form.querySelector('label[for="check"]');
-            var button = form.querySelector('input#btn[type="submit"], button#btn[type="submit"]');
-            if (!check || !label) {
-                for (var candidate of form.querySelectorAll('input[type="checkbox"]')) {
-                    var candidateLabel = Array.from(form.querySelectorAll('label')).find(function (l) {
-                        return l.htmlFor === candidate.id || l.contains(candidate);
-                    });
-                    if (candidateLabel && readNotice(candidateLabel.textContent)) { check = candidate; label = candidateLabel; break; }
-                }
-            }
-            if (!button) button = Array.from(form.querySelectorAll('input[type="submit"], button[type="submit"]'))
-                .find(function (b) { return /submit|отправить|ж[іi]беру/i.test(b.value || b.textContent); });
-            if (visible(check) && !check.disabled && label && readNotice(label.textContent) && visible(button))
-                return {form: form, check: check, button: button};
+            var matched = matchNotice(form);
+            if (matched) return matched;
         }
         return null;
     }
     function reauthForm(docs) {
         for (var doc of docs) {
-            var form = doc.querySelector('#auth_modal form#modal_auth_frm');
+            var box = doc.getElementById('auth_modal');
+            if (!box || box.hidden || (box.closest && box.closest('[hidden]'))) continue;
+            var form = box.querySelector('form#modal_auth_frm');
             if (!form || !trustedAction(form)) continue;
             var login = form.querySelector('input#modal_auth_login[type="text"][name="login"]');
             var password = form.querySelector('input#modal_auth_pass[type="password"][name="password"]');
@@ -165,16 +173,31 @@
     }
     function agreementForm(docs) {
         for (var doc of docs) {
-            var box = doc.querySelector('#modal_agreement');
-            var form = box?.querySelector('form#agree_frm');
-            var check = box?.querySelector('input#iconfirm[type="checkbox"]');
-            var button = box?.querySelector('button.btn-confirm[onclick*="agree()"]');
-            var label = box?.querySelector('label[for="iconfirm"]');
-            if (form && trustedAction(form) && visible(check) && !check.disabled && visible(button) &&
-                label && /прочитал договор/.test(normalize(label.textContent)) && doc.defaultView.jQuery &&
-                typeof doc.defaultView.agree === 'function') return {form: form, box: box, check: check, button: button};
+            var box = doc.getElementById('modal_agreement');
+            if (!box || box.hidden || (box.closest && box.closest('[hidden]'))) continue;
+            var form = box.querySelector('form#agree_frm');
+            if (!form) continue;
+            var check = box.querySelector('input#iconfirm[type="checkbox"]');
+            var button = box.querySelector('button.btn-confirm[onclick*="agree()"]');
+            var label = box.querySelector('label[for="iconfirm"]');
+            if (check && !check.disabled && button && label && doc.defaultView.jQuery &&
+                typeof doc.defaultView.agree === 'function' && trustedAction(form) &&
+                /прочитал договор/.test(normalize(label.textContent)) && visible(check) && visible(button))
+                return {form: form, box: box, check: check, button: button};
         }
         return null;
+    }
+    // Lightweight form check for the paint gate's observer: avoids full probe() layout/content scans and episode mutation.
+    function hasPending(fromObserver) {
+        if (location.origin !== origin) return false;
+        var loginPage = /^\/user\/login(?:moodle)?\/?$/i.test(location.pathname);
+        if (loginPage) return fromObserver ? !!loginForm() : true;
+        var docs = [document];
+        if (document.getElementById('auth_modal') && reauthForm(docs)) return true;
+        var notice = document.getElementById('attentionSt');
+        if (notice && matchNotice(notice)) return true;
+        if (document.getElementById('modal_agreement') && agreementForm(docs)) return true;
+        return false;
     }
     function hash(text) {
         var result = 2166136261;
@@ -238,7 +261,7 @@
             reauthOutcome: ajax.reauth.state, reauthResultChallenge: ajax.reauth.challenge,
             // innerText of the entire grade/material catalogue forces layout every polling tick.
             language: currentLanguage(), hasContent: !!document.body && Array.from(document.body.children).some(function (node) {
-                return !/^(SCRIPT|STYLE|NOSCRIPT)$/.test(node.tagName) && visible(node) && hasText(node);
+                return !/^(SCRIPT|STYLE|NOSCRIPT)$/.test(node.tagName) && !node.hidden && hasText(node) && visible(node);
             })};
     }
     // Same answer as textContent.trim() !== '', but stops at the first non-blank text node instead of copying
@@ -297,6 +320,7 @@
     }
     window.__univerAutomationV1 = {
         probe: probe,
+        hasPending: hasPending,
         login: function (expected, login, password) {
             if (!valid(expected) || loginClicked) return 'wait';
             // 'not-ready' certifies that nothing was submitted, so the native reservation may be returned.

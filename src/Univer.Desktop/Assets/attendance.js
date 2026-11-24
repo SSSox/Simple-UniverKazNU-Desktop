@@ -55,7 +55,7 @@
         if (state.limit.hidden===over) state.limit.hidden=!over;
         if (state.limit.textContent!==words) state.limit.textContent=words;
     }
-    function missed(group,type) { return group.lessons.filter(l=>!type||l.type===type).reduce((sum,lesson)=>sum+lesson.tables.reduce((n,table)=>n+absences(table),0),0); }
+    function missed(group,type) { return group.lessons.filter(l=>!type||l.type===type).reduce((sum,lesson)=>sum+lesson.tables.reduce((n,table)=>n+tableAbsences(table),0),0); }
     function cell(cls,text) { var node=document.createElement('span'); node.className=cls; node.setAttribute('role','cell'); if (text!=null) node.textContent=text; return node; }
     // A period's name without its "(100)".
     function periodKey(value) { return value.replace(/\s*\(.*$/,'').replace(/\s+/g,''); }
@@ -182,6 +182,31 @@
         });
         return entries;
     }
+    // One read of a table's text stands for its totals until that text changes. Lengths plus the text fix each cell's
+    // string, so a later pass can reuse the totals instead of walking the grid again.
+    var tableFacts=new WeakMap();
+    function factsFor(table) {
+        var raw=table.textContent||'';
+        var facts=tableFacts.get(table);
+        if (!facts || facts.raw!==raw) { facts={raw:raw,text:raw.replace(/\s+/g,' ').trim(),snapshot:null,entries:null,absences:null}; tableFacts.set(table,facts); }
+        return facts;
+    }
+    function snapshot(table) {
+        var rows=ownRows(table), parts=[String(rows.length)];
+        for (var r=0;r<rows.length;r++) {
+            var cells=rows[r].cells; parts.push(String(cells.length));
+            for (var c=0;c<cells.length;c++) { var cell=cells[c]; parts.push(cell.tagName,String(cell.rowSpan),String(cell.colSpan),String((cell.textContent||'').length)); }
+        }
+        return parts.join('\u0000');
+    }
+    function ensureTable(table) {
+        var facts=factsFor(table), shot=snapshot(table);
+        if (facts.entries && facts.snapshot===shot) return facts;
+        facts.snapshot=shot; facts.entries=sums(table); facts.absences=absences(table); return facts;
+    }
+    function tableText(table) { return factsFor(table).text; }
+    function tableSums(table) { return ensureTable(table).entries; }
+    function tableAbsences(table) { return ensureTable(table).absences; }
     function setHidden(node,value) {
         if (!hidden.has(node)) hidden.set(node,{value:node.hidden,attribute:node.getAttribute('hidden'),classAbsent:!node.hasAttribute('class')});
         var next=hidden.get(node).value||value;
@@ -241,7 +266,7 @@
             var lessons=group.lessons.filter(l=>l.type===type); if (!lessons.length) return;
             any=true;
             var values=new Map();
-            lessons.forEach(lesson=>lesson.tables.forEach(table=>sums(table).forEach(entry=>{
+            lessons.forEach(lesson=>lesson.tables.forEach(table=>tableSums(table).forEach(entry=>{
                 if (!values.has(entry.period)) values.set(entry.period,[]);
                 values.get(entry.period).push(entry.value);
             })));
@@ -287,10 +312,18 @@
             toggle.addEventListener('click',event=>{
                 var parent=group.heading.closest('table'), before=parent?.getBoundingClientRect().height || 0;
                 window.__univerMotionUI?.stop(parent);
-                expanded.set(group.token,!open);focusToggle=group.token;render(model());
+                var nextOpen=!open; expanded.set(group.token,nextOpen); focusToggle=group.token;
+                var box=toggle.closest('.univer-app-attendance-summary'), host=box&&(box.closest('.univer-app-attendance-owned')||box);
+                discard(host);
+                var excludeCourse=selectedCourse!=='all'&&selectedCourse!==group.token;
+                group.lessons.forEach(lesson=>{
+                    var exclude=excludeCourse||!nextOpen||(selected!=='all'&&selected!==lesson.type);
+                    hideRange(lesson.start,lesson.end,exclude);
+                });
+                var created=summary(group,nextOpen); focusSummary();
                 if(event.detail>0) {
                     window.__univerMotionUI?.resize(parent,before,open?180:220);
-                    owned.filter(node=>!node.closest('[hidden]')).forEach(node=>window.__univerMotionUI?.reveal(node,'content'));
+                    if(created&&!created.closest('[hidden]')) window.__univerMotionUI?.reveal(created,'content');
                 }
             });
             box.appendChild(toggle);
@@ -353,16 +386,48 @@
         });
         state.courseButtons.forEach((button,token)=>{if(!keep.has(token)){button.remove();state.courseButtons.delete(token);}});
     }
-    function hideRange(elements,start,end,exclude,last) {
-        var contained=node=>(node===start||before(start,node))&&(!end||(before(node,end)&&!node.contains(end)))&&
-            (!last||node===last||last.contains(node)||(before(node,last)&&!node.contains(last)));
-        elements.filter(node=>contained(node)&&!contained(node.parentElement)).forEach(node=>setHidden(node,exclude));
+    // The next element after `node` in document order, skipping the descendants just hidden with it.
+    function nextAfter(node,root) {
+        while (node && node!==root) { if (node.nextElementSibling) return node.nextElementSibling; node=node.parentElement; }
+        return null;
+    }
+    function follows(node,bound) { return !!(node.compareDocumentPosition(bound)&Node.DOCUMENT_POSITION_FOLLOWING); }
+    function discard(node) {
+        if (!node) return;
+        window.__univerMotionUI?.stop(node);
+        var index=owned.indexOf(node); if (index>=0) owned.splice(index,1);
+        node.remove();
+    }
+    // Hide the blocks that sit wholly between two boundaries: the lesson's own rows, or, on a page with no rows,
+    // the element and its following siblings. One position check up front; the walk then stops when it meets the bound.
+    function hideRange(start,end,exclude,last) {
+        if (!start) return;
+        var root=document.querySelector('#l4');
+        if (!root || !root.contains(start)) return;
+        if (end && end!==start && !start.contains(end) && !follows(start,end)) return;
+        if (last && last!==start && !start.contains(last) && !last.contains(start) && !follows(start,last)) return;
+        var node=start;
+        while (node && node!==root && root.contains(node)) {
+            if (node===end) return;
+            if (end && node.contains(end)) { node=node.firstElementChild; if (!node) return; continue; }
+            if (last && node!==last && node.contains(last)) { node=node.firstElementChild; if (!node) return; continue; }
+            setHidden(node,exclude);
+            if (node===last) return;
+            node=nextAfter(node,root);
+        }
+    }
+    function focusSummary() {
+        var root=document.querySelector('#l4'); if (!root) return;
+        var focused=root.querySelector('.univer-app-attendance-summary[data-univer-focus] .univer-app-attendance-details-toggle');
+        if (!focused) return;
+        focused.closest('.univer-app-attendance-summary').removeAttribute('data-univer-focus');
+        if (focused.focus) focused.focus({preventScroll:true});
     }
     function render(groups) {
         resetVisibility(); owned.forEach(node=>{window.__univerMotionUI?.stop(node);node.remove();}); owned=[];
         courseControls(groups);
         groups.forEach(group=>group.lessons.forEach(lesson=>{if(lesson.type)makeLabel(lesson.link);}));
-        var root=document.querySelector('#l4'), elements=Array.from(root.querySelectorAll('*'));
+        var root=document.querySelector('#l4');
         // With all courses listed, each course starts as its summary; one chosen course shows its class log.
         var single=selectedCourse!=='all'||groups.filter(group=>group.heading).length<2;
         groups.forEach(group=>{
@@ -371,11 +436,9 @@
             var open=!group.heading||selected!=='all'||(expanded.has(group.token)?expanded.get(group.token):single);
             group.lessons.forEach(lesson=>{
                 var exclude=excludeCourse||!open||(selected!=='all'&&selected!==lesson.type);
-                // Hide only maximal elements wholly inside this lesson's document-order range.
-                // This works both with sibling blocks and with legacy tables nesting multiple subjects.
-                hideRange(elements,lesson.start,lesson.end,exclude);
+                hideRange(lesson.start,lesson.end,exclude);
             });
-            if(excludeCourse&&group.heading)hideRange(elements,group.start,group.end,true,!group.end&&group.overall?boundary(group.overall):null);
+            if(excludeCourse&&group.heading)hideRange(group.start,group.end,true,!group.end&&group.overall?boundary(group.overall):null);
             var host=summary(group,open);if(excludeCourse)setHidden(host,true);
         });
         overview(groups);
@@ -392,8 +455,7 @@
         state.bar.setAttribute('aria-label',text().filter);
         // The note explains a type filter, so it appears only while one is active.
         state.caption.textContent=text().filter;state.note.textContent=text().note;state.note.hidden=selected==='all';
-        var focused=root.querySelector('.univer-app-attendance-summary[data-univer-focus] .univer-app-attendance-details-toggle');
-        if (focused) { focused.closest('.univer-app-attendance-summary').removeAttribute('data-univer-focus'); focused.focus?.({preventScroll:true}); }
+        focusSummary();
     }
     var REPORT_PAGE=/^\/student\/attendance\/(full|show)(\/\d+)*\/?$/;
     function apply(lang) {
@@ -402,7 +464,7 @@
         if (!/^\/student\/attendance\/(full|show)(\/|$)/.test(location.pathname)) return;
         var groups=model(); if (!groups.length) { if(state)release(); return; }
         if(state&&!state.host.isConnected){release();groups=model();}
-        var signature=language+'|'+groups.map(g=>id(g.heading||g.lessons[0].cell)+':'+(courseHeader(g.heading)?'h':'')+(g.token||'')+g.lessons.map(l=>id(l.link)+clean(l.link)+l.tables.map(t=>id(t)+clean(t)).join('|')).join('/')+(g.overall?clean(g.overall): '')).join(';');
+        var signature=language+'|'+groups.map(g=>id(g.heading||g.lessons[0].cell)+':'+(courseHeader(g.heading)?'h':'')+(g.token||'')+g.lessons.map(l=>id(l.link)+clean(l.link)+l.tables.map(t=>id(t)+tableText(t)).join('|')).join('/')+(g.overall?clean(g.overall): '')).join(';');
         if (!state) {
             var bar=document.createElement('div'); bar.className='univer-app-attendance-filters'; bar.setAttribute('role','group');
             var caption=document.createElement('p');caption.className='univer-app-attendance-filter-caption';
@@ -447,6 +509,7 @@
         if (state.signature!==signature) { state.signature=signature; render(groups); showLimit(groups); }
     }
     function release() {
+        tableFacts=new WeakMap();
         window.__univerReportV1?.close();
         marked.forEach((absent,cell)=>{cell.classList.remove('univer-app-sum');if(absent&&!cell.className)cell.removeAttribute('class');}); marked.clear();
         resetVisibility(); owned.forEach(node=>{window.__univerMotionUI?.stop(node);node.remove();}); owned=[];

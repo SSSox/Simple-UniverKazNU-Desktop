@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.IO;
 using Univer.Desktop.Core;
 using Xunit;
 
@@ -161,5 +163,77 @@ namespace Univer.Desktop.Tests
         }
         [Fact]
         public void PictureWidth_IsTwiceTheSheet() { Assert.Equal(1520, GradeReport.PictureWidth(760)); Assert.Equal(1521, GradeReport.PictureWidth(760.4)); }
+
+        [Theory]
+        [InlineData(1520, 4448, 760, 2224, "Keep", 1520, 4448)]
+        [InlineData(1522, 4448, 760, 2224, "Keep", 1522, 4448)]
+        [InlineData(1520, 4000, 760, 2224, "Reject", 0, 0)]
+        [InlineData(1140, 3336, 760, 2224, "Resize", 1520, 4448)]
+        [InlineData(1140, 2900, 760, 2224, "Reject", 0, 0)]
+        [InlineData(0, 100, 760, 2224, "Reject", 0, 0)]
+        [InlineData(1520, 0, 760, 2224, "Reject", 0, 0)]
+        public void PlanFit_DecidesKeepResizeOrReject(int imageWidth, int imageHeight, double cssWidth, double cssHeight, string expectedKind, int expectedWidth, int expectedHeight)
+        {
+            var plan = GradeReport.PlanFit(imageWidth, imageHeight, cssWidth, cssHeight);
+            Assert.Equal(expectedKind, plan.Kind.ToString());
+            Assert.Equal(expectedWidth, plan.Width);
+            Assert.Equal(expectedHeight, plan.Height);
+        }
+
+        [Fact]
+        public void NextSet_SkipsAnySetWithAnExistingPage()
+        {
+            var made = new DateTime(2026, 11, 18);
+            var taken = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            Assert.Equal(0, GradeReport.NextSet("C:\\out", "ru", made, 3, taken.Contains));
+            // Only page 2 of set 0 collides: the whole new set moves to set 1.
+            taken.Add(Path.Combine("C:\\out", GradeReport.FileName("ru", made, "png", 2, 0)));
+            Assert.Equal(1, GradeReport.NextSet("C:\\out", "ru", made, 3, taken.Contains));
+            // Page 3 of set 1 collides: moves to set 2.
+            taken.Add(Path.Combine("C:\\out", GradeReport.FileName("ru", made, "png", 3, 1)));
+            Assert.Equal(2, GradeReport.NextSet("C:\\out", "ru", made, 3, taken.Contains));
+        }
+
+        [Fact]
+        public void SavePictures_NamesSingleAndMultiPageSetsAndRollsBackOnMidSetFailure()
+        {
+            var folder = Path.Combine(Path.GetTempPath(), "univer-report-test-" + Guid.NewGuid().ToString("N"));
+            var made = new DateTime(2026, 11, 18);
+            try
+            {
+                // Single picture keeps the plain name; a second one does not overwrite it.
+                var one = GradeReport.SavePictures(folder, "ru", made, new[] { new byte[] { 1, 2, 3 } });
+                Assert.Single(one);
+                Assert.Equal(GradeReport.FileName("ru", made, "png"), Path.GetFileName(one[0]));
+                Assert.Equal(new byte[] { 1, 2, 3 }, File.ReadAllBytes(one[0]));
+
+                // Multi-page set gets shared set 0, then a second set gets shared set 1.
+                var firstSet = GradeReport.SavePictures(folder, "en", made, new[] { new byte[] { 10 }, new byte[] { 20 } });
+                Assert.Equal(new[] { GradeReport.FileName("en", made, "png", 1, 0), GradeReport.FileName("en", made, "png", 2, 0) },
+                    new[] { Path.GetFileName(firstSet[0]), Path.GetFileName(firstSet[1]) });
+                var secondSet = GradeReport.SavePictures(folder, "en", made, new[] { new byte[] { 30 }, new byte[] { 40 } });
+                Assert.Equal(new[] { GradeReport.FileName("en", made, "png", 1, 1), GradeReport.FileName("en", made, "png", 2, 1) },
+                    new[] { Path.GetFileName(secondSet[0]), Path.GetFileName(secondSet[1]) });
+
+                // Failure on page 2 rolls back page 1 and leaves no partial files behind.
+                var before = Directory.GetFiles(folder);
+                var writes = 0;
+                Assert.Throws<IOException>(() => GradeReport.SavePictures(folder, "kz", made, new[] { new byte[] { 1 }, new byte[] { 2 }, new byte[] { 3 } }, (path, bytes) =>
+                {
+                    if (++writes == 2) throw new IOException("disk full");
+                    File.WriteAllBytes(path, bytes);
+                }));
+                Assert.Equal(before.Length, Directory.GetFiles(folder).Length);
+                Assert.Empty(Directory.GetFiles(folder, "*.part"));
+
+                // DeleteParts cleans up saved files (used when the sheet closes while saving).
+                GradeReport.DeleteParts(secondSet);
+                Assert.All(secondSet, path => Assert.False(File.Exists(path)));
+            }
+            finally
+            {
+                if (Directory.Exists(folder)) Directory.Delete(folder, true);
+            }
+        }
     }
 }

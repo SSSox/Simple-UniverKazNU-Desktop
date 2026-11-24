@@ -48,7 +48,7 @@
         '.top.still,.top.still.on{transition:none;transform:none}' +
         '@media (prefers-reduced-motion:reduce){.top,.top.on{transform:none;transition:opacity .16s ease,visibility 0s linear .16s}.top.on{transition:opacity .16s ease}}' +
         '@media print{.top{display:none!important}}';
-    var enabled = false, language = 'ru', host = null, button = null, label = null, visible = false, idle = 0, frame = 0, checked = 0, cramped = false, clear = '';
+    var enabled = false, language = 'ru', host = null, button = null, label = null, visible = false, idle = 0, frame = 0, checked = 0, cramped = false, lastMark = '', lastFound = false;
     var still = function () { return window.__univerMotion === false; };
     var reduced = function () { return still() || !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches; };
     // The visible page area without scrollbars; the fixed button is placed against the same box.
@@ -105,20 +105,20 @@
         var need = Math.min(MAX_ROOM, Math.max(MIN_ROOM, Math.ceil((EDGE + width + 16) / 16) * 16)) + '';
         var held = root.getAttribute(ROOM), fits = size.width - need >= MIN_COLUMN;
         // A room given up leaves the control under the button again: that is checked at once.
-        if (size.height < MIN_VIEW || !fits) { if (held) { root.removeAttribute(ROOM); force = true; } }
+        if (size.height < MIN_VIEW || !fits) { if (held) { root.removeAttribute(ROOM); force = true; lastMark = ''; } }
         else { cramped = false; if (held) { if (held !== need) root.setAttribute(ROOM, need); return; } }
         if (size.height < MIN_VIEW) return;
         var now = Date.now();
         // A clock set back does not stop the checks.
         if (!force && now >= checked && now - checked < 1000) return;
         checked = now;
-        // The app asks again with every poll. A page that looks as it did at the last check that found nothing (the same
-        // window, height and number of elements) has its controls where they were: they are not measured again.
+        // The app asks again with every poll. A page that looks as it did at the last check (the same window, height and
+        // number of elements) has its controls where they were: they are not measured again, whether a control was found or not.
         var main = document.getElementById('l4');
         var mark = [size.width, size.height, width, root.scrollHeight, main ? main.getElementsByTagName('*').length : 0].join('|');
-        if (!force && mark === clear) return;
-        var found = crowded(size, width);
-        clear = found ? '' : mark;
+        var found;
+        if (!force && mark === lastMark) found = lastFound;
+        else { found = crowded(size, width); lastMark = mark; lastFound = found; }
         if (!fits) cramped = found;
         else if (found) root.setAttribute(ROOM, need);
     }
@@ -151,14 +151,14 @@
         if (first) first.focus({ preventScroll: true }); else button.blur();
     }
     window.addEventListener('scroll', scrolled, { passive: true });
-    window.addEventListener('resize', function () { checked = 0; clear = ''; later(); });
+    window.addEventListener('resize', function () { checked = 0; lastMark = ''; later(); });
     document.addEventListener('click', later, true);
     document.addEventListener('keyup', later, true);
     window.__univerTopV1 = {
         configure: function (on, lang) {
             enabled = !!on; language = WORDS[lang] ? lang : 'ru';
             if (enabled) { refresh(); return; }
-            clearTimeout(idle); idle = 0; visible = false; checked = 0; cramped = false; clear = '';
+            clearTimeout(idle); idle = 0; visible = false; checked = 0; cramped = false; lastMark = ''; lastFound = false;
             document.documentElement.removeAttribute(ROOM);
             if (host) { host.remove(); host = null; button = label = null; }
         },

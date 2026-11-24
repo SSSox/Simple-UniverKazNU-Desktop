@@ -229,16 +229,14 @@
         if (!run) return;
         slides.delete(item); item.removeAttribute('data-univer-sliding'); run.animation.cancel();
     }
-    // Sets the row's state and slides it there when motion is on; a reversal starts from where the row is now.
-    function slideRow(item, closing) {
-        var run = slides.get(item), from = closing ? 1 : 0, measures = run ? run.measures : null;
-        if (run) { var now = parseFloat(getComputedStyle(item).getPropertyValue('--univer-slide')); if (now >= 0 && now <= 1) from = now; stopSlide(item); }
-        var ready = slideReady();
+    // Starts the slide from measures already read. A reversal uses the row's current --univer-slide as `from`.
+    function slideRow(item, closing, prepared) {
+        if (prepared.run) stopSlide(item);
         if (!closing) item.removeAttribute('data-univer-folded-row');
-        if (ready && !measures) measures = slideMeasures(item);
         if (closing) item.setAttribute('data-univer-folded-row', '');
-        if (!ready || !measures || !item.animate) return;
-        var to = closing ? 0 : 1, frame = function (value) { var result = {'--univer-slide':String(value)}; Object.keys(measures).forEach(function (k) { result[k] = measures[k]; }); return result; };
+        var measures = prepared.measures;
+        if (!measures || !item.animate) return;
+        var from = prepared.from, to = closing ? 0 : 1, frame = function (value) { var result = {'--univer-slide':String(value)}; Object.keys(measures).forEach(function (k) { result[k] = measures[k]; }); return result; };
         item.setAttribute('data-univer-sliding', '');
         var animation = item.animate([frame(from), frame(to)], {duration:Math.max(90, Math.round((closing ? 260 : 320) * Math.abs(to - from))),
             easing:closing ? 'cubic-bezier(.4,0,.2,1)' : 'cubic-bezier(.22,1,.36,1)', fill:'forwards'});
@@ -247,15 +245,31 @@
         animation.onfinish = function () { if (slides.get(item) === mine) stopSlide(item); };
     }
     function paintFold(record, animate) {
-        var closed = record.closed, state = closed ? 'closed' : 'open';
+        var closed = record.closed, state = closed ? 'closed' : 'open', items = record.items;
+        // Past 20 rows the slide would measure and animate every row. The fold still happens, at once.
+        var slide = animate && items.length <= 20 && slideReady(), plan = [];
+        if (slide) {
+            items.forEach(function (item) {
+                if (item.hasAttribute('data-univer-folded-row') === closed) return;
+                var run = slides.get(item), from = closed ? 1 : 0, measures = run ? run.measures : null;
+                if (run) { var now = parseFloat(getComputedStyle(item).getPropertyValue('--univer-slide')); if (now >= 0 && now <= 1) from = now; }
+                plan.push({item:item, run:run, from:from, measures:measures, measure:!measures});
+            });
+            // A folded row has no box until it is shown. Open every one of those, then read them together.
+            if (!closed) plan.forEach(function (step) { if (step.measure) step.item.removeAttribute('data-univer-folded-row'); });
+            plan.forEach(function (step) { if (step.measure) step.measures = slideMeasures(step.item); });
+        }
         if (record.head.getAttribute('aria-expanded') !== String(!closed)) record.head.setAttribute('aria-expanded', String(!closed));
         if (record.head.dataset.univerFold !== state) record.head.dataset.univerFold = state;
-        record.items.forEach(function (item) {
-            if (item.hasAttribute('data-univer-folded-row') === closed) return;
-            if (animate) { slideRow(item, closed); return; }
-            stopSlide(item);
-            if (closed) item.setAttribute('data-univer-folded-row', ''); else item.removeAttribute('data-univer-folded-row');
-        });
+        if (!slide) {
+            items.forEach(function (item) {
+                if (item.hasAttribute('data-univer-folded-row') === closed) return;
+                stopSlide(item);
+                if (closed) item.setAttribute('data-univer-folded-row', ''); else item.removeAttribute('data-univer-folded-row');
+            });
+            return;
+        }
+        plan.forEach(function (step) { slideRow(step.item, closed, step); });
     }
     // «Скачать все»: a button in a files section's heading row, beside the heading button rather than inside it, with its
     // label drawn by CSS, so the heading's text (which names the fold and the folder) stays the same. Teachers' links are

@@ -346,6 +346,42 @@ test('UMKD: a clicked fold slides its rows through --univer-slide, turns back fr
   still.close();
 });
 
+test('UMKD: a fold reads every row before it writes, and a section past 20 rows folds at once', () => {
+  const many = n => Array.from({ length: n }, (_, i) => fileRow(30000 + i, 'Файл ' + i + '.pdf', '')).join('');
+  const html = n => shell(panel(row('<td class="tt"><div class="inner"><table class="inner"><tr><th></th><th>Название файла</th><th>Описание</th><th>Язык. гр.</th><th>Размер</th><th>Дата загрузки</th><th>Оцените качество материала</th></tr>' +
+    '<tr><th colspan="7" id="pile">Лекции</th></tr>' + many(n) + '</table></div></td>')));
+  const open = n => {
+    const p = page(html(n), 'https://univer.kaznu.kz/student/umkd/321/2026/1');
+    apply(p);
+    const runs = [];
+    let reads = 0, wrote = false, readAfterWrite = 0;
+    const real = p.w.getComputedStyle.bind(p.w), box = p.w.Element.prototype.getBoundingClientRect, set = p.w.Element.prototype.setAttribute;
+    p.w.CSS = { registerProperty() {} };
+    p.w.Element.prototype.animate = function (frames, options) { const run = { frames, options, cancel() {} }; runs.push(run); return run; };
+    p.w.getComputedStyle = node => { if (wrote && node.matches && node.matches('tr.file')) readAfterWrite++; reads++; return node.matches && node.matches('tr.file') ? { display: 'grid', paddingTop: '8px', paddingBottom: '8px', marginTop: '0px', marginBottom: '0px', borderTopWidth: '1px', borderBottomWidth: '0px', getPropertyValue: () => '' } : real(node); };
+    p.w.Element.prototype.getBoundingClientRect = function () { if (wrote && this.matches && this.matches('tr.file')) readAfterWrite++; if (this.matches && this.matches('tr.file')) reads++; return { top: 0, left: 0, width: 600, height: this.matches && this.matches('tr.file') ? 52 : 30 }; };
+    p.w.Element.prototype.setAttribute = function (name, value) { if (name === 'data-univer-folded-row' || name === 'data-univer-sliding') wrote = true; return set.call(this, name, value); };
+    const head = p.d.getElementById('pile');
+    head.dispatchEvent(new p.w.MouseEvent('click', { bubbles: true, cancelable: true, detail: 1 }));
+    const rows = Array.from(p.d.querySelectorAll('tr.file'));
+    const result = { p, runs, reads, readAfterWrite, rows };
+    p.w.getComputedStyle = real; p.w.Element.prototype.getBoundingClientRect = box; p.w.Element.prototype.setAttribute = set;
+    return result;
+  };
+  const small = open(3);
+  assert.equal(small.runs.length, 3, 'three rows still slide');
+  assert.equal(small.readAfterWrite, 0, 'the measures are read before any row is written');
+  assert.ok(small.reads >= 3);
+  assert.ok(small.rows.every(r => r.hasAttribute('data-univer-folded-row') && r.hasAttribute('data-univer-sliding')));
+  small.p.close();
+  const big = open(21);
+  assert.equal(big.runs.length, 0, 'more than 20 rows do not slide');
+  assert.equal(big.reads, 0, 'and nothing is measured');
+  assert.ok(big.rows.every(r => r.hasAttribute('data-univer-folded-row') && !r.hasAttribute('data-univer-sliding')));
+  assert.equal(big.p.d.getElementById('pile').getAttribute('aria-expanded'), 'false');
+  big.p.close();
+});
+
 test('UMKD: a section with more files than the app takes in one message has no «Скачать все»', () => {
   const many = n => Array.from({ length: n }, (_, i) => fileRow(20000 + i, 'Файл ' + i + '.pdf', '')).join('');
   const html = count => shell(panel(row('<td class="tt"><div class="inner"><table class="inner"><tr><th></th><th>Название файла</th><th>Описание</th><th>Язык. гр.</th><th>Размер</th><th>Дата загрузки</th><th>Оцените качество материала</th></tr>' +

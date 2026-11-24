@@ -7,6 +7,7 @@
     var phone = /Android/.test(navigator.userAgent);
     var language = 'ru', enabled = false, style = null, entered = false, calc = null;
     var classes = new Map(), attributes = new Map(), texts = new Map(), mirrors = new Map(), empties = new Map(), clamped = new Map();
+    var alertChecked = new WeakMap(), badgeChecked = new WeakMap();
     var added = [], listeners = [], relabels = [], wraps = [];
 
     function words() {
@@ -85,14 +86,20 @@
         if (box && box.matches('.univer-app-table-scroll')) hide(box, false);
         return target;
     }
+    var RGB = /rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\)/;
     // Red and green text on the site means "warning" and "all set". The hue survives the dark theme's recolouring.
     function tone(node) {
-        var m = /rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\)/.exec(getComputedStyle(node).color);
+        var m = RGB.exec(getComputedStyle(node).color);
         if (!m || m[4] === '0') return '';
         var r = m[1] / 255, g = m[2] / 255, b = m[3] / 255, max = Math.max(r, g, b), d = max - Math.min(r, g, b);
         if (d < 0.25) return '';
         var h = (max === r ? ((g - b) / d + 6) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4) * 60;
         return h < 16 || h > 340 ? 'warn' : h > 85 && h < 165 ? 'tip' : '';
+    }
+    function toneSig(node, len) {
+        var p = node.parentElement;
+        return node.className + '\0' + (node.getAttribute('style') || '') + '\0' + (node.getAttribute('color') || '') + '\0' + len +
+            (p ? '\0' + p.className + '\0' + (p.getAttribute('style') || '') + '\0' + (p.getAttribute('color') || '') : '');
     }
 
     // "(i)" notes: the site's info icon at the start of a text cell.
@@ -106,18 +113,42 @@
     var ALERT_SKIP = '#tools,details,a,button,label,select,option,.univer-app-info,.univer-app-callout,.univer-app-cards,.univer-app-grade,.igpa-ui,.up-note,.up-alert,.up-tip,.up-facts';
     // Whole red or green sentences become a warning or a tip box; a coloured word inside a sentence stays as it is.
     function alerts() {
+        var marks = [], planned = new Set(), tones = new Map(), parentLens = new Map();
+        var readTone = function (node) {
+            if (tones.has(node)) return tones.get(node);
+            var v = tone(node); tones.set(node, v); return v;
+        };
+        var lenOf = function (node) {
+            if (parentLens.has(node)) return parentLens.get(node);
+            var n = clean(node).length; parentLens.set(node, n); return n;
+        };
+        var insidePlanned = function (node) {
+            if (!planned.size) return false;
+            for (var p = node.parentElement; p; p = p.parentElement) if (planned.has(p)) return true;
+            return false;
+        };
         document.querySelectorAll(ALERT_NODES).forEach(function (node) {
-            if (node.closest(ALERT_SKIP) || /(^|\s)univer-app/.test(node.className) || node.querySelector('table,input,select,textarea,img,video,iframe')) return;
+            if (insidePlanned(node) || node.closest(ALERT_SKIP) || /(^|\s)univer-app/.test(node.className) || node.querySelector('table,input,select,textarea,img,video,iframe')) return;
             var value = clean(node); if (value.length < 24 || value.length > 700) return;
-            var kind = tone(node), parent = node.parentElement; if (!kind) return;
-            if (parent.matches(ALERT_PARENT) && !/(^|\s)univer-app/.test(parent.className) && tone(parent) === kind && clean(parent).length <= 700) return;
-            if (/^(FONT|SPAN|B|STRONG)$/.test(node.tagName) && clean(parent).length > value.length * 1.25) return;
-            mark(node, kind === 'warn' ? 'up-alert' : 'up-tip');
+            var parent = node.parentElement;
+            if (/^(FONT|SPAN|B|STRONG)$/.test(node.tagName) && lenOf(parent) > value.length * 1.25) return;
+            var sig = toneSig(node, value.length);
+            if (alertChecked.get(node) === sig) return;
+            var kind = readTone(node);
+            if (!kind) { alertChecked.set(node, sig); return; }
+            if (parent.matches(ALERT_PARENT) && !/(^|\s)univer-app/.test(parent.className) && lenOf(parent) <= 700 && readTone(parent) === kind) { alertChecked.set(node, sig); return; }
+            planned.add(node);
+            marks.push([node, kind === 'warn' ? 'up-alert' : 'up-tip']);
         });
         document.querySelectorAll('#l4 .univer-app-form-table td>label:not([for])').forEach(function (node) {
-            if (node.classList.contains('up-alert') || node.querySelector('input,select,textarea,img') || clean(node).length < 24 || tone(node) !== 'warn') return;
-            mark(node, 'up-alert');
+            if (node.classList.contains('up-alert') || node.querySelector('input,select,textarea,img')) return;
+            var value = clean(node); if (value.length < 24) return;
+            var sig = toneSig(node, value.length);
+            if (alertChecked.get(node) === sig) return;
+            if (readTone(node) !== 'warn') { alertChecked.set(node, sig); return; }
+            marks.push([node, 'up-alert']);
         });
+        marks.forEach(function (item) { mark(item[0], item[1]); });
     }
     // Period and page arrows: the site's left.png/right.png images become arrows drawn in text colour.
     function arrows() {
@@ -413,29 +444,42 @@
         });
     }
     // Long text folds to a few lines behind a "Show in full" button; the height change is animated.
-    function clamp(box) {
-        if (clamped.has(box)) return;
-        mark(box, 'up-clamp');
-        var shown = box.clientHeight; if (!shown) { unmark(box, 'up-clamp'); return; }
-        if (box.scrollHeight <= shown + 12) { unmark(box, 'up-clamp'); clamped.set(box, null); return; }
-        var button = create('button', 'up-more'); button.type = 'button'; button.setAttribute('aria-expanded', 'false');
-        label(button, function () { button.textContent = words()[box.classList.contains('up-open') ? 'less' : 'more']; });
-        listen(button, 'click', function (event) {
-            var open = !box.classList.contains('up-open'), before = box.getBoundingClientRect().height;
-            ui()?.stop(box);
-            if (open) mark(box, 'up-open'); else unmark(box, 'up-open');
-            button.setAttribute('aria-expanded', String(open)); button.textContent = words()[open ? 'less' : 'more'];
-            if (moving(event)) ui()?.resize(box, before, open ? 240 : 200);
+    function clamp(boxes) {
+        var pending = [], seen = new Set();
+        boxes.forEach(function (box) {
+            if (!box || clamped.has(box) || seen.has(box)) return;
+            seen.add(box); mark(box, 'up-clamp'); pending.push(box);
         });
-        box.after(button); clamped.set(box, button);
+        if (!pending.length) return;
+        var measured = pending.map(function (box) {
+            var shown = box.clientHeight;
+            return {box:box, shown:shown, tall:shown > 0 && box.scrollHeight > shown + 12};
+        });
+        measured.forEach(function (item) {
+            var box = item.box;
+            if (!item.shown) { unmark(box, 'up-clamp'); return; }
+            if (!item.tall) { unmark(box, 'up-clamp'); clamped.set(box, null); return; }
+            var button = create('button', 'up-more'); button.type = 'button'; button.setAttribute('aria-expanded', 'false');
+            label(button, function () { button.textContent = words()[box.classList.contains('up-open') ? 'less' : 'more']; });
+            listen(button, 'click', function (event) {
+                var open = !box.classList.contains('up-open'), before = box.getBoundingClientRect().height;
+                ui()?.stop(box);
+                if (open) mark(box, 'up-open'); else unmark(box, 'up-open');
+                button.setAttribute('aria-expanded', String(open)); button.textContent = words()[open ? 'less' : 'more'];
+                if (moving(event)) ui()?.resize(box, before, open ? 240 : 200);
+            });
+            box.after(button); clamped.set(box, button);
+        });
     }
 
     // Route recipes.
     function mon() {
+        var boxes = [];
         document.querySelectorAll('#l4 tr.news').forEach(function (row) {
             var table = row.closest('table'); if (table) mark(table, 'up-mon');
-            var body = row.querySelector('span.header+div'); if (body) clamp(body);
+            var body = row.querySelector('span.header+div'); if (body) boxes.push(body);
         });
+        clamp(boxes);
     }
     function counts() {
         document.querySelectorAll('#l4 .univer-app-catalog>summary').forEach(function (summary) {
@@ -491,14 +535,32 @@
     }
     // Questionnaires: an Open button on each survey, an answered/not answered chip and an Answer button on each subject.
     function rating() {
+        var jobs = [], badges = [], tones = new Map();
+        var readTone = function (node) {
+            if (tones.has(node)) return tones.get(node);
+            var v = tone(node); tones.set(node, v); return v;
+        };
         document.querySelectorAll('#l4 table.univer-app-cards').forEach(function (table) {
             var head = table.querySelector('tr.univer-app-card-header'), rows = Array.from(table.querySelectorAll('tr.link[id]'));
             if (!head || !rows.length) return;
             var column = Array.from(head.cells).findIndex(function (c) { return /ответил|жауап|answered/i.test(clean(c)); });
+            jobs.push({rows:rows, column:column});
             rows.forEach(function (row) {
-                row.querySelectorAll('font,span:not([class]),b,p').forEach(function (n) { var v = clean(n); if (v && v.length <= 24 && tone(n) === 'warn') mark(n, 'up-badge'); });
-                if (column < 0) { openButton(row, 'open'); return; }
-                var done = row.classList.contains('done'), cell = row.cells[column];
+                row.querySelectorAll('font,span:not([class]),b,p').forEach(function (n) {
+                    if (n.classList.contains('up-badge')) return;
+                    var v = clean(n); if (!v || v.length > 24) return;
+                    var sig = toneSig(n, v.length);
+                    if (badgeChecked.get(n) === sig) return;
+                    if (readTone(n) === 'warn') badges.push(n);
+                    else badgeChecked.set(n, sig);
+                });
+            });
+        });
+        badges.forEach(function (n) { mark(n, 'up-badge'); });
+        jobs.forEach(function (job) {
+            job.rows.forEach(function (row) {
+                if (job.column < 0) { openButton(row, 'open'); return; }
+                var done = row.classList.contains('done'), cell = row.cells[job.column];
                 if (cell && !cell.querySelector('.up-chip')) {
                     cell.querySelectorAll(':scope>img').forEach(function (img) { hide(img); });
                     var chip = create('span', done ? 'up-chip up-chip-done' : 'up-chip up-chip-wait');
@@ -797,7 +859,7 @@ ${P} #l5 td.up-copyright a { color:var(--u-muted)!important; }
         style?.remove(); style = null;
         listeners.forEach(function (l) { l[0].removeEventListener(l[1], l[2]); }); listeners = [];
         added.forEach(function (node) { node.remove(); }); added = [];
-        mirrors.clear(); empties.clear(); clamped.clear(); relabels = []; calc = null;
+        mirrors.clear(); empties.clear(); clamped.clear(); alertChecked = new WeakMap(); badgeChecked = new WeakMap(); relabels = []; calc = null;
         wraps.forEach(function (span) { if (span.parentNode) span.replaceWith(...span.childNodes); }); wraps = [];
         // The layout may have put its own text back first; a node that no longer holds what was written here is left alone.
         texts.forEach(function (saved, node) { if (node.nodeValue === saved.wrote) node.nodeValue = saved.original; }); texts.clear();

@@ -200,6 +200,62 @@ test('a page that has not changed since a check found nothing is not measured ag
   q.w.close();
 });
 
+test('in a narrow window with a control under the button, the result is memoized across polls, scrolls, clicks and keys until the page or window changes', () => {
+  const p = page(site, [{ left: 360, top: 3000, width: 100, height: 32 }], 6000, { width: 480, height: 800 });
+  let at = p.w.Date.now(), measured = 0;
+  p.w.Date.now = () => at;
+  const origQuery = p.d.getElementById('l4').querySelectorAll.bind(p.d.getElementById('l4'));
+  let queries = 0;
+  p.d.getElementById('l4').querySelectorAll = (sel) => { queries++; return origQuery(sel); };
+  p.nodes.forEach((node) => { const read = node.getBoundingClientRect; node.getBoundingClientRect = () => { measured++; return read(); }; });
+  // Run scheduled timers synchronously when fired by scroll/click/keyup so we exercise those exact listeners.
+  const timers = [];
+  p.w.setTimeout = (fn) => { timers.push(fn); return timers.length; };
+  p.w.clearTimeout = () => {};
+  const flush = () => { while (timers.length) timers.shift()(); };
+
+  p.top.configure(true, 'ru');
+  assert.equal(measured, 1, 'initial check measures once');
+  assert.equal(queries, 1);
+  assert.equal(p.room(), null);
+  p.scroll(3000);
+  // Repeated 1 s polls, scroll, click and keyup on the unchanged narrow page must not re-query or re-measure.
+  for (let i = 0; i < 4; i++) {
+    at += 1500;
+    p.top.configure(true, 'ru');
+    at += 1500;
+    p.w.dispatchEvent(new p.w.Event('scroll')); flush();
+    at += 1500;
+    p.d.dispatchEvent(new p.w.Event('click')); flush();
+    at += 1500;
+    p.d.dispatchEvent(new p.w.KeyboardEvent('keyup', { key: 'ArrowDown' })); flush();
+  }
+  assert.equal(measured, 1, 'memoized cramped result avoids repeated getBoundingClientRect calls');
+  assert.equal(queries, 1, 'memoized cramped result avoids repeated #l4 queries');
+  assert.equal(p.button().classList.contains('on'), false, 'button stays hidden while cramped');
+
+  // Explicit forced refresh still re-measures.
+  p.top.refresh();
+  assert.equal(measured, 2, 'forced refresh re-measures');
+  assert.equal(p.button().classList.contains('on'), false);
+
+  // Resize clears memoization and re-measures even if dimensions stay the same.
+  p.w.dispatchEvent(new p.w.Event('resize')); flush();
+  assert.equal(measured, 3, 'resize re-measures');
+
+  // Removing the crowding control changes the DOM mark, triggering re-measurement and showing the button.
+  p.nodes[0].remove();
+  at += 1500;
+  p.top.configure(true, 'ru');
+  assert.equal(queries, 4, 'DOM change invalidates memoization');
+  assert.equal(p.button().classList.contains('on'), true, 'button appears once clear');
+
+  // Original clears memoization state cleanly.
+  p.top.configure(false, 'ru');
+  assert.equal(p.host(), null);
+  p.w.close();
+});
+
 test('desktop.js narrows the page column by the room, and the schedule only on the right', () => {
   for (let n = 144; n <= 240; n += 16) assert.ok(desktop.includes('[data-univer-top-room="' + n + '"] { --u-top-room:' + n + 'px; }'), String(n));
   assert.match(desktop, /\[data-univer-top-room\]:not\(\.univer-app-schedule-page\) #l4 td\.center \{ padding-left:max\(32px, calc\(\(100% - var\(--u-page\)\) \/ 2\), var\(--u-top-room\)\)!important; padding-right:max\(/);

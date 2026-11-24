@@ -112,3 +112,37 @@ test('the reading layout keeps the menu count and the section tabs readable', ()
   assert.equal(rating(result).n, 2);
   assert.equal(result.menu, true);
 });
+
+test('background reads route through boundedText with response charset and cancel oversized streams at 3 MB', async () => {
+  // Windows-1251 encoded shell for /ssc/ containing "Анкетирование" with no count.
+  const winBytes = new Uint8Array([0x3c,0x74,0x61,0x62,0x6c,0x65,0x20,0x69,0x64,0x3d,0x22,0x74,0x6f,0x6f,0x6c,0x73,0x22,0x3e,0x3c,0x74,0x72,0x3e,0x3c,0x74,0x64,0x3e,0x3c,0x75,0x6c,0x3e,0x3c,0x6c,0x69,0x3e,0x3c,0x61,0x20,0x68,0x72,0x65,0x66,0x3d,0x22,0x2f,0x73,0x74,0x75,0x64,0x65,0x6e,0x74,0x2f,0x72,0x61,0x74,0x69,0x6e,0x67,0x2f,0x22,0x3e,0xc0,0xed,0xea,0xe5,0xf2,0xe8,0xf0,0xee,0xe2,0xe0,0xed,0xe8,0xe5,0x3c,0x2f,0x61,0x3e,0x3c,0x2f,0x6c,0x69,0x3e,0x3c,0x2f,0x75,0x6c,0x3e,0x3c,0x2f,0x74,0x64,0x3e,0x3c,0x2f,0x74,0x72,0x3e,0x3c,0x2f,0x74,0x61,0x62,0x6c,0x65,0x3e]);
+  const p = page(shell('<p>Бакалавр</p>'), 'https://univer.kaznu.kz/student/bachelor/', { scripts: [read('page-common.js'), read('notices.js')] });
+  let reads = 0, cancels = 0;
+  const bigChunk = new Uint8Array(1024 * 1024);
+  p.w.fetch = address => {
+    p.requests.push(address);
+    if (address === '/ssc/') {
+      const pieces = [winBytes.slice(0, 40), winBytes.slice(40)];
+      return Promise.resolve({
+        ok: true, status: 200, url: 'https://univer.kaznu.kz' + address,
+        headers: { get: name => /content-type/i.test(name) ? 'text/html; charset=windows-1251' : null },
+        body: { getReader: () => ({ read: async () => pieces.length ? { value: pieces.shift(), done: false } : { done: true }, cancel: async () => {}, releaseLock() {} }) }
+      });
+    }
+    return Promise.resolve({
+      ok: true, status: 200, url: 'https://univer.kaznu.kz' + address,
+      headers: { get: name => /content-type/i.test(name) ? 'text/html; charset=utf-8' : null },
+      body: { getReader: () => ({ read: async () => { reads++; return { value: bigChunk, done: false }; }, cancel: async () => { cancels++; }, releaseLock() {} }) }
+    });
+  };
+  scan(p, true);
+  await settle();
+  const messages = p.sent.map(value => JSON.parse(value.slice('univer-notices:'.length)));
+  const ssc = messages.find(m => m.page === '/ssc/');
+  assert.ok(ssc, 'windows-1251 streamed page parsed');
+  assert.equal(rating(ssc).t, 'Анкетирование');
+  assert.equal(reads, 3, 'oversized /student/rating/ stream stops at the 3rd 1 MB chunk (> 3000000 bytes)');
+  assert.equal(cancels, 1, 'oversized stream is cancelled');
+  const done = messages[messages.length - 1];
+  assert.deepEqual([done.kind, done.read, done.failed], ['done', 1, 1]);
+});

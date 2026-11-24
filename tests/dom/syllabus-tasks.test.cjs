@@ -571,3 +571,131 @@ test('syllabus weeks are laid over the group\'s class weeks in order, as near to
   assert.throws(() => api.parseWeek(new p.w.DOMParser().parseFromString(site('<p>Ознакомьтесь с уведомлением</p>'), 'text/html')));
   p.close();
 });
+
+test('boot parses the syllabus store once for all cached courses and invalidates on owner change', async () => {
+  const first = page(schedule(lessons, 4), { routes: routes(), local: { 'univer.app.account.v1': 'a1' } });
+  apply(first); await until(done(first));
+  const saved = first.w.localStorage.getItem(STORE);
+  apply(first, false); first.close();
+
+  const warm = page(schedule(lessons, 4), { routes: routes(), local: { [STORE]: saved, 'univer.app.account.v1': 'a1' } });
+  let storeParses = 0;
+  const realParse = warm.w.JSON.parse;
+  warm.w.JSON.parse = function (raw, reviver) {
+    if (typeof raw === 'string' && raw.includes('"courses"')) storeParses++;
+    return realParse.call(this, raw, reviver);
+  };
+  apply(warm); await until(done(warm));
+  assert.equal(storeParses, 1, 'STORE should be parsed once across studentProgram, courseList, all recall() calls and loadPattern');
+  assert.deepEqual(topics(lessonOf(warm, 'Политология', 'лекция')), ['Политическая власть и её источники']);
+  // Changing the signed-in account invalidates the in-memory store on the next access.
+  warm.w.localStorage.setItem('univer.app.account.v1', 'b2');
+  warm.d.querySelector('.univer-app-syl-refresh').click();
+  await until(done(warm));
+  assert.ok(storeParses >= 2, 'owner change re-reads the store');
+  assert.equal(realParse(warm.w.localStorage.getItem(STORE)).owner, 'b2');
+  apply(warm, false); warm.close();
+});
+
+test('keep evicts excess oldest courses using size estimates without running JSON.stringify per evicted course', async () => {
+  const now = Date.now();
+  const courses = {};
+  for (let i = 1; i <= 12; i++) {
+    courses[`/student/umkd/${8000 + i}/2026/1`] = {
+      at: now - (20 - i) * 1000,
+      code: MINE,
+      division: 'ru',
+      status: 'ready',
+      certain: true,
+      plan: { href: `/student/interactive/syllabus/print/${8000 + i}/2`, title: 'Course ' + i, kinds: { lecture: true }, weeks: { 4: [{ week: 4, kind: 'lecture', name: 'лекция 4', topic: 'Т'.repeat(1200), score: 1 }] } }
+    };
+  }
+  const initial = {
+    owner: '',
+    program: { code: MINE, name: 'синтетическая безопасность', division: 'ru', at: now },
+    list: { at: now, language: 'ru', items: [{ name: 'Политология', href: '/student/umkd/7001/2026/1' }] },
+    pattern: { at: now, signature: '/2026/1|3,4,5', weeks: {} },
+    courses
+  };
+  const p = page(schedule(lessons, 4), { routes: routes(), local: { [STORE]: JSON.stringify(initial) } });
+  // Tight cap: forces eviction of ~9 oldest courses when Политология is saved.
+  p.w.__univerSyllabusV1.limits.store = 6000;
+  let storeStringifies = 0;
+  const realStringify = p.w.JSON.stringify;
+  p.w.JSON.stringify = function (value, replacer, space) {
+    if (value && typeof value === 'object' && value.courses && value.owner !== undefined) storeStringifies++;
+    return realStringify.call(this, value, replacer, space);
+  };
+  apply(p); await until(done(p));
+  const raw = p.w.localStorage.getItem(STORE);
+  assert.ok(raw.length <= 6000, `stored cache (${raw.length}) must fit within limits.store (6000)`);
+  const parsed = JSON.parse(raw);
+  assert.equal(parsed.courses['/student/umkd/8001/2026/1'], undefined, 'oldest course evicted');
+  assert.ok(parsed.courses['/student/umkd/7001/2026/1'], 'newest resolved course kept');
+  assert.ok(storeStringifies <= 2, `expected at most 2 JSON.stringify calls on store during multi-course eviction, got ${storeStringifies}`);
+  apply(p, false); p.close();
+});
+
+test('render batches rect and scrollHeight reads rather than interleaving reads and writes per card', async () => {
+  const first = page(schedule(lessons, 4), { routes: routes() });
+  apply(first); await until(done(first));
+  const saved = first.w.localStorage.getItem(STORE);
+  apply(first, false); first.close();
+
+  const p = page(schedule(lessons, 4), { routes: routes(), local: { [STORE]: saved } });
+  const events = [];
+  let recording = false;
+  const proto = p.w.HTMLElement.prototype, origRect = proto.getBoundingClientRect;
+  const origHidden = Object.getOwnPropertyDescriptor(proto, 'hidden');
+  proto.getBoundingClientRect = function () {
+    if (recording && (this.classList.contains('univer-app-lesson') || this.classList.contains('univer-app-syl-panel'))) events.push('read:rect');
+    return origRect.call(this);
+  };
+  Object.defineProperty(proto, 'scrollHeight', {
+    configurable: true,
+    get() {
+      if (recording && this.classList.contains('univer-app-syl-topic')) events.push('read:scrollHeight');
+      return 120;
+    }
+  });
+  Object.defineProperty(proto, 'clientHeight', {
+    configurable: true,
+    get() { return 60; }
+  });
+  Object.defineProperty(proto, 'hidden', {
+    configurable: true,
+    get() { return origHidden.get.call(this); },
+    set(value) {
+      if (recording && this.classList.contains('univer-app-syl-more')) events.push('write:more');
+      return origHidden.set.call(this, value);
+    }
+  });
+  const origAppend = p.w.Element.prototype.append;
+  p.w.Element.prototype.append = function (...nodes) {
+    if (recording && this.classList.contains('univer-app-syl-task')) events.push('write:task');
+    return origAppend.apply(this, nodes);
+  };
+  // Disable motion animations' own resize rect calls so we verify render()'s own read/write phases directly.
+  p.w.__univerMotionUI = { stop() {}, resize() {}, reveal() {} };
+  apply(p);
+  recording = true;
+  await until(done(p));
+  recording = false;
+
+  const taskWrites = events.reduce((acc, e, i) => (e === 'write:task' ? acc.concat(i) : acc), []);
+  const scrollReads = events.reduce((acc, e, i) => (e === 'read:scrollHeight' ? acc.concat(i) : acc), []);
+  const moreWrites = events.reduce((acc, e, i) => (e === 'write:more' ? acc.concat(i) : acc), []);
+  assert.ok(taskWrites.length >= 3, 'expected at least 3 lesson cards rendered');
+  assert.ok(scrollReads.length >= 3, 'expected at least 3 topic scrollHeight reads');
+  assert.ok(moreWrites.length >= 3, 'expected at least 3 more-button hidden writes');
+  // All topic scrollHeight reads for the ready pass happen AFTER the last card write and BEFORE any more-button write in that pass.
+  const firstScroll = scrollReads[0];
+  const lastTaskWrite = taskWrites[taskWrites.length - 1];
+  assert.ok(firstScroll > lastTaskWrite, `scrollHeight read (${firstScroll}) interleaved before card writes finished (${lastTaskWrite}): ${events.join(',')}`);
+  const firstMoreAfterScroll = moreWrites.find(i => i > firstScroll);
+  assert.ok(firstMoreAfterScroll > scrollReads[scrollReads.length - 1], `more.hidden write (${firstMoreAfterScroll}) interleaved before scrollHeight reads finished (${scrollReads[scrollReads.length - 1]}): ${events.join(',')}`);
+  // No before-rect read happens after a task write in the same pass.
+  const rectReads = events.reduce((acc, e, i) => (e === 'read:rect' ? acc.concat(i) : acc), []);
+  assert.ok(rectReads.every(i => i < taskWrites[0] || i > scrollReads[scrollReads.length - 1]), `rect reads interleaved with card writes: ${events.join(',')}`);
+  apply(p, false); p.close();
+});

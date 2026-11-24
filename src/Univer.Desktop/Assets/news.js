@@ -3,7 +3,7 @@
     'use strict';
     if (location.origin !== 'https://univer.kaznu.kz' || window.__univerNewsV1) return;
     var common = window.__univerCommonV1, setText = common.setText;
-    var key = 'univer.desktop.news-filter.v1', countKey = 'univer.desktop.news-page-count.v1', state = null, language = 'ru', timer = null;
+    var key = 'univer.desktop.news-filter.v1', countKey = 'univer.desktop.news-page-count.v1', MAX_CACHED_PAGES = 60, state = null, language = 'ru', timer = null;
     var folds = new Map(), foldSources = new WeakMap(), expanded = new WeakMap(), foldObserver = null, foldTimer = null, foldSequence = 0;
     var filter = {query:'', from:'', to:'', important:false, page:1};
     try {
@@ -94,11 +94,14 @@
         var parts = clean(box).match(/(\d{1,2})\.(\d{4})\s*$/);
         return day && parts ? parts[2] + '-' + parts[1].padStart(2, '0') + '-' + String(day).padStart(2, '0') : '';
     }
+    function matchesEntry(entry) {
+        var q = filter.query.trim();
+        return (!filter.from || (entry.date && entry.date >= filter.from)) && (!filter.to || (entry.date && entry.date <= filter.to)) &&
+            (!filter.important || entry.important) &&
+            (!q || fold(q).split(/\s+/).every(word => entry.text.includes(word)));
+    }
     function matches(row) {
-        var stamp = date(row);
-        return (!filter.from || (stamp && stamp >= filter.from)) && (!filter.to || (stamp && stamp <= filter.to)) &&
-            (!filter.important || /важное|маңызды|important/i.test(clean(row.cells[0]))) &&
-            fold(filter.query.trim()).split(/\s+/).every(word => fold(clean(row)).includes(word));
+        return matchesEntry({date:date(row), important:/важное|маңызды|important/i.test(clean(row.cells[0])), text:fold(clean(row))});
     }
     function save() { try { if (active()) sessionStorage.setItem(key, JSON.stringify(filter)); else sessionStorage.removeItem(key); } catch (_) {} }
     function hasNext(doc, page) {
@@ -129,6 +132,54 @@
         });
         clone.hidden = false;
         return clone;
+    }
+    // Lightweight passive tree for cached pages: drops the parsed Document and live <tr> nodes immediately.
+    function packNode(node) {
+        if (node.nodeType === 3) return node.nodeValue || '';
+        if (node.nodeType !== 1) return null;
+        var item = {t:node.tagName.toLowerCase()};
+        if (node.attributes.length) {
+            item.a = [];
+            for (var i = 0; i < node.attributes.length; i++) item.a.push([node.attributes[i].name, node.attributes[i].value]);
+        }
+        if (node.childNodes.length) {
+            item.c = [];
+            for (var j = 0; j < node.childNodes.length; j++) {
+                var child = packNode(node.childNodes[j]);
+                if (child !== null) item.c.push(child);
+            }
+        }
+        return item;
+    }
+    function buildNode(spec) {
+        if (typeof spec === 'string') return document.createTextNode(spec);
+        var node = document.createElement(spec.t);
+        if (spec.a) spec.a.forEach(pair => node.setAttribute(pair[0], pair[1]));
+        if (spec.c) spec.c.forEach(child => node.appendChild(buildNode(child)));
+        return node;
+    }
+    function packRow(row) {
+        return {date:date(row), important:/важное|маңызды|important/i.test(clean(row.cells[0])), text:fold(clean(row)), hidden:!!row.hidden, tree:packNode(safeRow(row))};
+    }
+    function liveRow(row) {
+        return {live:row, date:date(row), important:/важное|маңызды|important/i.test(clean(row.cells[0])), text:fold(clean(row))};
+    }
+    function hasMatch(items) {
+        return active() && valid() && items.some(entry => !entry.hidden && matchesEntry(entry));
+    }
+    function pruneCache(record) {
+        if (record.pages.size <= MAX_CACHED_PAGES) return;
+        var current = pageNumber();
+        for (var k of record.pages.keys()) {
+            if (record.pages.size <= MAX_CACHED_PAGES) break;
+            if (k === current || hasMatch(record.pages.get(k))) continue;
+            record.pages.delete(k); record.more.delete(k);
+        }
+    }
+    function cachePage(record, p, items, more) {
+        record.pages.delete(p); record.pages.set(p, items);
+        if (more !== undefined) { record.more.delete(p); record.more.set(p, more); }
+        pruneCache(record);
     }
     function pager(current, count, filtered, exact) {
         var nav = document.createElement('nav'), t = text(); nav.className = 'univer-app-news-pager'; nav.setAttribute('aria-label', t.page);
@@ -207,7 +258,10 @@
             return;
         }
         var found = [];
-        state.pages.forEach((items, p) => items.forEach((row, i) => { if (!(state.hidden.has(row) ? state.hidden.get(row) : row.hidden) && valid() && matches(row)) found.push({row:row, page:p, index:i}); }));
+        state.pages.forEach((items, p) => items.forEach((entry, i) => {
+            var isHidden = entry.live ? (state.hidden.has(entry.live) ? state.hidden.get(entry.live) : entry.live.hidden) : entry.hidden;
+            if (!isHidden && valid() && matchesEntry(entry)) found.push({entry:entry, page:p, index:i});
+        }));
         found.sort((a,b) => a.page-b.page || a.index-b.index);
         var count = Math.max(1, Math.ceil(found.length / state.pageSize));
         // A restored page is retained while earlier pages are still being fetched.
@@ -224,7 +278,12 @@
         var table = document.createElement('table'); table.className = 'univer-app-news'; table.dataset.univerResults = 'true';
         var body = document.createElement('tbody'); table.appendChild(body);
         var slice = found.slice((current-1) * state.pageSize, current * state.pageSize);
-        slice.forEach(hit => { var row = safeRow(hit.row); foldSources.set(row,hit.row); body.appendChild(row); if (keep && keep.source === hit.row) keep.row = row; }); state.results.appendChild(table);
+        slice.forEach(hit => {
+            var source = hit.entry.live || hit.entry;
+            var row = hit.entry.live ? safeRow(hit.entry.live) : buildNode(hit.entry.tree);
+            foldSources.set(row, source); body.appendChild(row);
+            if (keep && keep.source === source) keep.row = row;
+        }); state.results.appendChild(table);
         setText(state.counter, t.shown + ' ' + slice.length + ' ' + t.of + ' ' + found.length + (state.running || !state.complete ? '+' : ''));
         replacePagers(current, count, true); save(); refreshFolds();
         if (keep && keep.row && keep.index >= 0) keep.row.querySelectorAll('a,button,summary,[tabindex]')[keep.index]?.focus?.({preventScroll:true});
@@ -234,25 +293,26 @@
         cancel(); filter.page = 1;
         filter.query = state.query.value.slice(0,300); filter.from = state.from.value; filter.to = state.to.value; filter.important = state.important.getAttribute('aria-pressed') === 'true';
         state.next = 1; state.complete = pageNumber()===1 && !hasNext(document,1); state.searched=false;
+        if (!active()) pruneCache(state);
         save(); render();
         if (active() && valid()) timer = setTimeout(() => search(), 200);
         else if (!active() && !state.total) timer = setTimeout(discoverPages, 400);
     }
-    async function readPage(p, record, generation) {
+    async function readPage(p, record, generation, pack) {
         var controller = new AbortController(); record.controller = controller;
         var timeout = setTimeout(() => controller.abort(), 10000);
         try {
             var response = await fetch(href(p), {credentials:'same-origin', cache:'no-store', redirect:'error', signal:controller.signal});
             var url = new URL(response.url, location.origin);
             if (response.status !== 200 || url.origin !== location.origin || url.pathname.replace(/\/$/,'') !== href(p) || +response.headers?.get('content-length') > 4*1024*1024) throw new Error('Unexpected news response');
-            var html = await response.text(); if (html.length > 4*1024*1024) throw new Error('Oversized news response');
+            var html = await common.boundedText(response, 4 * 1024 * 1024);
             if (state !== record || record.generation !== generation) throw new Error('Stale news response');
             var doc = new DOMParser().parseFromString(html, 'text/html'), rows = Array.from(doc.querySelectorAll('tr.news'));
             if (doc.querySelector('#login_frm') || (!rows.length && !doc.querySelector('td.tb'))) throw new Error('News unavailable');
             var displayed=Array.from(doc.querySelectorAll('td.tb')).map(cell=>{var copy=cell.cloneNode(true);copy.querySelectorAll('a').forEach(a=>a.remove());return clean(copy);}).join(' ').match(/(?:Страница|Page|Бет)\s*(\d+)/i);
             if (displayed && +displayed[1]!==p) throw new Error('News page was clamped');
-            return {rows, more:hasNext(doc,p)};
-        } finally { clearTimeout(timeout); }
+            return pack ? {items:rows.map(packRow), more:hasNext(doc,p)} : {count:rows.length, more:hasNext(doc,p)};
+        } finally { clearTimeout(timeout); controller.abort(); }
     }
     async function discoverPages() {
         if (!state || active() || state.total || typeof fetch !== 'function') return;
@@ -260,8 +320,8 @@
         // The pager shows only a next arrow, so bounded exponential/binary GET probes find the last page; only the count is kept.
         try {
             for (var attempts=0; attempts<24; attempts++) {
-                var result=await readPage(probe,record,generation);
-                if (result.rows.length) {
+                var result=await readPage(probe,record,generation,false);
+                if (result.count) {
                     low=probe; record.known=Math.max(record.known,probe);
                     if (!result.more) { high=low; break; }
                 } else high=probe-1;
@@ -285,20 +345,21 @@
             var p = record.next;
             if (p === pageNumber()) { record.next++; if (!hasNext(document, p)) record.complete = true; continue; }
             if (record.pages.has(p)) {
-                var cached = record.pages.get(p); record.next++;
-                if (!record.more.get(p) || (filter.from && cached.length && cached.every(row=>date(row) && date(row)<filter.from))) record.complete=true;
+                var cached = record.pages.get(p); record.pages.delete(p); record.pages.set(p, cached); record.next++;
+                if (!record.more.get(p) || (filter.from && cached.length && cached.every(entry => entry.date && entry.date < filter.from))) record.complete=true;
                 continue;
             }
             try {
-                var result = await readPage(p,record,generation), rows=result.rows, more=result.more;
-                record.pages.set(p, rows); record.more.set(p,more); record.pageSize = Math.max(record.pageSize, rows.length); record.next++;
-                if (!rows.length || !more) record.complete = true;
+                var result = await readPage(p,record,generation,true), items=result.items, more=result.more;
+                cachePage(record, p, items, more); record.pageSize = Math.max(record.pageSize, items.length); record.next++;
+                if (!items.length || !more) record.complete = true;
                 // News are newest first. Stop only after an entire dated page precedes the lower bound.
-                if (filter.from && rows.length && rows.every(row => date(row) && date(row) < filter.from)) record.complete = true;
+                if (filter.from && items.length && items.every(entry => entry.date && entry.date < filter.from)) record.complete = true;
                 render();
             } catch (_) { break; }
         }
         if (state !== record || record.generation !== generation) return;
+        if (record.complete) pruneCache(record);
         record.running = false; record.searched=true; render();
     }
     function apply(lang) {
@@ -325,7 +386,7 @@
             var results = document.createElement('section'); results.className = 'univer-app-news-results'; results.hidden = true;
             var anchor = table.closest('.univer-app-table-scroll') || table; anchor.before(bar,results);
             var rows = Array.from(table.querySelectorAll('tr.news'));
-            state = {table,anchor,bar,query,from,to,important,reset,all,counter,results,period,periodName,presets,line,hidden:new Map(),pages:new Map([[pageNumber(),rows]]),more:new Map(),next:1,complete:pageNumber()===1&&!hasNext(document,1),running:false,searched:false,generation:0,pageSize:Math.max(1,rows.length)};
+            state = {table,anchor,bar,query,from,to,important,reset,all,counter,results,period,periodName,presets,line,hidden:new Map(),pages:new Map([[pageNumber(),rows.map(liveRow)]]),more:new Map(),next:1,complete:pageNumber()===1&&!hasNext(document,1),running:false,searched:false,generation:0,pageSize:Math.max(1,rows.length)};
             if (typeof ResizeObserver === 'function') foldObserver = new ResizeObserver(scheduleFolds);
             window.addEventListener('resize',scheduleFolds);
             state.known=pageNumber()+(hasNext(document,pageNumber())?1:0); state.total=hasNext(document,pageNumber())?0:pageNumber();
@@ -362,7 +423,7 @@
         // Native polling calls apply repeatedly; only rerender on actual language/content changes.
         var signature = language + '|' + Array.from(table.querySelectorAll('tr.news')).map(clean).join('|');
         if (state.signature !== signature) {
-            state.signature = signature; state.pages.set(pageNumber(),Array.from(table.querySelectorAll('tr.news'))); render();
+            state.signature = signature; cachePage(state, pageNumber(), Array.from(table.querySelectorAll('tr.news')).map(liveRow)); render();
             // Later size changes arrive through the resize listener and the observer; an unchanged page needs no pass.
             scheduleFolds();
         }

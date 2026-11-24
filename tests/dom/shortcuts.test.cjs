@@ -2,6 +2,13 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const { JSDOM } = require('jsdom');
+const jsdomUtils = require('jsdom/lib/jsdom/living/generated/utils');
+function pointer(p, node, type, x, y) {
+  // jsdom 22 has no PointerEvent. A trusted mouse event carries the same client point and button.
+  const event = new p.w.MouseEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: y, button: 0 });
+  const impl = jsdomUtils.implForWrapper(event); impl.isTrusted = true; impl.pointerId = 1;
+  jsdomUtils.implForWrapper(node)._dispatch(impl);
+}
 const read = name => fs.readFileSync('src/Univer.Desktop/Assets/' + name, 'utf8');
 const scripts = ['page-common.js', 'univer-automation.js', 'news.js', 'study-links.js', 'attendance.js', 'overview.js', 'shortcuts.js', 'univer-layout.js', 'desktop.js'].map(read);
 
@@ -236,5 +243,91 @@ test('a fixed tile can leave the home screen and New section offers it back with
   // Only known tiles can be taken away; a stored address of anything else is ignored.
   p.w.__univerShortcutsV1.configure([], [], ['https://univer.kaznu.kz/student/iup/']);
   assert.ok(titles(p).includes('УМКД'));
+  p.close();
+});
+
+test('dragging a tile reads layout once a frame, and the bin is measured again when the window resizes', () => {
+  const p = page('https://univer.kaznu.kz/news/student');
+  p.w.__univerDesktop.apply(true, false, 'ru');
+  const tiles = Array.from(p.d.querySelectorAll('.univer-app-quick .univer-app-tile'));
+  const anchor = tiles[0].querySelector('a');
+  let frames = [];
+  p.w.requestAnimationFrame = fn => { frames.push(fn); return frames.length; };
+  p.w.cancelAnimationFrame = id => { if (id) frames[id - 1] = null; };
+  const flush = () => { const batch = frames.filter(Boolean); frames = []; batch.forEach(fn => fn()); };
+  Object.defineProperty(p.w.document.documentElement, 'clientHeight', { configurable: true, value: 800 });
+  const rectOf = node => node.classList && node.classList.contains('univer-app-tile')
+    ? { left: Math.max(0, tiles.indexOf(node)) * 100, top: 0, right: Math.max(0, tiles.indexOf(node)) * 100 + 80, bottom: 40, width: 80, height: 40 }
+    : { left: 0, top: 0, right: 480, bottom: 40, width: 480, height: 40 };
+  let boxes = 0, hits = 0;
+  p.w.HTMLElement.prototype.getBoundingClientRect = function () { boxes++; return rectOf(this); };
+  p.w.document.elementFromPoint = x => { hits++; return tiles.find((tile, index) => tile !== tiles[0] && x >= index * 100 && x < index * 100 + 80) || null; };
+  pointer(p, anchor, 'pointerdown', 10, 10);
+  pointer(p, p.d, 'pointermove', 30, 10);
+  assert.ok(tiles[0].classList.contains('univer-app-lifted'), 'pulling the tile lifts it');
+  const placed = tiles[0].style.transform;
+  boxes = 0; hits = 0; frames = [];
+  pointer(p, p.d, 'pointermove', 40, 12);
+  pointer(p, p.d, 'pointermove', 50, 12);
+  pointer(p, p.d, 'pointermove', 60, 16);
+  assert.equal(frames.filter(Boolean).length, 1, 'three moves share one frame');
+  assert.equal(boxes, 0, 'a move does not read layout');
+  assert.equal(hits, 0, 'the tile under the pointer waits for the frame');
+  flush();
+  assert.equal(hits, 1, 'one frame asks once what is under the pointer');
+  assert.notEqual(tiles[0].style.transform, placed, 'the tile catches up to the pointer');
+  boxes = 0;
+  const bin = p.d.querySelector('.univer-app-trash');
+  const parked = bin.style.cssText;
+  p.w.dispatchEvent(new p.w.Event('resize'));
+  assert.equal(boxes, 0, 'resize waits for the frame');
+  assert.equal(bin.style.cssText, parked, 'resize does not move the bin');
+  flush();
+  assert.ok(boxes > 0, 'the frame measures the bin again');
+  assert.equal(bin.style.cssText, parked, 'measuring leaves the bin where lift put it');
+  const order = titles(p).slice();
+  pointer(p, p.d, 'pointermove', 240, 16);
+  assert.equal(frames.filter(Boolean).length, 1);
+  p.d.dispatchEvent(new p.w.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  assert.equal(frames.filter(Boolean).length, 0, 'Escape drops the pending frame');
+  assert.deepEqual(titles(p), order, 'the pending reorder does not land');
+  p.w.__univerDesktop.apply(false, false, 'ru');
+  p.close();
+});
+
+test('a scroll during a drag keeps the tile on the pointer and does not move the bin', () => {
+  const p = page('https://univer.kaznu.kz/news/student');
+  p.w.__univerDesktop.apply(true, false, 'ru');
+  const tile = p.d.querySelector('.univer-app-quick .univer-app-tile');
+  const anchor = tile.querySelector('a');
+  let frames = [];
+  p.w.requestAnimationFrame = fn => { frames.push(fn); return frames.length; };
+  p.w.cancelAnimationFrame = id => { if (id) frames[id - 1] = null; };
+  const flush = () => { const batch = frames.filter(Boolean); frames = []; batch.forEach(fn => fn()); };
+  Object.defineProperty(p.w.document.documentElement, 'clientHeight', { configurable: true, value: 800 });
+  let tileRect = { left: 0, top: 0, right: 80, bottom: 40, width: 80, height: 40 };
+  let otherRect = { left: 12, top: 400, right: 492, bottom: 444, width: 480, height: 44 };
+  p.w.HTMLElement.prototype.getBoundingClientRect = function () {
+    return Object.assign({}, this.classList && this.classList.contains('univer-app-tile') ? tileRect : otherRect);
+  };
+  p.w.document.elementFromPoint = () => null;
+  pointer(p, anchor, 'pointerdown', 10, 10);
+  pointer(p, p.d, 'pointermove', 30, 10);
+  const bin = p.d.querySelector('.univer-app-trash');
+  const parked = bin.style.cssText;
+  assert.equal(tile.style.transform, 'translate(20px,0px)');
+  tileRect = { left: 15, top: -40, right: 95, bottom: 0, width: 80, height: 40 };
+  otherRect = { left: 20, top: 360, right: 500, bottom: 404, width: 480, height: 44 };
+  p.w.dispatchEvent(new p.w.Event('resize'));
+  p.d.dispatchEvent(new p.w.Event('scroll'));
+  assert.equal(frames.filter(Boolean).length, 1, 'scroll and resize share the drag frame');
+  assert.equal(tile.style.transform, 'translate(20px,0px)', 'the tile waits for that frame');
+  assert.equal(bin.style.cssText, parked);
+  flush();
+  // Grab point stays at the pointer: layout (15, -40) plus translate (5, 40) plus the 10px grab offset.
+  assert.equal(tile.style.transform, 'translate(5px,40px)');
+  assert.equal(bin.style.cssText, parked, 'the bin stays where lift put it');
+  p.d.dispatchEvent(new p.w.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  p.w.__univerDesktop.apply(false, false, 'ru');
   p.close();
 });

@@ -69,8 +69,8 @@ namespace Univer.Desktop.UI
             if (pictures == null) return null;
             // Closed or left while the pictures were taken: what was drawn is not the summary, and nothing is written yet.
             if (!await ReportStillAsync(browser, address, source)) return ReportCancelled;
-            if (action == GradeReport.Copy) return CopyReportPicture(pictures[0]) ? "" : null;
-            return SaveReportPictures(pictures);
+            if (action == GradeReport.Copy) return await CopyReportPictureAsync(browser, address, source, pictures[0]);
+            return await SaveReportPicturesAsync(browser, address, source, pictures);
         }
         // Only a positive reply from the originating document and sheet opening lets the export continue.
         private async Task<bool> ReportStillAsync(ChromiumWebBrowser browser, string address, GradeReport.Source source)
@@ -164,8 +164,8 @@ namespace Univer.Desktop.UI
             finally
             {
                 // Past the deadline Chromium may still write the file: it is removed once it has (at once if it already has).
-                if (print != null) _ = print.ContinueWith(done => DeleteReportPart(temp), TaskScheduler.Default);
-                DeleteReportPart(temp);
+                if (print != null) _ = print.ContinueWith(done => GradeReport.DeletePart(temp), TaskScheduler.Default);
+                GradeReport.DeletePart(temp);
             }
         }
         // The summary's pages alone (all of them, or only page `only`), each at twice its CSS size: the page lays them out flat
@@ -201,7 +201,7 @@ namespace Univer.Desktop.UI
                         var capture = client.Page.CaptureScreenshotAsync(CaptureScreenshotFormat.Png, null, clip, null, true, null);
                         await TaskDeadline.AwaitAsync(capture, ReportDeadline, stopping);
                         var data = (await capture).Data;
-                        var picture = data != null && data.Length > 0 ? FitPicture(data, page[2], page[3]) : null;
+                        var picture = data != null && data.Length > 0 ? await Task.Run(() => FitPicture(data, page[2], page[3])) : null;
                         if (picture == null) return null;
                         pictures.Add(picture);
                         reportCaptured?.Invoke(i + 1);
@@ -216,20 +216,19 @@ namespace Univer.Desktop.UI
         // shorter than the page (cut by the renderer) is no picture of it.
         private static byte[] FitPicture(byte[] png, double cssWidth, double cssHeight)
         {
-            var width = GradeReport.PictureWidth(cssWidth);
             using (var stream = new MemoryStream(png))
             using (var image = Image.FromStream(stream))
             {
-                if (Math.Abs(image.Width - width) <= 2 || width <= 0) return GradeReport.Whole(image.Width, image.Height, cssWidth, cssHeight) ? png : null;
-                var height = Math.Max(1, (int)Math.Round(image.Height * (double)width / image.Width));
-                if (!GradeReport.Whole(width, height, cssWidth, cssHeight)) return null;
-                using (var bitmap = new Bitmap(width, height))
+                var plan = GradeReport.PlanFit(image.Width, image.Height, cssWidth, cssHeight);
+                if (plan.Kind == GradeReport.PictureFitKind.Reject) return null;
+                if (plan.Kind == GradeReport.PictureFitKind.Keep) return png;
+                using (var bitmap = new Bitmap(plan.Width, plan.Height))
                 using (var graphics = Graphics.FromImage(bitmap))
                 using (var output = new MemoryStream())
                 {
                     graphics.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
                     graphics.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
-                    graphics.DrawImage(image, 0, 0, width, height);
+                    graphics.DrawImage(image, 0, 0, plan.Width, plan.Height);
                     bitmap.Save(output, System.Drawing.Imaging.ImageFormat.Png);
                     return output.ToArray();
                 }
@@ -278,55 +277,48 @@ namespace Univer.Desktop.UI
                 reportPaths = new List<string> { reportPath };
                 return Path.GetFileName(reportPath);
             }
-            finally { DeleteReportPart(temp); }
+            finally { GradeReport.DeletePart(temp); }
         }
         // One picture keeps the plain name. Several are named by page, with one number for the whole set when an earlier set
         // of the same day is there («Успеваемость 2026-11-18 (1) стр. 2.png»); a failure removes the pages already written.
-        private string SaveReportPictures(List<byte[]> pictures)
+        private async Task<string> SaveReportPicturesAsync(ChromiumWebBrowser browser, string address, GradeReport.Source source, List<byte[]> pictures)
         {
-            var folder = ReportFolder();
-            if (pictures.Count == 1) return SaveReport(Path.Combine(folder, PartialDownloads.NewName()), "png", pictures[0]);
-            var made = DateTime.Now; var set = 0;
-            Func<int, int, string> name = (page, number) => GradeReport.FileName(prefs.Language, made, "png", page, number);
-            while (Enumerable.Range(1, pictures.Count).Any(page => File.Exists(Path.Combine(folder, name(page, set))))) set++;
-            var saved = new List<string>();
-            try
+            var folder = reportFolder ?? DownloadService.DownloadsFolder();
+            var language = prefs.Language;
+            var made = DateTime.Now;
+            var saved = await Task.Run(() => GradeReport.SavePictures(folder, language, made, pictures));
+            if (!await ReportStillAsync(browser, address, source))
             {
-                for (var i = 0; i < pictures.Count; i++)
-                {
-                    var temp = Path.Combine(folder, PartialDownloads.NewName());
-                    try { File.WriteAllBytes(temp, pictures[i]); saved.Add(SavedFile.Keep(temp, folder, name(i + 1, set), null)); }
-                    finally { DeleteReportPart(temp); }
-                }
-            }
-            catch (Exception)
-            {
-                foreach (var path in saved) DeleteReportPart(path);
-                throw;
+                await Task.Run(() => GradeReport.DeleteParts(saved));
+                return ReportCancelled;
             }
             reportPaths = saved; reportPath = saved[0];
             return Path.GetFileName(reportPath);
         }
-        private static void DeleteReportPart(string temp)
-        { try { if (File.Exists(temp)) File.Delete(temp); } catch (IOException) { } catch (UnauthorizedAccessException) { } }
+        private static void DeleteReportPart(string temp) { GradeReport.DeletePart(temp); }
         // The picture as an image (messengers paste it) and as PNG for programs that take that format.
-        private bool CopyReportPicture(byte[] png)
+        private async Task<string> CopyReportPictureAsync(ChromiumWebBrowser browser, string address, GradeReport.Source source, byte[] png)
         {
-            if (reportClipboard != null) { reportClipboard(png); return true; }
+            if (reportClipboard != null) { reportClipboard(png); return ""; }
             try
             {
-                using (var stream = new MemoryStream(png))
-                using (var image = Image.FromStream(stream))
-                using (var bitmap = new Bitmap(image))
+                using (var bitmap = await Task.Run(() => DecodeBitmap(png)))
                 {
+                    if (!await ReportStillAsync(browser, address, source)) return ReportCancelled;
                     var data = new DataObject();
                     data.SetData(DataFormats.Bitmap, true, bitmap);
                     data.SetData("PNG", false, new MemoryStream(png));
                     Clipboard.SetDataObject(data, true, 5, 100);
                 }
-                return true;
+                return "";
             }
-            catch (Exception) { return false; }
+            catch (Exception) { return null; }
+        }
+        private static Bitmap DecodeBitmap(byte[] png)
+        {
+            using (var stream = new MemoryStream(png))
+            using (var image = Image.FromStream(stream))
+                return new Bitmap(image);
         }
         // «Показать в папке»: Explorer with the summary just saved selected; its folder when the file has gone.
         private void RevealReport()

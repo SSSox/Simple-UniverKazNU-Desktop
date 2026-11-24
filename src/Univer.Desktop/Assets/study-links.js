@@ -25,11 +25,11 @@
             var response = await fetch(url,{credentials:'same-origin',cache:'no-store',redirect:'error',signal:abort.signal});
             var final = new URL(response.url,location.origin), expected = new URL(url,location.origin);
             if (response.status !== 200 || final.origin !== location.origin || final.pathname.replace(/\/$/,'') !== expected.pathname.replace(/\/$/,'') || +response.headers?.get('content-length') > 4*1024*1024) throw new Error('Unexpected UMKD response');
-            var html = await response.text(); if (html.length > 4*1024*1024) throw new Error('Oversized UMKD response');
+            var html = await common.boundedText(response, 4 * 1024 * 1024);
             var doc = new DOMParser().parseFromString(html,'text/html');
             if (doc.querySelector('#login_frm')) throw new Error('Session expired');
             return doc;
-        } finally { clearTimeout(timeout); }
+        } finally { clearTimeout(timeout); abort.abort(); }
     }
     async function loadCourses() {
         if (courses) return courses;

@@ -122,20 +122,43 @@
         result.menu = !!doc.getElementById('tools') && result.links.length < MAX_LINKS && result.links.some(function (link) { return link.m; });
         return result;
     }
+    async function readText(response, limit, charset) {
+        if (window.__univerCommonV1 && window.__univerCommonV1.boundedText) return window.__univerCommonV1.boundedText(response, limit, charset);
+        if (+response.headers?.get('content-length') > limit) throw new Error('Oversized response');
+        var decoder; try { decoder = new TextDecoder(charset); } catch (_) { decoder = new TextDecoder('utf-8'); }
+        if (response.body && response.body.getReader) {
+            var reader = response.body.getReader(), size = 0, parts = [], ended = false;
+            try {
+                for (;;) {
+                    var next = await reader.read();
+                    if (next.done) { ended = true; break; }
+                    size += next.value.byteLength;
+                    if (size > limit) throw new Error('Oversized response');
+                    parts.push(decoder.decode(next.value, {stream:true}));
+                }
+                parts.push(decoder.decode());
+                return parts.join('');
+            } finally {
+                if (!ended) reader.cancel().catch(function () { });
+                reader.releaseLock();
+            }
+        }
+        var bytes = await response.arrayBuffer();
+        if (bytes.byteLength > limit) throw new Error('Oversized response');
+        return decoder.decode(bytes);
+    }
     async function load(path) {
         var abort = new AbortController(), timer = setTimeout(function () { abort.abort(); }, 15000);
         try {
             var response = await fetch(path, {credentials:'same-origin', redirect:'follow', cache:'no-store', signal:abort.signal});
             var type = response.headers.get('content-type') || '';
             if (!response.ok || new URL(response.url).pathname !== new URL(path, location.href).pathname || !/text\/html/i.test(type)) return null;
-            var bytes = await response.arrayBuffer();
-            if (bytes.byteLength > 3000000) return null;
             var charset = (type.match(/charset=([\w-]+)/i) || [0, 'utf-8'])[1];
-            var html; try { html = new TextDecoder(charset).decode(bytes); } catch (_) { html = new TextDecoder('utf-8').decode(bytes); }
+            var html = await readText(response, 3000000, charset);
             var doc = new DOMParser().parseFromString(html, 'text/html');
             // A sign-in page or a page without the menu (the read notice) says nothing about the section's marks.
             return doc.getElementById('login_frm') || !doc.getElementById('tools') ? false : {doc:doc, url:response.url};
-        } finally { clearTimeout(timer); }
+        } finally { clearTimeout(timer); abort.abort(); }
     }
     function send(result) {
         if (typeof __univerNative === 'function') __univerNative(PREFIX + JSON.stringify(result));

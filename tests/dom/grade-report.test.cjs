@@ -151,3 +151,63 @@ test('each bar carries its 50, 70 and 90 marks as plain strips, with no gradient
   const fill=t.querySelector('.fill');if(fill)assert.equal(fill.nextElementSibling.className,'mark','the marks come after the fill, so they are drawn over it');});
  assert.doesNotMatch(read('grade-report.js'),/linear-gradient/);p.close();
 });
+
+// Layout-thrash check: opening or switching the goal inserts all course sections once, reads heights in one batch, then
+// partitions into pages instead of triggering N forced layouts in a loop.
+test('render batches course insertion and offsetHeight reads when opening and when switching the goal',()=>{
+ function attachRealisticLayout(p,courseHeights,firstBase=300,contBase=150){
+  const events=[];
+  const origInsertBefore=p.w.Node.prototype.insertBefore;
+  p.w.Node.prototype.insertBefore=function(node,ref){
+   if(this.classList&&this.classList.contains('sheet')){
+    const isCourse=node.nodeType===11?!!node.querySelector('.course'):(node.classList&&node.classList.contains('course'));
+    if(isCourse)events.push('write');
+   }
+   return origInsertBefore.call(this,node,ref);
+  };
+  Object.defineProperty(p.w.HTMLElement.prototype,'offsetHeight',{configurable:true,get(){
+   events.push('read');
+   if(this.classList.contains('course')){
+    const idx=Number(this.querySelector('h3')?.textContent.match(/\d+/)?.[0]||1)-1;
+    return typeof courseHeights==='function'?courseHeights(idx):courseHeights;
+   }
+   if(this.classList.contains('sheet')){
+    const base=this.querySelector('.cont-head')?contBase:firstBase;
+    return base+Array.from(this.querySelectorAll('.course')).reduce((acc,c)=>{
+     const idx=Number(c.querySelector('h3')?.textContent.match(/\d+/)?.[0]||1)-1;
+     return acc+(typeof courseHeights==='function'?courseHeights(idx):courseHeights);
+    },0);
+   }
+   return 0;
+  }});
+  const transitions=()=>{let n=0,dirty=false;for(const e of events){if(e==='write')dirty=true;else if(dirty){n++;dirty=false;}}return n;};
+  return {events,transitions,clear:()=>{events.length=0;}};
+ }
+
+ // 9 courses (2 pages: 6 + 3): 1 write -> 1 read batch -> 1 move write = 1 forced layout total.
+ const p2=page(many(9));const log2=attachRealisticLayout(p2,200,300,150);
+ p2.d.querySelector('.univer-app-attendance-report').click();
+ assert.deepEqual(Array.from(sheet(p2).querySelectorAll('.sheet'),s=>s.querySelectorAll('.course').length),[6,3]);
+ assert.equal(log2.transitions(),1,'2-page open forces layout once, not once per course');
+ // Switching the goal inside the sheet also batches its layout reads.
+ log2.clear();
+ sheet(p2).querySelector('.goal-row button[data-goal=top]').click();
+ assert.deepEqual(Array.from(sheet(p2).querySelectorAll('.sheet'),s=>s.querySelectorAll('.course').length),[6,3]);
+ assert.equal(log2.transitions(),1,'goal switch forces layout once, not once per course');
+ p2.close();
+
+ // 15 courses (3 pages with shorter continuation header: 6 + 6 + 3): at most 2 forced layouts instead of 15.
+ const p3=page(many(15));const log3=attachRealisticLayout(p3,200,300,150);
+ p3.d.querySelector('.univer-app-attendance-report').click();
+ assert.deepEqual(Array.from(sheet(p3).querySelectorAll('.sheet'),s=>s.querySelectorAll('.course').length),[6,6,3]);
+ assert.ok(log3.transitions()<=2,'3-page open forces at most 2 layouts (got '+log3.transitions()+')');
+ p3.close();
+
+ // Oversized course gets its own page, and total pages never exceed MAX_PAGES (12).
+ const pBig=page(many(15));attachRealisticLayout(pBig,()=>1600,300,150);
+ pBig.d.querySelector('.univer-app-attendance-report').click();
+ const bigCounts=Array.from(sheet(pBig).querySelectorAll('.sheet'),s=>s.querySelectorAll('.course').length);
+ assert.equal(bigCounts.length,12,'capped at MAX_PAGES');
+ assert.deepEqual(bigCounts,[1,1,1,1,1,1,1,1,1,1,1,4],'each oversized course gets a page until page 12 holds the rest');
+ pBig.close();
+});

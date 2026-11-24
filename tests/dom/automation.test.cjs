@@ -747,3 +747,125 @@ test('page content is detected from the first visible non-blank text without rea
   assert.equal(grades.api.probe().hasContent, true);
   grades.close();
 });
+
+test('paint gate observer skips work while pending, inactive, failed, or mutating outside known forms, and avoids full probe()', async () => {
+  const p = page('<div id="l4"><p>News</p></div>' + noticeHtml().replace('id="attentionSt"', 'id="attentionSt" hidden'), 'https://univer.kaznu.kz/student/news');
+  const sent = []; p.w.__univerNative = value => sent.push(value);
+  let rects = 0, styles = 0, probes = 0;
+  const realRects = p.w.HTMLElement.prototype.getClientRects;
+  p.w.HTMLElement.prototype.getClientRects = function () { rects++; return realRects.call(this); };
+  const realStyle = p.w.getComputedStyle;
+  p.w.getComputedStyle = function (el, pseudo) { styles++; return realStyle.call(this, el, pseudo); };
+  const realProbe = p.api.probe;
+  p.api.probe = function () { probes++; return realProbe(); };
+  p.w.eval(paint);
+  const reset = () => { rects = 0; styles = 0; probes = 0; };
+
+  // While pending (initial cover), DOM mutations elsewhere do no layout reads or probe().
+  reset();
+  const l4 = p.w.document.getElementById('l4');
+  for (let i = 0; i < 10; i++) l4.appendChild(p.w.document.createElement('span'));
+  await Promise.resolve();
+  assert.equal(rects, 0); assert.equal(styles, 0); assert.equal(probes, 0);
+
+  // Inactive: mutations (even inserting a reauth form) do nothing.
+  p.w.__univerPaintV1.configure(false); p.w.__univerPaintV1.complete(false, false, false, 'ru');
+  reset();
+  p.w.document.body.insertAdjacentHTML('beforeend', reauthHtml());
+  await Promise.resolve();
+  assert.equal(p.w.document.documentElement.style.opacity, '');
+  assert.equal(rects, 0); assert.equal(styles, 0); assert.equal(probes, 0);
+  p.w.document.getElementById('auth_modal').remove();
+
+  // Failed: observer stays idle even if a known form becomes visible.
+  p.w.__univerPaintV1.configure(true); p.w.__univerPaintV1.complete(true, false, false, 'ru');
+  reset();
+  p.w.document.getElementById('attentionSt').hidden = false;
+  await Promise.resolve();
+  assert.equal(p.w.document.documentElement.style.opacity, '');
+  assert.equal(rects, 0); assert.equal(styles, 0); assert.equal(probes, 0);
+  p.w.document.getElementById('attentionSt').hidden = true;
+
+  // Active and revealed: unrelated mutations skip layout reads and probe().
+  p.w.__univerPaintV1.configure(false); p.w.__univerPaintV1.configure(true); p.w.__univerPaintV1.complete(false, false, false, 'ru');
+  reset();
+  for (let i = 0; i < 15; i++) {
+    const item = p.w.document.createElement('div');
+    item.className = 'row-' + i;
+    l4.appendChild(item);
+    p.w.document.body.appendChild(p.w.document.createElement('span'));
+  }
+  await Promise.resolve();
+  assert.equal(p.w.document.documentElement.style.opacity, '');
+  assert.equal(rects, 0); assert.equal(styles, 0); assert.equal(probes, 0);
+
+  // When the hidden notice actually becomes visible, the gate covers at once without calling full probe().
+  sent.length = 0;
+  p.w.document.getElementById('attentionSt').hidden = false;
+  await Promise.resolve();
+  assert.equal(p.w.document.documentElement.style.opacity, '0');
+  assert.deepEqual(sent, ['univer-busy']);
+  assert.equal(probes, 0, 'observer uses lightweight hasPending instead of full probe()');
+  p.close();
+});
+
+test('paint gate observer coalesces repeated bursts on a known element within a frame', async () => {
+  const p = page('<p>Content</p>' + reauthHtml().replace('id="auth_modal"', 'id="auth_modal" style="display:none"'), 'https://univer.kaznu.kz/student/news');
+  p.w.ajl = () => {};
+  let rects = 0;
+  const realRects = p.w.HTMLElement.prototype.getClientRects;
+  p.w.HTMLElement.prototype.getClientRects = function () { rects++; return realRects.call(this); };
+  p.w.eval(paint); p.w.__univerPaintV1.configure(true); p.w.__univerPaintV1.complete(false, false, false, 'ru');
+  rects = 0;
+  const modal = p.w.document.getElementById('auth_modal');
+  for (let i = 0; i < 10; i++) {
+    modal.setAttribute('class', 'step-' + i);
+    await Promise.resolve();
+  }
+  assert.ok(rects <= 3, 'burst of 10 mutations coalesced to a single check, got ' + rects);
+  // Revealing the modal during the cooldown is caught by the trailing frame flush.
+  modal.style.display = '';
+  await new Promise(resolve => setTimeout(resolve, 40));
+  assert.equal(p.w.document.documentElement.style.opacity, '0');
+  p.close();
+});
+
+test('StepScript runs probe() once when the view changed nothing and twice when it mutated', () => {
+  const fullBundle = paint + '\n' + layout + '\n' + script + '\n' + desktop;
+  const p = page('<div class="header"><a href="/user/logout">Выход</a></div><p>News</p>', 'https://univer.kaznu.kz/student/news',
+    nativeExpression('public string DocumentScript(', /return ([\s\S]*?);\r?\n\s*}/, { bundle: fullBundle }));
+  let probeRuns = 0;
+  const realQueryAll = p.w.document.querySelectorAll.bind(p.w.document);
+  p.w.document.querySelectorAll = function (selector) {
+    if (selector === 'a[href*="/user/logout"]') probeRuns++;
+    return realQueryAll(selector);
+  };
+  const runStep = (readable, version) => {
+    const view = `try{window.__univerPaintV1.configure(true);}catch(_){}try{window.__univerMotion=true;window.__univerTheme='light';if(window.__univerDesktop.apply(${readable},false,"ru",${version}))__changed=true;}catch(_){__changed=true;}`;
+    return JSON.parse(p.run(nativeExpression('private string StepScript(', /return ([\s\S]*?);\r?\n\s*}/, { ViewScript: () => view })));
+  };
+  // First tick applies Reading mode: mutates DOM, so probe() runs before and after.
+  probeRuns = 0;
+  const first = runStep(true, 1);
+  assert.equal(probeRuns, 2);
+  assert.equal(first.after.authenticated, true);
+
+  // Repeated tick with identical view: nothing mutated, so probe() runs once and after reuses probe.
+  probeRuns = 0;
+  const steady = runStep(true, 1);
+  assert.equal(probeRuns, 1);
+  assert.deepEqual(steady.after, steady.probe);
+
+  // A preference/version change mutates or updates view: probe() runs twice again.
+  probeRuns = 0;
+  const changed = runStep(false, 2);
+  assert.equal(probeRuns, 2);
+  assert.equal(p.w.document.getElementById('univer-desktop-style'), null);
+
+  // Repeated tick in Original mode: nothing mutated, probe() runs once.
+  probeRuns = 0;
+  const originalSteady = runStep(false, 2);
+  assert.equal(probeRuns, 1);
+  assert.deepEqual(originalSteady.after, originalSteady.probe);
+  p.close();
+});

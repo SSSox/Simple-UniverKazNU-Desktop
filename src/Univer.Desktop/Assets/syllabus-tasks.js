@@ -248,25 +248,103 @@
        the site's storage inside the app profile and go with it on logout. */
     // The account that signed in last (univer-automation.js notes it at the login form). Another account's programme,
     // course list and weeks are dropped; course plans are the same for everyone and stay.
+    var storeCache = null, storeOwner = null;
     function account() { try { return localStorage.getItem('univer.app.account.v1') || ''; } catch (_) { return ''; } }
     function stored(key) {
+        if (key === STORE) {
+            var who = account();
+            if (storeCache && storeOwner === who) return storeCache;
+            storeCache = null; storeOwner = null;
+            try {
+                var cached = JSON.parse(localStorage.getItem(STORE) || 'null') || {};
+                if ((cached.owner || '') !== who) { delete cached.program; delete cached.list; delete cached.pattern; cached.owner = who; }
+                storeCache = cached; storeOwner = who;
+                return cached;
+            } catch (_) { return {}; }
+        }
         try {
-            var value = JSON.parse(localStorage.getItem(key) || 'null') || {};
-            if (key === STORE && (value.owner || '') !== account()) { delete value.program; delete value.list; delete value.pattern; value.owner = account(); }
-            return value;
+            return JSON.parse(localStorage.getItem(key) || 'null') || {};
         } catch (_) { return {}; }
+    }
+    // Strict lower bound on JSON.stringify(node).length, used to evict excess plans before serializing.
+    function estimateSize(node) {
+        if (node === null) return 4;
+        var type = typeof node;
+        if (type === 'string') return node.length + 2;
+        if (type === 'number') return isFinite(node) ? String(node).length : 4;
+        if (type === 'boolean') return node ? 4 : 5;
+        if (Array.isArray(node)) {
+            var total = 2;
+            for (var i = 0; i < node.length; i++) total += (node[i] === undefined ? 4 : estimateSize(node[i])) + (i ? 1 : 0);
+            return total;
+        }
+        if (type === 'object') {
+            var sum = 2, count = 0, keys = Object.keys(node);
+            for (var j = 0; j < keys.length; j++) {
+                var val = node[keys[j]];
+                if (val === undefined) continue;
+                sum += keys[j].length + 3 + estimateSize(val) + (count ? 1 : 0);
+                count++;
+            }
+            return sum;
+        }
+        return 0;
     }
     function keep(key, value) {
         try {
-            if (key === STORE) value.owner = account();
+            var who = key === STORE ? account() : '';
+            if (key === STORE) value.owner = who;
+            var order = null;
+            if (value && value.courses) {
+                var courses = value.courses, courseKeys = Object.keys(courses), entrySizes = {}, total = 2, topCount = 0;
+                Object.keys(value).forEach(function (prop) {
+                    if (prop === 'courses') { total += 12 + (topCount ? 1 : 0); topCount++; return; }
+                    if (value[prop] === undefined) return;
+                    total += prop.length + 3 + estimateSize(value[prop]) + (topCount ? 1 : 0);
+                    topCount++;
+                });
+                var courseCount = 0;
+                for (var i = 0; i < courseKeys.length; i++) {
+                    var k = courseKeys[i];
+                    if (courses[k] === undefined) continue;
+                    entrySizes[k] = k.length + 3 + estimateSize(courses[k]);
+                    total += entrySizes[k] + (courseCount ? 1 : 0);
+                    courseCount++;
+                }
+                if (total > LIMITS.store && courseCount) {
+                    order = courseKeys.filter(function (k) { return courses[k] !== undefined; })
+                        .sort(function (a, b) { return (courses[a].at || 0) - (courses[b].at || 0); });
+                    var at = 0;
+                    while (total > LIMITS.store && at < order.length) {
+                        var drop = order[at++];
+                        delete courses[drop];
+                        courseCount--;
+                        total -= entrySizes[drop] + (courseCount > 0 ? 1 : 0);
+                    }
+                    order = order.slice(at);
+                }
+            }
             var serialized = JSON.stringify(value);
-            // The oldest plans go first when the cache outgrows its limit.
-            while (serialized.length > LIMITS.store && value.courses && Object.keys(value.courses).length) {
-                var oldest = Object.keys(value.courses).sort(function (a, b) { return value.courses[a].at - value.courses[b].at; })[0];
-                delete value.courses[oldest]; serialized = JSON.stringify(value);
+            // The oldest plans go first if string escaping pushed the exact JSON past the limit.
+            if (serialized.length > LIMITS.store && value && value.courses) {
+                if (!order) order = Object.keys(value.courses).sort(function (a, b) { return (value.courses[a].at || 0) - (value.courses[b].at || 0); });
+                var index = 0;
+                while (serialized.length > LIMITS.store && index < order.length) {
+                    var excess = serialized.length - LIMITS.store;
+                    while (excess > 0 && index < order.length) {
+                        var oldest = order[index++];
+                        var dropped = value.courses[oldest];
+                        delete value.courses[oldest];
+                        excess -= oldest.length + (index < order.length ? 4 : 3) + (dropped !== undefined ? JSON.stringify(dropped).length : 0);
+                    }
+                    serialized = JSON.stringify(value);
+                }
             }
             localStorage.setItem(key, serialized);
-        } catch (_) { }
+            if (key === STORE) { storeCache = value; storeOwner = who; }
+        } catch (_) {
+            if (key === STORE) { storeCache = null; storeOwner = null; }
+        }
     }
     function preferences() {
         if (!prefs) { var saved = stored(PREFS); prefs = {lessons:saved.lessons !== false, sro:saved.sro !== false, folded:saved.folded && typeof saved.folded === 'object' ? saved.folded : {}}; }
@@ -311,8 +389,8 @@
         cache.courses[job.href] = {at:Date.now(), code:program.code, division:program.division || '', status:job.status, certain:job.certain !== false, plan:job.plan || null};
         keep(STORE, cache);
     }
-    function recall(job, program) {
-        var saved = (stored(STORE).courses || {})[job.href];
+    function recall(job, program, courses) {
+        var saved = ((courses || stored(STORE).courses) || {})[job.href];
         if (!saved || saved.code !== program.code || saved.division !== (program.division || '')) return false;
         var age = Date.now() - saved.at, limit = saved.status === 'ready' && saved.certain ? LIMITS.fresh : LIMITS.missing;
         if (!(age >= 0 && age < limit) || (saved.status === 'ready' && !saved.plan?.weeks)) return false;
@@ -503,7 +581,10 @@
                 owner.program = program;
                 owner.term = ((list[0]?.href || '').match(/(\/\d{4}\/[12])\/?$/) || ['', ''])[1];
                 owner.jobs = list.map(function (course) { return {name:course.name, key:fold(course.name), href:course.href, status:'queued', plan:null, certain:true}; });
-                if (!force) owner.jobs.forEach(function (job) { recall(job, program); });
+                if (!force) {
+                    var cachedCourses = stored(STORE).courses;
+                    if (cachedCourses) owner.jobs.forEach(function (job) { recall(job, program, cachedCourses); });
+                }
                 owner.state = 'ready';
                 loadPattern(owner, epoch, force);
             } catch (_) {
@@ -600,9 +681,17 @@
         if (href) { var source = element('a', 'univer-app-syl-source', L.open); source.href = href; foot.appendChild(source); }
         box.append(topic, foot); draw(false);
         // A short topic that still wraps past three lines also gets the button.
-        box.fit = function () { more.hidden = !long && !(topic.scrollHeight - topic.clientHeight > 2) && !expandedSet.has(key); };
+        var fitNeed = function () { return long || expandedSet.has(key) ? false : !(topic.scrollHeight - topic.clientHeight > 2); };
+        box.measureFit = fitNeed;
+        box.applyFit = function (hidden) { setHidden(more, hidden); };
+        box.fit = function () { setHidden(more, fitNeed()); };
         more.hidden = !long;
         return box;
+    }
+    function fitBoxes(boxes) {
+        if (!boxes.length) return;
+        var hidden = boxes.map(function (box) { return box.measureFit(); });
+        boxes.forEach(function (box, index) { box.applyFit(hidden[index]); });
     }
     function buildPanel(state) {
         var L = text(), P = preferences(), panel = element('section', 'univer-app-syl-panel'); panel.setAttribute('aria-label', L.title);
@@ -644,16 +733,14 @@
         var shown = list.slice(0, LIMITS.names).join(', ');
         return list.length > LIMITS.names ? shown + ' ' + text().andMore(list.length - LIMITS.names) : shown;
     }
-    function drawPanel(state, animate) {
+    function planPanel(state, animate) {
         var L = text(), P = preferences(), ui = state.panel, week = state.week.number;
-        setAttribute(ui.toggle, 'aria-checked', String(P.lessons));
         var failed = model.state === 'failed';
-        setHidden(ui.alert, !failed); if (failed) setText(ui.alertText, model.reason === 'program' ? L.noProgram : L.noCourses);
         var jobs = model.jobs, pending = jobs.filter(function (job) { return job.status === 'queued' || job.status === 'loading'; }).length;
         var reading = model.state === 'loading' || pending > 0 || model.pattern.state === 'loading';
-        setHidden(ui.progress, !reading);
-        if (reading) { var line = model.state === 'loading' ? L.sroPending : L.progress(jobs.length - pending, jobs.length); if (window.__univerKitV1 && ui.progress.textContent) window.__univerKitV1.roll(ui.progress, line); else setText(ui.progress, line); }
-        if (failed) return;
+        var line = reading ? (model.state === 'loading' ? L.sroPending : L.progress(jobs.length - pending, jobs.length)) : '';
+        var plan = {L:L, P:P, ui:ui, failed:failed, reading:reading, line:line, items:[], notes:[], signature:'', changed:false, first:false, animateResize:false, before:0, boxes:[], reveals:[]};
+        if (failed) return plan;
         // Courses in the order of their first class this week, then the rest of the semester by name.
         var order = state.subjects.map(function (subject) { return match(subject.key); }).filter(Boolean);
         var sorted = jobs.slice().sort(function (a, b) {
@@ -671,44 +758,56 @@
         var notes = [];
         if (errors.length) notes.push([L.failed, errors, true]);
         if (model.pattern.state === 'failed') notes.push([L.noWeeks, [], true]);
-        if (!reading && !notes.length && model.state === 'ready') keepWork(state, items);
-        setText(ui.count, items.length ? String(items.length) : '');
-        setHidden(ui.count, !items.length);
+        var signature = language + '|' + week + '|' + P.sro + '|' + state.allSro + '|' + reading + '|' + items.map(function (item) { return item.key + ':' + item.entry.topic.length + ':' + item.entry.score; }).join(',') + '|' + JSON.stringify(notes);
+        plan.items = items; plan.notes = notes; plan.signature = signature;
+        plan.changed = signature !== state.sroSignature;
+        plan.first = !state.sroSignature;
+        plan.animateResize = plan.changed && animate && !plan.first;
+        return plan;
+    }
+    function writePanel(state, plan) {
+        var L = plan.L, P = plan.P, ui = plan.ui;
+        setAttribute(ui.toggle, 'aria-checked', String(P.lessons));
+        setHidden(ui.alert, !plan.failed); if (plan.failed) setText(ui.alertText, model.reason === 'program' ? L.noProgram : L.noCourses);
+        setHidden(ui.progress, !plan.reading);
+        if (plan.reading) { if (window.__univerKitV1 && ui.progress.textContent) window.__univerKitV1.roll(ui.progress, plan.line); else setText(ui.progress, plan.line); }
+        if (plan.failed) return;
+        if (!plan.reading && !plan.notes.length && model.state === 'ready') keepWork(state, plan.items);
+        setText(ui.count, plan.items.length ? String(plan.items.length) : '');
+        setHidden(ui.count, !plan.items.length);
         setAttribute(ui.fold, 'aria-expanded', String(P.sro));
         // Nothing to hand in and nothing to report: the section stays out of the way.
-        setHidden(ui.section, !(items.length || reading || notes.length));
-        var signature = language + '|' + week + '|' + P.sro + '|' + state.allSro + '|' + reading + '|' + items.map(function (item) { return item.key + ':' + item.entry.topic.length + ':' + item.entry.score; }).join(',') + '|' + JSON.stringify(notes);
-        if (signature === state.sroSignature) return;
-        var first = !state.sroSignature; state.sroSignature = signature;
-        resized(ui.root, function () {
-            setHidden(ui.body, !P.sro);
-            var limit = state.allSro ? items.length : LIMITS.sro, known = new Map();
-            Array.from(ui.list.children).forEach(function (row) { known.set(row.dataset.key, row); });
-            ui.list.replaceChildren();
-            items.slice(0, limit).forEach(function (item, index) {
-                var row = known.get(item.key);
-                if (!row) {
-                    row = element('li', 'univer-app-syl-item'); row.dataset.key = item.key;
-                    var top = element('div', 'univer-app-syl-item-head'), course = element('a', 'univer-app-syl-course', item.job.name); course.href = item.job.href;
-                    top.append(course, element('span', 'univer-app-syl-meta', meta(item.entry, '')));
-                    row.block = topicBlock(item.entry, state.expanded, item.key, item.job.plan.href);
-                    row.append(top, row.block); row.fresh = true;
-                }
-                ui.list.appendChild(row);
-                if (row.fresh) { row.fresh = false; if (animate && !first && P.sro) motion()?.reveal(row, 'content', Math.min(index, 3) * 24); }
-            });
-            setHidden(ui.list, !items.length);
-            setHidden(ui.rest, items.length <= LIMITS.sro);
-            setText(ui.rest, state.allSro ? L.fewer : L.rest(Math.max(0, items.length - LIMITS.sro)));
-            ui.notes.replaceChildren();
-            notes.forEach(function (note) {
-                var line = element('p', 'univer-app-syl-note'); line.append(element('span', 'univer-app-syl-note-label', note[1].length ? note[0] + ': ' : note[0]), names(note[1]));
-                if (note[2]) line.append(' ', button('univer-app-syl-note-retry', L.retry));
-                ui.notes.appendChild(line);
-            });
-            setHidden(ui.notes, !notes.length);
-        }, animate && !first);
-        Array.from(ui.list.children).forEach(function (row) { row.block.fit(); });
+        setHidden(ui.section, !(plan.items.length || plan.reading || plan.notes.length));
+        if (!plan.changed) return;
+        state.sroSignature = plan.signature;
+        motion()?.stop(ui.root);
+        setHidden(ui.body, !P.sro);
+        var limit = state.allSro ? plan.items.length : LIMITS.sro, known = new Map();
+        Array.from(ui.list.children).forEach(function (row) { known.set(row.dataset.key, row); });
+        ui.list.replaceChildren();
+        plan.items.slice(0, limit).forEach(function (item, index) {
+            var row = known.get(item.key);
+            if (!row) {
+                row = element('li', 'univer-app-syl-item'); row.dataset.key = item.key;
+                var top = element('div', 'univer-app-syl-item-head'), course = element('a', 'univer-app-syl-course', item.job.name); course.href = item.job.href;
+                top.append(course, element('span', 'univer-app-syl-meta', meta(item.entry, '')));
+                row.block = topicBlock(item.entry, state.expanded, item.key, item.job.plan.href);
+                row.append(top, row.block); row.fresh = true;
+            }
+            ui.list.appendChild(row);
+            plan.boxes.push(row.block);
+            if (row.fresh) { row.fresh = false; if (plan.animateResize && P.sro) plan.reveals.push([row, Math.min(index, 3) * 24]); }
+        });
+        setHidden(ui.list, !plan.items.length);
+        setHidden(ui.rest, plan.items.length <= LIMITS.sro);
+        setText(ui.rest, state.allSro ? L.fewer : L.rest(Math.max(0, plan.items.length - LIMITS.sro)));
+        ui.notes.replaceChildren();
+        plan.notes.forEach(function (note) {
+            var line = element('p', 'univer-app-syl-note'); line.append(element('span', 'univer-app-syl-note-label', note[1].length ? note[0] + ': ' : note[0]), names(note[1]));
+            if (note[2]) line.append(' ', button('univer-app-syl-note-retry', L.retry));
+            ui.notes.appendChild(line);
+        });
+        setHidden(ui.notes, !plan.notes.length);
     }
     // The classes of one course and kind in a week, in order: with as many syllabus rows as classes, each class takes its own.
     function share(state, card, entries) {
@@ -721,7 +820,7 @@
     function sroCard(state, job) {
         return state.cards.filter(function (card) { return CLASSES.indexOf(card.kind) >= 0 && match(card.key) === job; }).sort(function (a, b) { return a.day - b.day || a.order - b.order; })[0] || null;
     }
-    function drawLesson(state, card, animate) {
+    function planLesson(state, card, animate) {
         var L = text(), P = preferences(), week = state.week.number, job = match(card.key), want = 'none', entries = [], work = [], placed = null;
         if (card.kind !== 'other' && card.kind !== 'sro') {
             if (model.state === 'loading' || model.pattern.state === 'loading' || (job && (job.status === 'queued' || job.status === 'loading'))) want = 'loading';
@@ -739,64 +838,98 @@
         // The class's own rows first, then the work named beside it.
         var all = entries.map(function (entry) { return {entry:entry, kind:card.kind}; }).concat(work.map(function (entry) { return {entry:entry, kind:'sro', label:L.sroName}; }));
         var signature = want + '|' + (want === 'same' ? first.time : '') + '|' + language + '|' + week + '|' + folded + '|' + card.all + '|' + all.map(function (item) { return item.kind + ':' + item.entry.week + ':' + item.entry.name + ':' + item.entry.topic.length + ':' + item.entry.score; }).join(',');
+        var changed = signature !== card.signature, appear = changed && animate && P.lessons && card.signature !== undefined;
+        return {state:state, card:card, L:L, P:P, job:job, want:want, first:first, foldKey:foldKey, folded:folded, all:all, signature:signature, changed:changed, appear:appear, before:0, boxes:[]};
+    }
+    function writeLesson(plan) {
+        var state = plan.state, card = plan.card, L = plan.L, P = plan.P, job = plan.job, want = plan.want, first = plan.first, foldKey = plan.foldKey, folded = plan.folded, all = plan.all;
         if (card.block) setHidden(card.block, !P.lessons);
-        if (signature === card.signature) return;
-        var appear = animate && P.lessons && card.signature !== undefined;
-        card.signature = signature;
-        resized(card.card, function () {
-            if (want === 'none') { if (card.block) { motion()?.stop(card.block); card.block.remove(); card.block = null; } return; }
-            var block = card.block;
-            if (!block) {
-                block = card.block = element('div', 'univer-app-syl-task');
-                // The class card opens the course materials on a click; a click inside the task stays here.
-                block.addEventListener('click', function (event) { event.stopPropagation(); });
-                var anchor = card.main.querySelector(':scope>a.univer-app-page-link');
-                if (anchor) anchor.before(block); else card.main.appendChild(block);
-            }
-            block.hidden = !P.lessons; block.dataset.state = want; block.replaceChildren();
-            if (want === 'loading') { block.append(element('span', 'univer-app-syl-wait', L.loading)); return; }
-            if (want === 'same') { block.append(element('span', 'univer-app-syl-same', L.same(first.time))); return; }
-            var fold = button('univer-app-syl-fold'), body = element('div', 'univer-app-syl-body');
-            body.id = 'univer-syl-task-' + (++counter); fold.setAttribute('aria-controls', body.id); fold.setAttribute('aria-expanded', String(!folded));
-            fold.title = folded ? L.show : L.hide;
-            var caption = element('span', 'univer-app-syl-fold-text');
-            var name = all.length === 1 ? meta(all[0].entry, all[0].label) || L.topic : L.topics(all.length);
-            caption.append(element('span', 'univer-app-syl-meta', name)); fold.setAttribute('aria-label', (folded ? L.show : L.hide) + ': ' + name);
-            fold.appendChild(caption);
-            fold.addEventListener('click', function (event) {
-                if (P.folded[foldKey]) delete P.folded[foldKey]; else P.folded[foldKey] = 1;
-                savePreferences();
-                views.forEach(function (other) { other.cards.forEach(function (item) { if (item.key === card.key && item.kind === card.kind) drawLesson(other, item, event.detail > 0 && item === card); }); });
-                if (!P.folded[foldKey] && event.detail > 0 && card.block) motion()?.reveal(card.block.querySelector('.univer-app-syl-body'), 'content');
-                card.block?.querySelector('.univer-app-syl-fold')?.focus({preventScroll:true});
-            });
-            body.hidden = folded;
-            var shown = card.all ? all : all.slice(0, LIMITS.perLesson), blocks = [];
-            shown.forEach(function (item, index) {
-                var box = topicBlock(item.entry, state.expanded, job.href + '|' + item.entry.week + '|' + item.kind + '|' + item.entry.name + '|' + index, index === shown.length - 1 ? job.plan.href : '');
-                if (all.length > 1) box.prepend(element('span', 'univer-app-syl-entry-name', meta(item.entry, item.label)));
-                body.appendChild(box); blocks.push(box);
-            });
-            if (all.length > LIMITS.perLesson) {
-                var rest = button('univer-app-syl-rest', card.all ? L.fewer : L.rest(all.length - LIMITS.perLesson));
-                rest.addEventListener('click', function (event) { card.all = !card.all; drawLesson(state, card, event.detail > 0); });
-                body.appendChild(rest);
-            }
-            block.append(fold, body); block.blocks = blocks;
-        }, appear);
-        if (card.block?.blocks && want === 'ready') card.block.blocks.forEach(function (box) { box.fit(); });
-        if (appear && card.block && want === 'ready') motion()?.reveal(card.block, 'content');
+        if (!plan.changed) return;
+        card.signature = plan.signature;
+        motion()?.stop(card.card);
+        if (want === 'none') { if (card.block) { motion()?.stop(card.block); card.block.remove(); card.block = null; } return; }
+        var block = card.block;
+        if (!block) {
+            block = card.block = element('div', 'univer-app-syl-task');
+            // The class card opens the course materials on a click; a click inside the task stays here.
+            block.addEventListener('click', function (event) { event.stopPropagation(); });
+            var anchor = card.main.querySelector(':scope>a.univer-app-page-link');
+            if (anchor) anchor.before(block); else card.main.appendChild(block);
+        }
+        block.hidden = !P.lessons; block.dataset.state = want; block.replaceChildren();
+        if (want === 'loading') { block.append(element('span', 'univer-app-syl-wait', L.loading)); return; }
+        if (want === 'same') { block.append(element('span', 'univer-app-syl-same', L.same(first.time))); return; }
+        var fold = button('univer-app-syl-fold'), body = element('div', 'univer-app-syl-body');
+        body.id = 'univer-syl-task-' + (++counter); fold.setAttribute('aria-controls', body.id); fold.setAttribute('aria-expanded', String(!folded));
+        fold.title = folded ? L.show : L.hide;
+        var caption = element('span', 'univer-app-syl-fold-text');
+        var name = all.length === 1 ? meta(all[0].entry, all[0].label) || L.topic : L.topics(all.length);
+        caption.append(element('span', 'univer-app-syl-meta', name)); fold.setAttribute('aria-label', (folded ? L.show : L.hide) + ': ' + name);
+        fold.appendChild(caption);
+        fold.addEventListener('click', function (event) {
+            if (P.folded[foldKey]) delete P.folded[foldKey]; else P.folded[foldKey] = 1;
+            savePreferences();
+            var matching = [];
+            views.forEach(function (other) { other.cards.forEach(function (item) { if (item.key === card.key && item.kind === card.kind) matching.push({state:other, card:item, animate:event.detail > 0 && item === card}); }); });
+            drawLessons(matching);
+            if (!P.folded[foldKey] && event.detail > 0 && card.block) motion()?.reveal(card.block.querySelector('.univer-app-syl-body'), 'content');
+            card.block?.querySelector('.univer-app-syl-fold')?.focus({preventScroll:true});
+        });
+        body.hidden = folded;
+        var shown = card.all ? all : all.slice(0, LIMITS.perLesson), blocks = [];
+        shown.forEach(function (item, index) {
+            var box = topicBlock(item.entry, state.expanded, job.href + '|' + item.entry.week + '|' + item.kind + '|' + item.entry.name + '|' + index, index === shown.length - 1 ? job.plan.href : '');
+            if (all.length > 1) box.prepend(element('span', 'univer-app-syl-entry-name', meta(item.entry, item.label)));
+            body.appendChild(box); blocks.push(box);
+        });
+        if (all.length > LIMITS.perLesson) {
+            var rest = button('univer-app-syl-rest', card.all ? L.fewer : L.rest(all.length - LIMITS.perLesson));
+            rest.addEventListener('click', function (event) { card.all = !card.all; drawLessons([{state:state, card:card, animate:event.detail > 0}]); });
+            body.appendChild(rest);
+        }
+        block.append(fold, body); block.blocks = blocks;
+        plan.boxes = blocks;
+    }
+    function drawLessons(items) {
+        var plans = items.map(function (item) { return planLesson(item.state, item.card, item.animate); });
+        plans.forEach(function (plan) { if (plan.appear && plan.card.card.isConnected) plan.before = plan.card.card.getBoundingClientRect().height; });
+        var boxes = [];
+        plans.forEach(function (plan) { writeLesson(plan); if (plan.boxes.length) Array.prototype.push.apply(boxes, plan.boxes); });
+        fitBoxes(boxes);
+        plans.forEach(function (plan) {
+            if (plan.appear && plan.before > 0) motion()?.resize(plan.card.card, plan.before);
+            if (plan.appear && plan.card.block && plan.want === 'ready') motion()?.reveal(plan.card.block, 'content');
+        });
     }
     // A schedule of another semester has other courses; nothing is read or shown for it.
     function foreign(state) { return !!model && model.state === 'ready' && !!state.week.term && !!model.term && state.week.term !== model.term; }
     function render(state, animate) {
         if (!state.view.isConnected || !model) return;
         var idle = foreign(state) || (model.state === 'ready' && !model.jobs.length);
-        setHidden(state.panel.root, idle);
+        if (idle) {
+            setHidden(state.panel.root, true);
+            setAttribute(state.view, 'data-syllabus', preferences().lessons ? 'on' : 'off');
+            state.cards.forEach(function (card) { if (card.block) { card.block.remove(); card.block = null; card.signature = undefined; } });
+            return;
+        }
+        var panelPlan = planPanel(state, animate);
+        var lessonPlans = state.cards.map(function (card) { return planLesson(state, card, animate); });
+        // Measure heights before any DOM mutations, then write all cards, then measure and apply topic clamps in one batch.
+        if (panelPlan.animateResize && panelPlan.ui.root.isConnected) panelPlan.before = panelPlan.ui.root.getBoundingClientRect().height;
+        lessonPlans.forEach(function (plan) { if (plan.appear && plan.card.card.isConnected) plan.before = plan.card.card.getBoundingClientRect().height; });
+        setHidden(state.panel.root, false);
         setAttribute(state.view, 'data-syllabus', preferences().lessons ? 'on' : 'off');
-        if (idle) { state.cards.forEach(function (card) { if (card.block) { card.block.remove(); card.block = null; card.signature = undefined; } }); return; }
-        drawPanel(state, animate);
-        state.cards.forEach(function (card) { drawLesson(state, card, animate); });
+        writePanel(state, panelPlan);
+        lessonPlans.forEach(writeLesson);
+        var boxes = panelPlan.boxes.slice();
+        lessonPlans.forEach(function (plan) { if (plan.boxes.length) Array.prototype.push.apply(boxes, plan.boxes); });
+        fitBoxes(boxes);
+        if (panelPlan.animateResize && panelPlan.before > 0) motion()?.resize(panelPlan.ui.root, panelPlan.before);
+        panelPlan.reveals.forEach(function (item) { motion()?.reveal(item[0], 'content', item[1]); });
+        lessonPlans.forEach(function (plan) {
+            if (plan.appear && plan.before > 0) motion()?.resize(plan.card.card, plan.before);
+            if (plan.appear && plan.card.block && plan.want === 'ready') motion()?.reveal(plan.card.block, 'content');
+        });
     }
     function renderAll(animate) { if (enabled) views.forEach(function (state) { render(state, animate); }); }
     function attach(record) {
@@ -885,7 +1018,7 @@
         (records || []).forEach(function (record) { if (record?.view && !views.has(record.view)) attach(record); });
     }
     function release() {
-        enabled = false; generation++; active = 0; model = null; programPromise = null; prefs = null;
+        enabled = false; generation++; active = 0; model = null; programPromise = null; prefs = null; storeCache = null; storeOwner = null;
         controllers.forEach(function (abort) { abort.abort(); }); controllers.clear(); teachers.clear(); timers.forEach(clearTimeout); timers.clear();
         views.forEach(function (state) {
             motion()?.stop(state.panel.root); state.panel.root.remove(); state.view.removeAttribute('data-syllabus');

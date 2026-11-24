@@ -4,7 +4,7 @@
     'use strict';
     if (location.origin !== 'https://univer.kaznu.kz' || window.__univerShortcutsV1) return;
     var common = window.__univerCommonV1, cleanText = common.clean;
-    var pins = [], pinsKey = '[]', tileOrder = [], orderKey = '[]', hiddenTiles = [], hiddenKey = '[]', hold = null, lifted = null, trash = null, adding = null, language = 'ru', active = false, owned = [], pinButtons = new Set(), menuRows = new Map(), style = null;
+    var pins = [], pinsKey = '[]', tileOrder = [], orderKey = '[]', hiddenTiles = [], hiddenKey = '[]', hold = null, lifted = null, trash = null, trashBox = null, dragFrame = 0, geometryPending = false, pointerPending = false, adding = null, language = 'ru', active = false, owned = [], pinButtons = new Set(), menuRows = new Map(), style = null;
     var moodlePath = '/user/loginMoodle';
     // Study tiles in the order students look for them; the site menu supplies their real links and names.
     // The news page menu has no study sections, so the observed routes are used directly there.
@@ -485,59 +485,98 @@
         var started = hold; endHold();
         if (!started || !started.span.isConnected) return;
         var span = started.span, quick = span.parentElement, rect = span.getBoundingClientRect();
-        lifted = {span:span, info:started.info, quick:quick, id:started.id, x:started.x, y:started.y, dx:started.x - rect.left, dy:started.y - rect.top, from:tileHrefs(quick), cool:0};
+        lifted = {span:span, info:started.info, quick:quick, id:started.id, x:started.x, y:started.y, dx:started.x - rect.left, dy:started.y - rect.top, base:{left:rect.left, top:rect.top}, from:tileHrefs(quick), cool:0};
         span.__univerHeld = true; span.classList.add('univer-app-lifted'); quick.classList.add('univer-app-arranging');
         try { span.querySelector('a').setPointerCapture(started.id); } catch (_) { }
         document.addEventListener('pointermove', dragLifted, true); document.addEventListener('pointerup', dropLifted, true);
         document.addEventListener('pointercancel', cancelLifted, true); document.addEventListener('keydown', escapeLifted, true);
+        window.addEventListener('resize', onBinGeometry); document.addEventListener('scroll', onBinGeometry, true);
         var bin = trashBar(); placeBin(bin, quick); void bin.offsetWidth; bin.classList.add('univer-app-trash-on');
         placeLifted();
     }
     // The bin is one straight move away: under the grid and as wide as it, or at the window's foot when the grid runs past it.
+    // The shown bin has no transform, so the box remembered here is the one a drag tests against.
     function placeBin(bin, quick) {
         var grid = quick.getBoundingClientRect(), room = document.documentElement.clientHeight;
-        bin.style.left = Math.round(grid.left) + 'px'; bin.style.width = Math.round(grid.width) + 'px';
-        bin.style.top = Math.round(Math.max(0, Math.min(grid.bottom + 12, room - bin.offsetHeight - 16))) + 'px';
+        var left = Math.round(grid.left), width = Math.round(grid.width);
+        bin.style.left = left + 'px'; bin.style.width = width + 'px';
+        var height = bin.offsetHeight, top = Math.round(Math.max(0, Math.min(grid.bottom + 12, room - height - 16)));
+        bin.style.top = top + 'px';
+        trashBox = {left:left, right:left + width, top:top, bottom:top + height};
     }
-    // The tile follows the pointer from wherever the grid currently puts it.
-    function placeLifted() {
-        var span = lifted.span; span.style.transform = 'none';
+    // The bin stays where lift put it. Scroll and resize only remeasure it, on the same frame as the drag.
+    function onBinGeometry() {
+        if (!lifted || !trash || !trash.isConnected) return;
+        geometryPending = true;
+        scheduleDrag();
+    }
+    // A transform would report the tile's screen position, not the grid position the pointer is measured from.
+    function rememberBase() {
+        var span = lifted.span, previous = span.style.transform;
+        if (previous) span.style.transform = 'none';
         var rect = span.getBoundingClientRect();
-        span.style.transform = 'translate(' + Math.round(lifted.x - lifted.dx - rect.left) + 'px,' + Math.round(lifted.y - lifted.dy - rect.top) + 'px)';
+        lifted.base = {left:rect.left, top:rect.top};
+        if (previous) span.style.transform = previous;
+    }
+    function readDragGeometry() {
+        if (!lifted || !trash || !trash.isConnected) return;
+        var box = trash.getBoundingClientRect();
+        trashBox = {left:box.left, right:box.right, top:box.top, bottom:box.bottom};
+        rememberBase();
+    }
+    // The tile follows the pointer from its grid position. A move reuses that position; scroll and resize refresh it.
+    function placeLifted() {
+        if (!lifted) return;
+        var base = lifted.base;
+        lifted.span.style.transform = 'translate(' + Math.round(lifted.x - lifted.dx - base.left) + 'px,' + Math.round(lifted.y - lifted.dy - base.top) + 'px)';
     }
     function overTrash() {
-        if (!trash || !lifted) return false;
-        var rect = trash.getBoundingClientRect();
-        return lifted.x >= rect.left - 8 && lifted.x <= rect.right + 8 && lifted.y >= rect.top - 8 && lifted.y <= rect.bottom + 48;
+        if (!trash || !lifted || !trashBox) return false;
+        return lifted.x >= trashBox.left - 8 && lifted.x <= trashBox.right + 8 && lifted.y >= trashBox.top - 8 && lifted.y <= trashBox.bottom + 48;
     }
-    // The other tiles slide to their new places from where they stood.
+    // The other tiles slide to their new places from where they stood. The lifted tile's grid position changes with them.
     function shuffle(quick, skip, change) {
         var others = tileNodes(quick).filter(function (node) { return node !== skip; });
         var before = others.map(function (node) { return node.getBoundingClientRect(); });
         change();
+        if (lifted && skip === lifted.span) rememberBase();
         if (!moving()) return;
         others.forEach(function (node, index) {
             var rect = node.getBoundingClientRect(), x = before[index].left - rect.left, y = before[index].top - rect.top;
             if ((x || y) && node.animate) node.animate([{transform:'translate(' + x + 'px,' + y + 'px)'}, {transform:'none'}], {duration:220, easing:'cubic-bezier(.22,1,.36,1)'});
         });
     }
-    function dragLifted(event) {
-        if (!lifted || event.pointerId !== lifted.id) return;
-        event.preventDefault(); lifted.x = event.clientX; lifted.y = event.clientY;
-        var hot = overTrash(); trash.classList.toggle('univer-app-trash-hot', hot); lifted.span.classList.toggle('univer-app-binning', hot);
-        var now = Date.now();
-        if (!hot && now >= lifted.cool) {
-            var under = document.elementFromPoint(lifted.x, lifted.y)?.closest?.('.univer-app-tile');
-            if (under && under !== lifted.span && under.parentElement === lifted.quick) {
-                var span = lifted.span, nodes = tileNodes(lifted.quick), forward = nodes.indexOf(under) > nodes.indexOf(span);
-                shuffle(lifted.quick, span, function () { lifted.quick.insertBefore(span, forward ? under.nextSibling : under); });
-                lifted.cool = now + 160;
+    function flushDrag() {
+        dragFrame = 0;
+        if (!lifted) { geometryPending = false; pointerPending = false; return; }
+        if (geometryPending) { geometryPending = false; readDragGeometry(); }
+        if (pointerPending) {
+            pointerPending = false;
+            var hot = overTrash(); trash.classList.toggle('univer-app-trash-hot', hot); lifted.span.classList.toggle('univer-app-binning', hot);
+            var now = Date.now();
+            if (!hot && now >= lifted.cool) {
+                var under = document.elementFromPoint(lifted.x, lifted.y)?.closest?.('.univer-app-tile');
+                if (under && under !== lifted.span && under.parentElement === lifted.quick) {
+                    var span = lifted.span, nodes = tileNodes(lifted.quick), forward = nodes.indexOf(under) > nodes.indexOf(span);
+                    shuffle(lifted.quick, span, function () { lifted.quick.insertBefore(span, forward ? under.nextSibling : under); });
+                    lifted.cool = now + 160;
+                }
             }
         }
         placeLifted();
     }
+    function scheduleDrag() { if (!dragFrame) dragFrame = requestAnimationFrame(flushDrag); }
+    function cancelDragFrame() { if (!dragFrame) return; cancelAnimationFrame(dragFrame); dragFrame = 0; }
+    function dragLifted(event) {
+        if (!lifted || event.pointerId !== lifted.id) return;
+        event.preventDefault(); lifted.x = event.clientX; lifted.y = event.clientY;
+        pointerPending = true;
+        scheduleDrag();
+    }
     function closeLift() {
-        var state = lifted; lifted = null;
+        cancelDragFrame(); geometryPending = false; pointerPending = false;
+        window.removeEventListener('resize', onBinGeometry); document.removeEventListener('scroll', onBinGeometry, true);
+        var state = lifted; lifted = null; trashBox = null;
         document.removeEventListener('pointermove', dragLifted, true); document.removeEventListener('pointerup', dropLifted, true);
         document.removeEventListener('pointercancel', cancelLifted, true); document.removeEventListener('keydown', escapeLifted, true);
         state.quick.classList.remove('univer-app-arranging'); state.span.classList.remove('univer-app-binning');
@@ -551,6 +590,7 @@
     function dropLifted(event) {
         if (!lifted || event.pointerId !== lifted.id) return;
         event.preventDefault(); lifted.x = event.clientX; lifted.y = event.clientY;
+        if (dragFrame) { cancelDragFrame(); flushDrag(); }
         var binned = overTrash(), state = closeLift();
         if (binned) { removeTile(state.span, state.info, true); return; }
         settle(state.span);

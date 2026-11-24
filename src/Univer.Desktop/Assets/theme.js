@@ -5,7 +5,7 @@
     // Every colour keeps its contrast with white: (L' + .05) = k / (L + .05) turns the white card into the app's dark card
     // (29,34,41) with hue and saturation kept, so text stays as readable as in the light layout.
     var CARD = [29, 34, 41], PAGE = '#15191e';
-    var cache = new Map(), states = new WeakMap(), loading = new WeakSet();
+    var cache = new Map(), states = new WeakMap(), loading = new WeakSet(), mapped = new WeakMap();
     var OWN = /^univer-app-dark-/;
     // Colour names old pages use in bgcolor and font colour attributes.
     var NAMES = { red: '#ff0000', green: '#008000', blue: '#0000ff', yellow: '#ffff00', gray: '#808080', grey: '#808080', silver: '#c0c0c0', maroon: '#800000',
@@ -132,9 +132,18 @@
         });
         return text.join('\n');
     }
+    // A sheet's mapped copy is kept until the sheet changes: a new text gives a <style> a new sheet, a reloaded link a
+    // new sheet, and an inserted or deleted rule a new length. Nothing here edits a rule in place.
+    function sheetText(node, list) {
+        var source = node.localName === 'style' ? node.textContent : null, sheet = node.sheet, known = mapped.get(sheet);
+        if (known && known.length === list.length && known.source === source) return known.text;
+        var text = rules(list);
+        mapped.set(sheet, { length: list.length, source: source, text: text });
+        return text;
+    }
     function stateOf(doc) {
         var state = states.get(doc);
-        if (!state) { state = { on: false, observer: null, timer: 0 }; states.set(doc, state); }
+        if (!state) { state = { on: false, observer: null, timer: 0, queued: false }; states.set(doc, state); }
         return state;
     }
     function own(node) { return node && node.id && OWN.test(node.id); }
@@ -147,16 +156,19 @@
     // the app's stylesheets, inline colours and the page colour mapped after everything else.
     function build(doc) {
         var state = stateOf(doc);
+        state.queued = false;
         if (!state.on || !doc.documentElement) return;
+        // This pass reads every change made so far; a batched attribute pass would only repeat it.
+        if (state.timer) { (doc.defaultView || window).clearTimeout(state.timer); state.timer = 0; }
         var site = [], app = [], lastSite = null;
         // In document order, which is the cascade order; sheets of other sites cannot be read and stay as they are.
         Array.from(doc.querySelectorAll('style,link[rel~="stylesheet" i]')).forEach(function (node) {
             var sheet = node.sheet, list;
             if (own(node)) return;
             // A stylesheet link added after the page is mapped once it has loaded.
-            if (!sheet) { if (node.localName === 'link' && !loading.has(node)) { loading.add(node); node.addEventListener('load', function () { loading.delete(node); build(doc); }, { once: true }); } return; }
+            if (!sheet) { if (node.localName === 'link' && !loading.has(node)) { loading.add(node); node.addEventListener('load', function () { loading.delete(node); later(doc); }, { once: true }); } return; }
             try { list = sheet.cssRules; } catch (_) { return; }
-            var text = rules(list);
+            var text = sheetText(node, list);
             if (node.id && /^univer-/.test(node.id)) { if (text) app.push(text); }
             else { if (text) site.push(text); lastSite = node; }
         });
@@ -176,13 +188,22 @@
         var head = doc.head || doc.documentElement, observer = state.observer;
         if (observer) observer.disconnect();
         var siteStyle = element(doc, 'univer-app-dark-site'), appStyle = element(doc, 'univer-app-dark-app');
-        siteStyle.textContent = site.join('\n');
+        // An unchanged layer is not written again: a rewrite parses the CSS anew and wakes every page observer.
+        var siteText = site.join('\n'), appText = app.join('\n');
+        if (siteStyle.textContent !== siteText) siteStyle.textContent = siteText;
         if (lastSite && lastSite.parentNode) { if (lastSite.nextSibling !== siteStyle) lastSite.parentNode.insertBefore(siteStyle, lastSite.nextSibling); }
         else if (siteStyle.parentNode !== head) head.insertBefore(siteStyle, head.firstChild);
-        appStyle.textContent = app.join('\n');
+        if (appStyle.textContent !== appText) appStyle.textContent = appText;
         if (appStyle.parentNode !== head || head.lastElementChild !== appStyle) head.appendChild(appStyle);
         var early = doc.getElementById('univer-app-dark-early'); if (early) early.remove();
         if (observer) watch(doc, state);
+    }
+    // Stylesheets added in one task are mapped together, in a microtask: still before the next paint.
+    function later(doc) {
+        var state = stateOf(doc);
+        if (state.queued) return;
+        state.queued = true;
+        Promise.resolve().then(function () { if (state.queued) build(doc); });
     }
     function relevant(records) {
         return records.some(function (record) {
@@ -198,7 +219,7 @@
             if (!relevant(records)) return;
             // New stylesheets are mapped before the next paint; attribute changes in batches.
             var sheet = records.some(function (record) { return record.type === 'childList' && Array.from(record.addedNodes).some(function (node) { return node.localName === 'style' || node.localName === 'link'; }) || record.target.localName === 'style'; });
-            if (sheet) { build(doc); return; }
+            if (sheet) { later(doc); return; }
             var view = doc.defaultView || window;
             if (!state.timer) state.timer = view.setTimeout(function () { state.timer = 0; build(doc); }, 120);
         });
@@ -212,6 +233,7 @@
         state.on = on;
         if (state.observer) { state.observer.disconnect(); state.observer = null; }
         if (state.timer) { (doc.defaultView || window).clearTimeout(state.timer); state.timer = 0; }
+        state.queued = false;
         if (on) {
             root.classList.add('univer-app-dark');
             build(doc); watch(doc, state);

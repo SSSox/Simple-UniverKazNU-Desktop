@@ -45,11 +45,11 @@
             var response = await fetch(url, {credentials:'same-origin', cache:'no-store', signal:abort.signal});
             var final = new URL(response.url, location.origin);
             if (response.status !== 200 || final.origin !== location.origin || /^\/user\/login/i.test(final.pathname)) throw new Error('Unavailable');
-            var html = await response.text(); if (html.length > 4 * 1024 * 1024) throw new Error('Oversized');
+            var html = await common.boundedText(response, 4 * 1024 * 1024);
             var doc = new DOMParser().parseFromString(html, 'text/html');
             if (doc.querySelector('#login_frm')) throw new Error('Session expired');
             return doc;
-        } finally { clearTimeout(timeout); }
+        } finally { clearTimeout(timeout); abort.abort(); }
     }
     // A failed read (timeout, network) is forgotten so the next render tries again instead of reusing the rejection.
     function once(key, url) {
@@ -520,11 +520,11 @@
             var response = await fetch(url.href, {credentials: 'same-origin', cache: 'no-store', redirect: 'error', signal: abort.signal});
             var final = new URL(response.url, location.origin);
             if (response.status !== 200 || final.origin !== location.origin || final.pathname !== url.pathname) throw new Error('Unavailable');
-            var html = await response.text(); if (html.length > 4 * 1024 * 1024) throw new Error('Oversized');
+            var html = await common.boundedText(response, 4 * 1024 * 1024);
             var doc = new DOMParser().parseFromString(html, 'text/html');
             if (doc.querySelector('#login_frm') || !doc.getElementById('weekSelect') || !doc.querySelector('table.schedule')) throw new Error('Unread');
             return weekDays(doc);
-        } finally { clearTimeout(timeout); }
+        } finally { clearTimeout(timeout); abort.abort(); }
     }
     async function prepare(kind, token) {
         var select = document.getElementById('weekSelect'), options = select ? Array.from(select.options) : [];

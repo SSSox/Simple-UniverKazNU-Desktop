@@ -226,22 +226,66 @@
     }
     // Courses go on a page until it grows past PAGE; the course that crosses it starts the next page (a course is never cut,
     // and one taller than a page has a page of its own). The sheet has its own width and no zoom yet, so the cut is the same
-    // in any window and at any zoom.
+    // in any window and at any zoom. All courses are inserted once, measured in one batch, then partitioned into pages.
     function render() {
         var w = words(); scroller.replaceChildren(); sheets = [];
         Object.keys(buttons).forEach(function (key) { if (key.indexOf('copy:') === 0) delete buttons[key]; });
         var when = made.toLocaleString(w.locale, { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' });
-        var current = page(true, w, when);
-        courses.forEach(function (course) {
+        var first = page(true, w, when);
+        var blocks = courses.map(function (course) {
             var block = element('section', 'course'); block.appendChild(element('h3', '', course.name));
             if (course.periods.length) course.periods.forEach(function (period) { block.appendChild(row(period)); });
             else block.appendChild(element('p', 'none', course.note || w.none));
             if (course.absences > 0) { var missed = element('p', 'missed', w.absences); missed.appendChild(element('b', '', String(course.absences))); block.appendChild(missed); }
-            current.insertBefore(block, current.lastChild);
-            if (current.offsetHeight > PAGE && current.querySelector('.course') !== block && sheets.length < MAX_PAGES) {
-                current = page(false, w, when); current.insertBefore(block, current.lastChild);
-            }
+            return block;
         });
+        if (blocks.length) {
+            var all = document.createDocumentFragment();
+            blocks.forEach(function (block) { all.appendChild(block); });
+            first.insertBefore(all, first.lastChild);
+        }
+        var total = blocks.length > 1 ? first.offsetHeight : 0;
+        if (total > PAGE) {
+            var heights = blocks.map(function (block) { return block.offsetHeight; });
+            var sum = heights.reduce(function (acc, value) { return acc + value; }, 0);
+            if (sum > 0) {
+                var firstBase = total - sum, used = firstBase, cut = blocks.length;
+                for (var i = 0; i < blocks.length; i++) {
+                    if (i > 0 && used + heights[i] > PAGE && 1 < MAX_PAGES) { cut = i; break; }
+                    used += heights[i];
+                }
+                if (cut < blocks.length) {
+                    var rest = 0;
+                    for (var j = cut; j < heights.length; j++) rest += heights[j];
+                    var second = page(false, w, when);
+                    var contBase = firstBase + rest <= PAGE ? firstBase : second.offsetHeight;
+                    var groups = [[]]; used = contBase;
+                    for (var k = cut; k < blocks.length; k++) {
+                        var group = groups[groups.length - 1];
+                        if (group.length > 0 && used + heights[k] > PAGE && groups.length + 1 < MAX_PAGES) {
+                            group = []; groups.push(group); used = contBase;
+                        }
+                        group.push(blocks[k]); used += heights[k];
+                    }
+                    groups.forEach(function (group, index) {
+                        var target = index === 0 ? second : page(false, w, when);
+                        var frag = document.createDocumentFragment();
+                        group.forEach(function (block) { frag.appendChild(block); });
+                        target.insertBefore(frag, target.lastChild);
+                    });
+                }
+            } else {
+                // Fallback for synthetic environments where only .sheet.offsetHeight is stubbed (each .course reports 0).
+                blocks.forEach(function (block) { block.remove(); });
+                var current = first;
+                blocks.forEach(function (block) {
+                    current.insertBefore(block, current.lastChild);
+                    if (current.offsetHeight > PAGE && current.querySelector('.course') !== block && sheets.length < MAX_PAGES) {
+                        current = page(false, w, when); current.insertBefore(block, current.lastChild);
+                    }
+                });
+            }
+        }
         sheets[sheets.length - 1].classList.add('last');
         var count = sheets.length;
         // One page: the picture as before. Several: each says its number, and is copied from beside it.

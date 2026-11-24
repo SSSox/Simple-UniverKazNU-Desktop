@@ -234,3 +234,29 @@ test('the schedule page writes the week\'s work beside the panels\' record, for 
   const bare = visit({mark: '', hold: true});
   try { bare.w.__univerOverviewV1.keepWork('ru', {start: 1, end: 2, list: []}); assert.equal(bare.stored(), null, 'no account mark, nothing written'); } finally { bare.close(); }
 });
+
+test('overview panel reads stop at the 4 MB byte cap while streaming and cancel oversized bodies', async () => {
+  const dom = new JSDOM('<body><div id="l4"><table class="mt"><tr><td>x</td></tr></table></div></body>', {url: 'https://univer.kaznu.kz/student/bachelor/', runScripts: 'outside-only'});
+  const w = dom.window, chunk = new Uint8Array(1024 * 1024);
+  w.TextDecoder = TextDecoder;
+  const stats = {};
+  w.fetch = async url => {
+    const rec = stats[url] = {reads: 0, cancels: 0};
+    return {
+      status: 200,
+      url: 'https://univer.kaznu.kz' + url,
+      headers: {get: () => null},
+      body: {getReader: () => ({read: async () => { rec.reads++; return {value: chunk, done: false}; }, cancel: async () => { rec.cancels++; }, releaseLock() {}})}
+    };
+  };
+  try {
+    w.eval(read('page-common.js')); w.eval(read('overview.js'));
+    w.__univerOverviewV1.apply('ru');
+    for (let i = 0; i < 20; i++) await new Promise(resolve => setImmediate(resolve));
+    assert.equal(stats['/student/myschedule/'].reads, 5);
+    assert.equal(stats['/student/myschedule/'].cancels, 1);
+    assert.equal(stats['/student/attendance/full/'].reads, 5);
+    assert.equal(stats['/student/attendance/full/'].cancels, 1);
+    assert.match(w.document.querySelector('.univer-app-overview-grades .univer-app-overview-body').textContent, /Не удалось загрузить/);
+  } finally { w.close(); }
+});

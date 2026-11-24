@@ -1,5 +1,8 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
+using System.IO;
+using System.Linq;
 
 namespace Univer.Desktop.Core
 {
@@ -105,5 +108,84 @@ namespace Univer.Desktop.Core
         }
         // The width a picture of a sheet must have; one off by more than a pixel or two is scaled to it.
         public static int PictureWidth(double cssWidth) { return (int)Math.Round(cssWidth * PictureScale); }
+
+        public enum PictureFitKind { Reject, Keep, Resize }
+
+        public struct PictureFit
+        {
+            public readonly PictureFitKind Kind;
+            public readonly int Width, Height;
+            public PictureFit(PictureFitKind kind, int width, int height) { Kind = kind; Width = width; Height = height; }
+        }
+
+        // Decides whether a captured bitmap is kept as-is, resampled to the promised width, or rejected as cut/invalid.
+        public static PictureFit PlanFit(int imageWidth, int imageHeight, double cssWidth, double cssHeight)
+        {
+            if (imageWidth <= 0 || imageHeight <= 0) return new PictureFit(PictureFitKind.Reject, 0, 0);
+            var width = PictureWidth(cssWidth);
+            if (Math.Abs(imageWidth - width) <= 2 || width <= 0)
+                return Whole(imageWidth, imageHeight, cssWidth, cssHeight)
+                    ? new PictureFit(PictureFitKind.Keep, imageWidth, imageHeight)
+                    : new PictureFit(PictureFitKind.Reject, 0, 0);
+            var height = Math.Max(1, (int)Math.Round(imageHeight * (double)width / imageWidth));
+            return Whole(width, height, cssWidth, cssHeight)
+                ? new PictureFit(PictureFitKind.Resize, width, height)
+                : new PictureFit(PictureFitKind.Reject, 0, 0);
+        }
+
+        // Finds the lowest set number (0, 1, 2…) where none of the pages 1..count collide with an existing file.
+        public static int NextSet(string folder, string language, DateTime made, int count, Func<string, bool> exists = null)
+        {
+            var check = exists ?? File.Exists;
+            var set = 0;
+            while (Enumerable.Range(1, count).Any(page => check(Path.Combine(folder, FileName(language, made, "png", page, set))))) set++;
+            return set;
+        }
+
+        // Writes one picture (plain name) or a multi-page set (one shared set number across all pages) via temporary files.
+        // All-or-nothing: a failure on any page removes the pages already written and any temporary file.
+        public static List<string> SavePictures(string folder, string language, DateTime made, IReadOnlyList<byte[]> pictures, Action<string, byte[]> write = null)
+        {
+            if (pictures == null || pictures.Count == 0) throw new ArgumentException("pictures");
+            Directory.CreateDirectory(folder);
+            var save = write ?? File.WriteAllBytes;
+            if (pictures.Count == 1)
+            {
+                var temp = Path.Combine(folder, PartialDownloads.NewName());
+                try
+                {
+                    save(temp, pictures[0]);
+                    return new List<string> { SavedFile.Keep(temp, folder, FileName(language, made, "png"), null) };
+                }
+                finally { DeletePart(temp); }
+            }
+            var set = NextSet(folder, language, made, pictures.Count);
+            var saved = new List<string>();
+            try
+            {
+                for (var i = 0; i < pictures.Count; i++)
+                {
+                    var temp = Path.Combine(folder, PartialDownloads.NewName());
+                    try
+                    {
+                        save(temp, pictures[i]);
+                        saved.Add(SavedFile.Keep(temp, folder, FileName(language, made, "png", i + 1, set), null));
+                    }
+                    finally { DeletePart(temp); }
+                }
+            }
+            catch (Exception)
+            {
+                DeleteParts(saved);
+                throw;
+            }
+            return saved;
+        }
+
+        public static void DeletePart(string path)
+        { try { if (!string.IsNullOrEmpty(path) && File.Exists(path)) File.Delete(path); } catch (IOException) { } catch (UnauthorizedAccessException) { } }
+
+        public static void DeleteParts(IEnumerable<string> paths)
+        { if (paths == null) return; foreach (var path in paths) DeletePart(path); }
     }
 }

@@ -216,3 +216,19 @@ test('a score out of 100 takes its band colour and says how much is left to the 
  assert.match(p.d.querySelectorAll('.univer-app-attendance-overview li')[1].querySelector('.univer-app-overview-score').getAttribute('aria-label'),/, 50-ге дейін 42 балл$/);
  p.w.__univerAttendanceV1.release();p.close();
 });
+test('opening one course leaves the other course in place and does not scan every node',()=>{
+ const p=page();p.w.__univerAttendanceV1.apply('ru');
+ const summaries=Array.from(p.d.querySelectorAll('.univer-app-attendance-summary')),kept=summaries[0];
+ let stars=0,positions=0;
+ const elements=p.w.Element.prototype.querySelectorAll,documents=p.w.Document.prototype.querySelectorAll,compare=p.w.Node.prototype.compareDocumentPosition;
+ p.w.Element.prototype.querySelectorAll=function(selector){if(selector==='*')stars++;return elements.apply(this,arguments);};
+ p.w.Document.prototype.querySelectorAll=function(selector){if(selector==='*')stars++;return documents.apply(this,arguments);};
+ p.w.Node.prototype.compareDocumentPosition=function(other){positions++;return compare.call(this,other);};
+ const nodes=p.d.querySelector('#l4').getElementsByTagName('*').length;
+ summaries[1].querySelector('.univer-app-attendance-details-toggle').click();
+ assert.equal(stars,0,'the toggle does not collect every element under #l4');
+ assert.ok(positions<nodes,'position checks stay under one per node ('+positions+' for '+nodes+')');
+ assert.equal(p.d.querySelectorAll('.univer-app-attendance-summary')[0],kept,'the other course is not rebuilt');
+ assert.equal(visible(p,'seminar-b'),true);assert.equal(visible(p,'lecture'),false);
+ p.w.__univerAttendanceV1.release();p.close();
+});

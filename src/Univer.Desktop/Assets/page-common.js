@@ -3,15 +3,25 @@
 (function () {
     'use strict';
     if (location.origin !== 'https://univer.kaznu.kz' || window.__univerCommonV1) return;
+    function decoderFor(encoding) {
+        if (encoding && typeof encoding.decode === 'function') return encoding;
+        if (!encoding) return new TextDecoder();
+        try { return new TextDecoder(encoding); } catch (_) { return new TextDecoder('utf-8'); }
+    }
     // Enforce the byte limit while receiving chunked pages, before they can fill the renderer's heap.
-    async function boundedText(response, limit) {
+    async function boundedText(response, limit, charset) {
         if (+response.headers?.get('content-length') > limit) throw new Error('Oversized response');
         if (!response.body?.getReader) {
+            if (typeof response.arrayBuffer === 'function' && (charset || typeof response.text !== 'function')) {
+                var bytes = await response.arrayBuffer();
+                if (bytes.byteLength > limit) throw new Error('Oversized response');
+                return decoderFor(charset).decode(bytes);
+            }
             var text = await response.text();
             if (new Blob([text]).size > limit) throw new Error('Oversized response');
             return text;
         }
-        var reader = response.body.getReader(), decoder = new TextDecoder(), size = 0, parts = [], ended = false;
+        var reader = response.body.getReader(), decoder = decoderFor(charset), size = 0, parts = [], ended = false;
         try {
             for (;;) {
                 var next = await reader.read();

@@ -511,3 +511,70 @@ test('the first pass lays the page out once, with every stylesheet in place: all
   assert.equal(p.d.documentElement.style.getPropertyValue('--univer-dialog-height'), '676px');
   p.close();
 });
+
+test('popup exit hoists CSS.supports, prunes non-visual nodes before copying, and fades a lightweight panel shell above 80 descendants while releasing focus immediately', async () => {
+  const p = page(shell.replace('CONTENT', ''), 'https://univer.kaznu.kz/news/student');
+  apply(p);
+  const records = [];
+  p.w.HTMLElement.prototype.animate = function (frames, options) {
+    const r = { node: this, frames, options, cancel() { this.cancelled = true; this.oncancel?.(); } };
+    records.push(r); return r;
+  };
+  let supportCalls = 0;
+  p.w.CSS = { supports: () => { supportCalls++; return true; } };
+  const styledTags = [];
+  let styleCalls = 0;
+  const origStyle = p.w.getComputedStyle.bind(p.w);
+  p.w.getComputedStyle = (node, pseudo) => {
+    styleCalls++;
+    if (node && node.tagName) styledTags.push(node.tagName);
+    return pseudo ? { content: 'none', getPropertyValue: () => '' } : origStyle(node);
+  };
+  // Small popup (<= 80 descendants) with non-visual nodes: CSS.supports runs once, script/style/iframe are never styled.
+  const small = p.d.createElement('div');
+  small.innerHTML = '<div id="keep"><span>Item</span><script>window.__x=1;</script><style>.x{}</style><iframe src="about:blank"></iframe></div>';
+  p.d.body.appendChild(small);
+  small.getBoundingClientRect = () => ({ width: 220, height: 120, left: 10, top: 20 });
+  p.w.__univerMotionUI.exit(small);
+  assert.equal(supportCalls, 1, 'CSS.supports is hoisted out of the node loop');
+  assert.ok(!styledTags.some(t => /^(SCRIPT|STYLE|IFRAME)$/.test(t)), 'non-visual nodes pruned before style copy: ' + styledTags.join(','));
+  const smallGhost = p.d.querySelector('[data-univer-motion-ghost]');
+  assert.ok(smallGhost && !smallGhost.querySelector('script,style,iframe,[id]'));
+  assert.equal(smallGhost.getAttribute('aria-hidden'), 'true');
+  assert.equal(records.at(-1).options.duration, 140);
+  p.w.__univerMotionUI.stop(small);
+  small.remove();
+
+  // Large popup (> 80 descendants): skips deep per-node style copy, fades lightweight wrapper, closes and returns focus immediately.
+  const menu = p.d.querySelector('.univer-app-menu'), trigger = p.d.querySelector('.univer-app-sections');
+  const list = menu.querySelector('#links');
+  for (let i = 0; i < 60; i++) {
+    const li = p.d.createElement('li');
+    const a = p.d.createElement('a'); a.href = '/item/' + i; a.textContent = 'Раздел ' + i;
+    li.appendChild(a); list.appendChild(li);
+  }
+  assert.ok(menu.getElementsByTagName('*').length > 80);
+  menu.getBoundingClientRect = () => ({ width: 640, height: 420, left: 24, top: 64 });
+  menu.style.backgroundColor = 'rgb(255, 255, 255)';
+  menu.style.borderRadius = '12px';
+  menu.open = true;
+  menu.querySelector('input[type=search]').focus();
+  supportCalls = 0; styleCalls = 0;
+  menu.querySelector('.univer-app-menu-close').click();
+  assert.equal(menu.open, false, 'large popup closes immediately');
+  assert.equal(p.d.activeElement, trigger, 'keyboard focus returns to trigger immediately');
+  assert.equal(supportCalls, 0, 'large popup skips pseudo-element CSS.supports checks');
+  assert.ok(styleCalls <= 2, 'large popup skips per-descendant getComputedStyle, got ' + styleCalls);
+  const largeGhost = p.d.querySelector('[data-univer-motion-ghost]');
+  assert.ok(largeGhost, 'lightweight ghost wrapper is rendered');
+  assert.equal(largeGhost.childElementCount, 0, 'lightweight ghost does not deep-clone descendants');
+  assert.equal(largeGhost.getAttribute('aria-hidden'), 'true');
+  assert.equal(largeGhost.style.pointerEvents, 'none');
+  assert.equal(largeGhost.style.backgroundColor, 'rgb(255, 255, 255)');
+  assert.equal(largeGhost.style.borderRadius, '12px');
+  assert.equal(records.at(-1).node, largeGhost);
+  assert.equal(records.at(-1).options.duration, 140);
+  apply(p, false);
+  assert.equal(p.d.querySelector('[data-univer-motion-ghost]'), null, 'Original removes lightweight ghost');
+  p.close();
+});

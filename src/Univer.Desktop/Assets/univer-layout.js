@@ -601,6 +601,22 @@ html.univer-mobile.univer-app-document body { padding:24px!important; background
     }
     // This adapter copies itself into same-origin frames (initializeMobile.toString()), where the shared helpers of
     // page-common.js may be missing, so it keeps its own.
+    // Tables whose content has not changed since a pass read it. A watcher of its own, connected while the adapter
+    // writes too, drops a table (and every table around it) at the first change of any kind inside it.
+    var settled = new WeakSet(), settler = null, cardTables = new WeakSet();
+    function unsettle(records) {
+        for (var i = 0; i < records.length; i++) for (var node = records[i].target; node; node = node.parentNode) settled.delete(node);
+    }
+    // Called before a table is read: the changes made since are applied first.
+    function settledSince(table) { if (settler) unsettle(settler.takeRecords()); return settled.has(table); }
+    // Called right after the adapter read the table (and wrote its own classes from that reading, which change nothing a
+    // second reading would decide differently): what is pending now is those writes, not the site's.
+    function settle(table) {
+        if (!settler) settler = new MutationObserver(unsettle);
+        settler.takeRecords();
+        settled.add(table);
+        settler.observe(table, {childList:true, subtree:true, characterData:true, attributes:true});
+    }
     function ownRows(table) { return Array.from(table.rows).filter(function (r) { return r.closest('table') === table; }); }
     function cleanText(node) { return (node?.textContent || '').replace(/\s+/g, ' ').trim(); }
     // A long "go to another semester" link reads as the semester it leads to; its full wording stays its accessible name.
@@ -862,8 +878,10 @@ html.univer-mobile.univer-app-document body { padding:24px!important; background
             });
             var today = todayInWeek(new Date());
             Array.from(header.cells).forEach(function (cell, i) { cell.classList.toggle('univer-app-today-col', today >= 0 && i === today + 1); });
-            var signature = table.innerHTML + selectedLanguage;
-            var previous = schedules.get(table);
+            // The table's markup is serialised again only once something in it has changed since the last pass.
+            var previous = schedules.get(table), known = !!previous && settledSince(table), html = known ? previous.html : table.innerHTML;
+            if (!known) settle(table);
+            var signature = html + selectedLanguage;
             if (previous?.signature === signature) { markUpcoming(previous, new Date()); return; }
             var selected = previous ? previous.selected : -1;
             // A rowspan-aware logical grid keeps each class attached to its actual day/time.
@@ -905,7 +923,7 @@ html.univer-mobile.univer-app-document body { padding:24px!important; background
             var tabs = document.createElement('div'); tabs.className = 'univer-app-days';
             tabs.setAttribute('aria-label', selectedLanguage === 'en' ? 'Day of week' : selectedLanguage === 'kz' ? 'Апта күні' : 'День недели');
             view.appendChild(tabs); var sections = [], buttons = [];
-            var record = {view:view, signature:signature, selected:selected, mode:previous?.mode || 'days', lessons:[], cards:[], card:agendaCard(), select:select};
+            var record = {view:view, signature:signature, html:html, selected:selected, mode:previous?.mode || 'days', lessons:[], cards:[], card:agendaCard(), select:select};
             tabs.before(record.card.root);
             // How many days the week has: in a wide window they share its whole width.
             view.style.setProperty('--univer-days', String(header.cells.length - 1));
@@ -1080,6 +1098,8 @@ html.univer-mobile.univer-app-document body { padding:24px!important; background
         });
         if (print) document.documentElement.classList.add('univer-app-document');
         Array.from(document.querySelectorAll('table')).forEach(function (table) {
+            // A card table read with its own heading row and unchanged since would only get the same classes again.
+            if (settledSince(table) && cardTables.has(table)) return;
             if (table.closest('#tools,#login_frm,#modal_auth_frm,#modal_agreement,.univer-app-info') ||
                 table.matches('.mt,.tool,.cols,.wrappertable,.univer-app-shell,.univer-app-news,.univer-app-courses,.univer-app-materials,.schedule')) return;
             var rows = Array.from(table.rows), own = rows.filter(function (r) { return r.closest('table') === table; });
@@ -1153,6 +1173,8 @@ html.univer-mobile.univer-app-document body { padding:24px!important; background
                         c.classList.add('univer-app-long-field');
                 });
             });
+            // A heading row borrowed from another table can change without this one; such a table is read every pass.
+            if (own.indexOf(header) >= 0) { cardTables.add(table); settle(table); }
         });
     }
     function wrapTable(table, nested) {
@@ -1171,8 +1193,13 @@ html.univer-mobile.univer-app-document body { padding:24px!important; background
         if (!enabled) return;
         var boxes = Array.from(document.querySelectorAll('.univer-app-table-scroll'));
         var wide = boxes.map(function (box) { return !!box.getClientRects().length && box.scrollWidth > box.clientWidth + 2; });
+        // The dialog toolbars follow their dialogs, and the way back to the sections menu shows once the menu is above.
+        var bars = Array.from(document.querySelectorAll('.univer-app-modal-toolbar')).filter(function (bar) { return bar.__univerContainer?.isConnected; });
+        var shown = bars.map(function (bar) { return !!bar.__univerContainer.getClientRects().length; }), back = menuReturnHidden();
         dialogViewport();
         scrollHints(boxes, wide);
+        bars.forEach(function (bar, i) { if (bar.hidden !== !shown[i]) bar.hidden = !shown[i]; });
+        setMenuReturn(back);
     }
     function scrollHints(boxes, wide) {
         // The arrow shows which way the table moves.
@@ -1209,14 +1236,19 @@ html.univer-mobile.univer-app-document body { padding:24px!important; background
         var home = document.createComment('univer-original-content');
         node.before(home); destination.appendChild(node); usabilityMoves.push({node:node, home:home});
     }
-    function returnToMenuVisibility() {
+    // Read only: null without the button.
+    function menuReturnHidden() {
         var button = document.querySelector('.univer-app-menu-return'), menu = document.querySelector('.univer-app-menu');
-        if (!button) return;
-        var hidden = !enabled || !menu || menu.getBoundingClientRect().bottom >= 0 ||
+        if (!button) return null;
+        return !enabled || !menu || menu.getBoundingClientRect().bottom >= 0 ||
             !!document.querySelector('#simplemodal-container')?.getClientRects().length || (window.visualViewport?.height || innerHeight) < 300;
-        // Scroll fires many times per gesture. An unchanged boolean attribute still wakes the DOM observer.
-        if (button.hidden !== hidden) button.hidden = hidden;
     }
+    function setMenuReturn(hidden) {
+        var button = document.querySelector('.univer-app-menu-return');
+        // Scroll fires many times per gesture. An unchanged boolean attribute still wakes the DOM observer.
+        if (button && hidden !== null && button.hidden !== hidden) button.hidden = hidden;
+    }
+    function returnToMenuVisibility() { setMenuReturn(menuReturnHidden()); }
     function filterCatalog() {
         var input = document.querySelector('.univer-app-catalog-search');
         var query = (input?.value || '').trim().toLocaleLowerCase().replace(/ё/g,'е');
@@ -1276,7 +1308,7 @@ html.univer-mobile.univer-app-document body { padding:24px!important; background
             // The arrow says the button takes the reader back up to the sections menu.
             var caption = selectedLanguage === 'en' ? '↑ Sections' : selectedLanguage === 'kz' ? '↑ Бөлімдер' : '↑ Разделы';
             if (back.textContent !== caption) back.textContent = caption;
-            returnToMenuVisibility();
+            // Whether it shows is read with the table widths in measure(), after every write of the pass.
             menu.querySelectorAll('#tools a[href]').forEach(function (a) {
                 if (new URL(a.href).origin !== location.origin || new URL(a.href).pathname.replace(/\/+$/, '') !== path.replace(/\/+$/, '')) return;
                 if (!pageMarkers.has(a)) pageMarkers.set(a, a.getAttribute('aria-current'));
@@ -1447,10 +1479,9 @@ html.univer-mobile.univer-app-document body { padding:24px!important; background
         window.__univerPagesV1?.apply(selectedLanguage);
         window.__univerTasksV1?.apply(selectedLanguage);
         window.__univerPolishV1?.apply(selectedLanguage);
+        // Whether a toolbar shows is read in measure(), with the other boxes, once the pass has written everything.
         document.querySelectorAll('.univer-app-modal-toolbar').forEach(function (bar) {
-            if (!bar.__univerContainer?.isConnected) { bar.remove(); return; }
-            var hidden = !bar.__univerContainer.getClientRects().length;
-            if (bar.hidden !== hidden) bar.hidden = hidden;
+            if (!bar.__univerContainer?.isConnected) bar.remove();
         });
         document.querySelectorAll('#simplemodal-container .simplemodal-close,.univer-app-modal-toolbar .simplemodal-close').forEach(function (close) {
             if (!close.dataset.univerClose) {
@@ -1468,7 +1499,6 @@ html.univer-mobile.univer-app-document body { padding:24px!important; background
                 var toolbar = document.createElement('div'); toolbar.className = 'univer-app-modal-toolbar'; toolbar.__univerCloseHome = home;
                 toolbar.__univerContainer = container;
                 toolbar.style.zIndex = String((parseInt(getComputedStyle(container).zIndex, 10) || 1002) + 1);
-                toolbar.hidden = !container.getClientRects().length;
                 document.body.appendChild(toolbar); toolbar.appendChild(close);
             }
             if (close.title !== closeLabel) close.title = closeLabel;
@@ -1595,9 +1625,18 @@ html.univer-mobile.univer-app-document body { padding:24px!important; background
     // Style-only changes (a site animation rewrites an inline style every frame) adapt at most five times a second;
     // structure, classes and hidden still adapt before the next frame.
     var styleTimer = 0;
+    // The dark theme's own stylesheets (theme.js) change colours only; rewriting or moving them needs no new pass.
+    function darkStyle(node) { return !!node && node.nodeType === 1 && /^univer-app-dark-/.test(node.id); }
+    function themeOnly(record) {
+        if (record.type === 'characterData') return darkStyle(record.target.parentNode);
+        if (record.type !== 'childList') return false;
+        if (darkStyle(record.target)) return true;
+        var nodes = Array.from(record.addedNodes).concat(Array.from(record.removedNodes));
+        return nodes.length > 0 && nodes.every(darkStyle);
+    }
     function observed(records) {
         for (var i = 0; i < records.length; i++)
-            if (records[i].type !== 'attributes' || records[i].attributeName !== 'style') { schedule(); return; }
+            if ((records[i].type !== 'attributes' || records[i].attributeName !== 'style') && !themeOnly(records[i])) { schedule(); return; }
         if (!styleTimer) styleTimer = setTimeout(function () { styleTimer = 0; schedule(); }, 200);
     }
     function schedule() {
@@ -1673,6 +1712,7 @@ html.univer-mobile.univer-app-document body { padding:24px!important; background
             document.querySelectorAll('.univer-app-header,.univer-app-account,.univer-app-course-open').forEach(function (node) { node.remove(); });
             window.__univerSyllabusV1?.release();
             schedules.forEach(function (record) { record.view.remove(); }); schedules.clear();
+            if (settler) { settler.disconnect(); settler = null; } settled = new WeakSet(); cardTables = new WeakSet();
             if (upcomingTimer) { clearTimeout(upcomingTimer); upcomingTimer = 0; }
             finishedWeek = null;
             weekViews.forEach(function (record, select) { select.removeEventListener('change', record.update); record.caption.remove(); if (record.nav.parentNode) record.nav.replaceWith(select); }); weekViews.clear();

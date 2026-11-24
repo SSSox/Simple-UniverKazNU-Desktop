@@ -243,3 +243,119 @@ test('a keyboard user keeps focus on the same news while the search fetches furt
   assert.ok(p.d.querySelector('[data-univer-results]').contains(p.d.activeElement));
   p.w.__univerNewsV1.release(); p.close();
 });
+
+test('news and study-links enforce the 4 MB limit while streaming and cancel oversized responses', async () => {
+  const chunk = new Uint8Array(1024 * 1024);
+  const makeHuge = path => {
+    let reads = 0, cancels = 0;
+    return {
+      stats: () => ({ reads, cancels }),
+      response: {
+        status: 200,
+        url: origin + path,
+        headers: { get: () => null },
+        body: { getReader: () => ({ read: async () => { reads++; return { value: chunk, done: false }; }, cancel: async () => { cancels++; }, releaseLock() {} }) }
+      }
+    };
+  };
+  const p = context(newsPage([newsRow('09', 'One')], 1, true), '/news/student', news);
+  p.w.TextDecoder = TextDecoder;
+  const newsHuge = makeHuge('/news/student/2');
+  p.w.fetch = async () => newsHuge.response;
+  p.w.__univerNewsV1.apply('ru');
+  input(p, 'query', 'One');
+  await wait(270);
+  assert.equal(newsHuge.stats().reads, 5, 'stops on the 5th 1 MB chunk (> 4 MB)');
+  assert.equal(newsHuge.stats().cancels, 1, 'cancels the oversized stream');
+  assert.match(p.d.querySelector('.univer-app-news-status').textContent, /не завершён/);
+  p.w.__univerNewsV1.release(); p.close();
+
+  const q = context(attendance, '/student/attendance/full/2026/1', study);
+  q.w.TextDecoder = TextDecoder;
+  const studyHuge = makeHuge('/student/umkd/0/2026/1');
+  q.w.fetch = async () => studyHuge.response;
+  q.w.__univerStudyV1.apply('ru');
+  await wait(30);
+  assert.equal(studyHuge.stats().reads, 5, 'study-links stops on the 5th 1 MB chunk (> 4 MB)');
+  assert.equal(studyHuge.stats().cancels, 1, 'study-links cancels the oversized stream');
+  q.w.__univerStudyV1.release(); q.close();
+});
+
+test('news page cache stays bounded across multi-batch searches while preserving results and sanitized links', async () => {
+  const p = context(newsPage([newsRow('09', 'Первая запись')], 1, true), '/news/student', news);
+  const fetched = [];
+  p.w.fetch = async path => {
+    const n = +path.split('/').pop();
+    fetched.push(n);
+    const extra = n === 65 ? '<a href="https://univer.kaznu.kz/news/doc">Ссылка</a><script>evil()</script>' : '';
+    const title = n === 65 ? 'Особая новость' : 'Новость ' + n;
+    return response(path, newsPage([newsRow('08', title, extra)], n, n < 70));
+  };
+  p.w.__univerNewsV1.apply('ru');
+  input(p, 'query', 'Особая');
+  await wait(270);
+  // Batch 1 searched pages 2..31; click Continue search twice to cover pages 32..70 (> 60 cached pages).
+  p.d.querySelector('.univer-app-news-all').click();
+  await wait(60);
+  p.d.querySelector('.univer-app-news-all').click();
+  await wait(60);
+  assert.deepEqual(results(p), ['Особая новостьСсылка']);
+  assert.equal(p.d.querySelector('[data-univer-results] a').getAttribute('href'), 'https://univer.kaznu.kz/news/doc');
+  assert.equal(p.d.querySelector('[data-univer-results] script'), null);
+  // Now start a new search: page 2 was evicted by the cache bound so it must be re-fetched,
+  // while recent page 65 stayed in the cache and is NOT re-fetched.
+  fetched.length = 0;
+  input(p, 'query', 'Новость 2');
+  await wait(270);
+  assert.ok(fetched.includes(2), 'evicted early page 2 is fetched again on a new search');
+  assert.ok(!fetched.includes(65), 'recent cached page 65 is not refetched');
+  p.w.__univerNewsV1.release(); p.close();
+});
+
+test('news page cache never evicts pages with active-filter matches when more than 60 pages all match', async t => {
+  const total = 65;
+  const p = context(newsPage([newsRow('09', 'Общая новость #1')], 1, true), '/news/student', news);
+  t.after(() => { p.w.__univerNewsV1.release(); p.close(); });
+  const fetched = [];
+  p.w.fetch = async path => {
+    const n = +path.split('/').pop();
+    fetched.push(n);
+    return response(path, newsPage([newsRow('08', 'Общая новость #' + n)], n, n < total));
+  };
+  p.w.__univerNewsV1.apply('ru');
+  input(p, 'query', 'Общая новость');
+  await wait(270);
+  // Batch 1 covered pages 1..30; press Continue search twice to cover pages 31..65 (> 60 matching pages).
+  p.d.querySelector('.univer-app-news-all').click();
+  await wait(60);
+  p.d.querySelector('.univer-app-news-all').click();
+  await wait(60);
+  assert.equal(p.d.querySelector('.univer-app-news-count').textContent, 'Показано 1 из ' + total);
+  assert.equal(p.d.querySelector('.univer-app-news-status').hidden, true);
+  assert.equal(p.d.querySelector('.univer-app-news-all').hidden, true);
+  const listed = [];
+  for (let page = 1; page <= total; page++) {
+    const jump = p.d.querySelector('.univer-app-news-pager-top .univer-app-news-jump');
+    jump.querySelector('input').value = String(page);
+    jump.dispatchEvent(new p.w.Event('submit', { cancelable: true }));
+    listed.push(...results(p));
+  }
+  assert.deepEqual(listed, Array.from({ length: total }, (_, i) => 'Общая новость #' + (i + 1)));
+
+  // Narrowing the filter reuses the cached pages without refetching and prunes excess non-matching pages once complete.
+  fetched.length = 0;
+  input(p, 'query', 'Общая новость #65');
+  await wait(270);
+  p.d.querySelector('.univer-app-news-all').click();
+  await wait(40);
+  p.d.querySelector('.univer-app-news-all').click();
+  await wait(40);
+  assert.deepEqual(fetched, [], 'narrowing reuses all cached pages before pruning');
+  assert.deepEqual(results(p), ['Общая новость #65']);
+
+  // After pruning back to the 60-page cache cap, the oldest non-matching page (2) is fetched again when queried.
+  input(p, 'query', 'Общая новость #2');
+  await wait(270);
+  assert.ok(fetched.includes(2), 'evicted non-matching page 2 is fetched again after cache shrinks back to 60');
+  assert.deepEqual(results(p), ['Общая новость #2']);
+});

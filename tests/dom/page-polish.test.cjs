@@ -367,3 +367,125 @@ test('script selectors spell out :is() lists, which old Android WebViews cannot 
   const found = Array.from(source.matchAll(call)).map(m => m[2]).filter(s => /:is\(|:has\(/.test(s));
   assert.deepEqual(found, []);
 });
+
+test('alerts() reads all computed styles before marking classes, skips classified nodes on repeat passes, and rechecks changed styles or after release()', () => {
+  const html = '<table class="wrappertable"><tr id="l4"><td><table>' +
+    '<tr><td class="ct"><p id="w1" style="color:red">Первое длинное предупреждение о сроке оплаты обучения.</p>' +
+    '<p id="w2" style="color:red">Второе длинное предупреждение о документах в деканате.</p>' +
+    '<p id="t1" style="color:green">Все документы приняты и проверены отделом регистрации.</p>' +
+    '<p id="n1">Обычный чёрный абзац достаточно длинный для проверки цвета.</p>' +
+    '<div id="outer" style="color:red"><p id="inner">Вложенное предупреждение внутри уже отмеченного красного блока.</p></div></td></tr></table>' +
+    '<table class="univer-app-form-table"><tr><td>' +
+    '<label id="l1" style="color:red">Загрузите фотографию в формате JPG не более 2 MB.</label>' +
+    '<label id="l2">Обычная подпись поля достаточной длины для проверки.</label>' +
+    '</td></tr></table></td></tr></table>';
+  const p = page('/student/contract/', true, html);
+  const events = [];
+  const origStyle = p.w.getComputedStyle;
+  p.w.getComputedStyle = (node, pseudo) => { events.push('read:' + (node.id || node.tagName)); return origStyle(node, pseudo); };
+  const origAdd = p.w.DOMTokenList.prototype.add;
+  p.w.DOMTokenList.prototype.add = function (...names) {
+    if (names.includes('up-alert') || names.includes('up-tip')) events.push('write:' + names.join(','));
+    return origAdd.apply(this, names);
+  };
+  p.w.__univerPolishV1.apply('ru');
+  const firstWrite = events.findIndex(e => e.startsWith('write:'));
+  const lastRead = events.map((e, i) => e.startsWith('read:') ? i : -1).reduce((a, b) => Math.max(a, b), -1);
+  assert.ok(firstWrite > 0 && lastRead < firstWrite, 'all reads precede all writes: ' + JSON.stringify(events));
+  assert.ok(p.$('w1').classList.contains('up-alert'));
+  assert.ok(p.$('w2').classList.contains('up-alert'));
+  assert.ok(p.$('t1').classList.contains('up-tip'));
+  assert.ok(!p.$('n1').classList.contains('up-alert'));
+  assert.ok(p.$('outer').classList.contains('up-alert'));
+  assert.ok(!p.$('inner').classList.contains('up-alert'), 'child inside newly marked parent is not double-marked');
+  assert.ok(p.$('l1').classList.contains('up-alert'));
+  assert.ok(!p.$('l2').classList.contains('up-alert'));
+  events.length = 0;
+  p.w.__univerPolishV1.apply('ru');
+  assert.deepEqual(events.filter(e => e.startsWith('read:')), [], 'second pass skips already classified nodes');
+  p.$('n1').style.color = 'red';
+  p.w.__univerPolishV1.apply('ru');
+  assert.ok(p.$('n1').classList.contains('up-alert'), 'node whose style changed is re-evaluated');
+  p.w.__univerPolishV1.release();
+  assert.equal(p.d.querySelector('.up-alert,.up-tip'), null);
+  events.length = 0;
+  p.w.__univerPolishV1.apply('ru');
+  assert.ok(p.$('w1').classList.contains('up-alert') && p.$('n1').classList.contains('up-alert'));
+  assert.ok(events.some(e => e.startsWith('read:')), 'release() resets alert classification cache');
+  p.close();
+});
+
+test('clamp() batches height reads after marking up-clamp and before unmarking or inserting buttons, and skips clamped boxes on repeat passes', () => {
+  const row = id => '<tr class="news"><td><span class="header"><a href="#">Новость ' + id + '</a></span><div id="' + id + '">Текст новости</div></td></tr>';
+  const html = '<table class="wrappertable"><tr id="l4"><td><table>' + row('tall1') + row('short1') + row('tall2') + row('hidden1') + '</table></td></tr></table>';
+  const p = page('/student/monrknews/', true, html);
+  const sizes = { tall1: [60, 180], short1: [60, 64], tall2: [60, 200], hidden1: [0, 0] };
+  const events = [];
+  for (const id of Object.keys(sizes)) {
+    const el = p.$(id);
+    Object.defineProperty(el, 'clientHeight', { configurable: true, get() { events.push('read:' + id); return sizes[id][0]; } });
+    Object.defineProperty(el, 'scrollHeight', { configurable: true, get() { events.push('read:' + id); return sizes[id][1]; } });
+    const origAfter = el.after.bind(el);
+    el.after = (...args) => { events.push('after:' + id); return origAfter(...args); };
+  }
+  const origRemove = p.w.DOMTokenList.prototype.remove;
+  p.w.DOMTokenList.prototype.remove = function (...names) {
+    if (names.includes('up-clamp')) events.push('unmark');
+    return origRemove.apply(this, names);
+  };
+  p.w.__univerPolishV1.apply('ru');
+  const firstPostWrite = events.findIndex(e => e === 'unmark' || e.startsWith('after:'));
+  const lastRead = events.map((e, i) => e.startsWith('read:') ? i : -1).reduce((a, b) => Math.max(a, b), -1);
+  assert.ok(firstPostWrite > 0 && lastRead < firstPostWrite, 'all clamp height reads finish before any unmark/button write: ' + JSON.stringify(events));
+  assert.ok(p.$('tall1').classList.contains('up-clamp') && p.$('tall1').nextElementSibling.classList.contains('up-more'));
+  assert.ok(p.$('tall2').classList.contains('up-clamp') && p.$('tall2').nextElementSibling.classList.contains('up-more'));
+  assert.ok(!p.$('short1').classList.contains('up-clamp') && !p.$('short1').nextElementSibling);
+  assert.ok(!p.$('hidden1').classList.contains('up-clamp') && !p.$('hidden1').nextElementSibling);
+  events.length = 0;
+  sizes.hidden1 = [60, 190];
+  p.w.__univerPolishV1.apply('ru');
+  assert.deepEqual(events.filter(e => e.startsWith('read:')), ['read:hidden1', 'read:hidden1'], 'already classified boxes are skipped');
+  assert.ok(p.$('hidden1').classList.contains('up-clamp') && p.$('hidden1').nextElementSibling.classList.contains('up-more'));
+  events.length = 0;
+  p.w.__univerPolishV1.apply('ru');
+  assert.deepEqual(events.filter(e => e.startsWith('read:')), [], 'third pass reads nothing');
+  p.w.__univerPolishV1.release();
+  assert.equal(p.d.querySelector('.up-clamp,.up-more,.up-mon'), null);
+  p.close();
+});
+
+test('rating() reads all tones before writing badges, chips or buttons, and skips classified nodes on repeat passes', () => {
+  const html = '<table class="wrappertable"><tr id="l4"><td><table class="univer-app-cards">' +
+    '<tr class="univer-app-card-header"><th>Предмет</th><th>Ответил</th><th></th></tr>' +
+    '<tr class="link" id="r1"><td><font id="b1" style="color:red">Обязательно</font> <span>Курс 1</span></td><td><img src="/no.png"></td><td></td></tr>' +
+    '<tr class="link done" id="r2"><td><font id="b2" style="color:red">Срочно</font> <b id="ok2">Курс 2</b></td><td><img src="/yes.png"></td><td></td></tr>' +
+    '</table></td></tr></table>';
+  const p = page('/student/rating/', true, html);
+  const events = [];
+  const origStyle = p.w.getComputedStyle;
+  p.w.getComputedStyle = (node, pseudo) => { events.push('read:' + (node.id || node.tagName)); return origStyle(node, pseudo); };
+  const origAdd = p.w.DOMTokenList.prototype.add;
+  p.w.DOMTokenList.prototype.add = function (...names) {
+    if (names.includes('up-badge')) events.push('write:badge');
+    return origAdd.apply(this, names);
+  };
+  const origAppend = p.w.Node.prototype.appendChild;
+  p.w.Node.prototype.appendChild = function (child) {
+    if (child && child.classList && (child.classList.contains('up-chip') || child.classList.contains('up-open-row'))) events.push('write:' + child.className);
+    return origAppend.call(this, child);
+  };
+  p.w.__univerPolishV1.apply('ru');
+  const firstWrite = events.findIndex(e => e.startsWith('write:'));
+  const lastRead = events.map((e, i) => e.startsWith('read:') ? i : -1).reduce((a, b) => Math.max(a, b), -1);
+  assert.ok(firstWrite > 0 && lastRead < firstWrite, 'all rating tone reads precede badge/chip/button writes: ' + JSON.stringify(events));
+  assert.ok(p.$('b1').classList.contains('up-badge') && p.$('b2').classList.contains('up-badge'));
+  assert.ok(!p.$('ok2').classList.contains('up-badge'));
+  assert.equal(p.d.querySelectorAll('.up-chip').length, 2);
+  assert.equal(p.d.querySelectorAll('.up-open-row').length, 1);
+  events.length = 0;
+  p.w.__univerPolishV1.apply('ru');
+  assert.deepEqual(events.filter(e => e.startsWith('read:')), [], 'second pass skips classified rating nodes');
+  p.w.__univerPolishV1.release();
+  assert.equal(p.d.querySelector('.up-badge,.up-chip,.up-open-row,[data-up-hidden]'), null);
+  p.close();
+});
