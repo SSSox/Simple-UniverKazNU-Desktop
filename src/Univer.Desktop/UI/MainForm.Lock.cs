@@ -330,13 +330,12 @@ namespace Univer.Desktop.UI
         // Removing the saved account takes the sealed copy too; the PIN itself stays until the account is ended.
         private async Task RemoveAccountAsync()
         {
-            await storage.RemoveCredentialsAsync(); plainPassword = false;
-            // A sealed copy that cannot be removed fails the removal, as a plain file that cannot be deleted does. Ending the
-            // account after the PIN (WipeAsync) removes the whole record next, so there a failure here does not stop it.
-            if (PinSet)
+            try { await storage.RemoveCredentialsAsync(wiping); plainPassword = false; }
+            finally
             {
-                try { await Task.Run(() => pinGuard.StoreAccount(null)); }
-                catch (Exception) { if (!wiping) throw; }
+                // Once removal is durable, a failed delete must not leave an in-memory password for the next unlock
+                // to seal again. Storage finishes both records before the PIN can open.
+                if (storage.CredentialsRemovalPending) { credentials = null; plainPassword = false; }
             }
         }
         // What the window's start shows once it is open (and unlocked): the Chromium 109 notice, the first sign-in window

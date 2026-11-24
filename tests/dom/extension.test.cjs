@@ -198,7 +198,15 @@ function downloads(){
  // Node's own Blob, Response and TextDecoder stand in for the browser's (jsdom has none that read bytes).
  w.Blob=Blob;w.TextDecoder=TextDecoder;
  w.URL.createObjectURL=blob=>{const href='blob:'+SITE+'/'+saved.length;w.__blobs=(w.__blobs||new Map()).set(href,blob);return href;};w.URL.revokeObjectURL=()=>{};
- w.fetch=async(url,init)=>{requested.push([url,init.credentials,init.cache]);const make=answers[url];if(!make)return new Response('',{status:404});return make();};
+ w.fetch=async(url,init,hops=0)=>{
+  requested.push([url,init.credentials,init.cache,init.redirect,init.signal]);
+  const make=answers[url],response=make?await make():new Response('',{status:404});
+  if([301,302,303,307,308].includes(response.status)&&response.headers.has('location')&&init.redirect!=='manual'){
+   if(init.redirect==='error'||hops>=20)throw new TypeError('redirect');
+   return w.fetch(new URL(response.headers.get('location'),url).href,init,hops+1);
+  }
+  return response;
+ };
  w.document.addEventListener('click',e=>{const a=e.target.closest('a[download]');if(a){e.preventDefault();saved.push({name:a.download,blob:w.__blobs.get(a.href)});}},true);
  w.__univerPagesV1={downloading:(...a)=>progress.push(a.join(' '))};
  delete w.__univerExtDownloadsV1;
@@ -232,6 +240,95 @@ test('«Скачать все» saves the section\'s files one by one under the 
  assert.ok(d.requested.every(([,credentials,cache])=>credentials==='include'&&cache==='no-store'),'the student\'s session, never a cached page');
  assert.equal(d.toast(),'Скачано файлов: 3 из 8 · не удалось: 5');
  d.close();
+});
+
+test('bulk downloads check every redirect target before contacting anything outside the HTTPS Univer origin',async()=>{
+ const d=downloads();
+ try{
+  const targets=['https://teacher.example/material.pdf','//teacher.example/material.pdf','http://univer.kaznu.kz/material.pdf',
+   'https://univer.kaznu.kz:444/material.pdf','https://univer.kaznu.kz.teacher.example/material.pdf','https://student@univer.kaznu.kz/material.pdf'];
+  const answers={},expected=[];
+  targets.forEach((target,i)=>{
+   const hop=SITE+'/student/umkd/redirect/'+i;
+   answers[file(i+1)]=()=>new Response(null,{status:302,headers:{Location:hop}});
+   answers[hop]=()=>new Response(null,{status:[301,302,303,307,308,302][i],headers:{Location:target}});
+   expected.push(file(i+1),hop);
+  });
+  d.set(answers);await d.job(targets.map((_,i)=>file(i+1)));
+  assert.deepEqual(d.requested.map(([url])=>url),expected,'no request reaches a rejected redirect target');
+  assert.equal(d.saved.length,0);
+  assert.equal(d.toast(),'Скачано файлов: 0 из 6 · не удалось: 6');
+ }finally{d.close();}
+});
+
+test('bulk downloads follow visible same-origin redirect hops with the same session and cancellation signal',async()=>{
+ const d=downloads();
+ try{
+  const targets=['/student/umkd/cache/a','b','b?download=1','//univer.kaznu.kz/student/umkd/cache/c','/student/umkd/cache/file.pdf'];
+  const answers={},expected=[file(1)];let current=file(1);
+  targets.forEach((target,i)=>{
+   answers[current]=()=>new Response(null,{status:[301,302,303,307,308][i],headers:{Location:target}});
+   current=new URL(target,current).href;expected.push(current);
+  });
+  answers[current]=named('%PDF redirected','redirected.pdf');
+  d.set(answers);await d.job([file(1)]);
+  assert.deepEqual(d.requested.map(([url])=>url),expected);
+  assert.ok(d.requested.every(([,credentials,cache,redirect,signal])=>credentials==='include'&&cache==='no-store'&&redirect==='manual'&&signal===d.requested[0][4]));
+  assert.deepEqual(d.saved.map(s=>s.name),['redirected.pdf']);
+  assert.equal(await d.saved[0].blob.text(),'%PDF redirected');
+ }finally{d.close();}
+});
+
+test('bulk downloads fail closed on opaque redirects and bound same-origin redirect loops',async()=>{
+ const d=downloads();let bodyReads=0;
+ try{
+  d.set({
+   [file(1)]:()=>({type:'opaqueredirect',status:0,url:'',headers:new Headers(),get body(){bodyReads++;throw new Error('hidden body');}}),
+   [file(2)]:()=>new Response(null,{status:302,headers:{Location:file(2)}}),
+   [file(3)]:()=>new Response(null,{status:302})
+  });
+  await d.job([file(1),file(2),file(3)]);
+  assert.equal(bodyReads,0);
+  assert.equal(d.requested.filter(([url])=>url===file(1)).length,1);
+  assert.ok(d.requested.filter(([url])=>url===file(2)).length<=21,'at most twenty redirect hops');
+  assert.equal(d.saved.length,0);
+  assert.equal(d.toast(),'Скачано файлов: 0 из 3 · не удалось: 3');
+ }finally{d.close();}
+});
+
+test('bulk downloads reject HTML media types before reading even comment-prefixed response bodies',async()=>{
+ const d=downloads();let bodyReads=0;
+ try{
+  const types=['text/html; charset=utf-8','TEXT/HTML ; charset=UTF-8','application/xhtml+xml','Application/XHTML+XML; charset=utf-8'];
+  const answers={};
+  types.forEach((type,i)=>{answers[file(i+1)]=()=>{
+   const response=named('<!-- maintenance -->\n<html><body>Try later</body></html>','lecture.pdf',{'Content-Type':type})();
+   if(i%2)response.headers.delete('Content-Length');
+   const body=response.body,blob=response.blob.bind(response);
+   Object.defineProperty(response,'body',{get(){bodyReads++;return body;}});
+   response.blob=()=>{bodyReads++;return blob();};
+   return response;
+  };});
+  d.set(answers);await d.job(types.map((_,i)=>file(i+1)));
+  assert.equal(bodyReads,0,'neither the sized blob nor the unsized stream is read');
+  assert.equal(d.saved.length,0);
+  assert.equal(d.toast(),'Скачано файлов: 0 из 4 · не удалось: 4');
+ }finally{d.close();}
+});
+
+test('bulk downloads still sniff mislabeled HTML while saving real files',async()=>{
+ const d=downloads();
+ try{
+  d.set({
+   [file(1)]:named('<html><body>Maintenance</body></html>','lecture.pdf',{'Content-Type':'application/octet-stream'}),
+   [file(2)]:named('<!DOCTYPE html><html>Sign in</html>','lecture.pdf',{'Content-Type':'text/plain'}),
+   [file(3)]:named('%PDF real','lecture.pdf',{'Content-Type':'text/plain'})
+  });
+  await d.job([file(1),file(2),file(3)]);
+  assert.deepEqual(d.saved.map(s=>s.name),['lecture.pdf']);
+  assert.equal(await d.saved[0].blob.text(),'%PDF real');
+  assert.equal(d.toast(),'Скачано файлов: 1 из 3 · не удалось: 2');
+ }finally{d.close();}
 });
 
 // The timeout turns a regression (the whole endless body read into memory) into a failure instead of a hang.

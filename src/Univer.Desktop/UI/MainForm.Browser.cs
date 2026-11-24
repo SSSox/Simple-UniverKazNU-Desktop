@@ -157,7 +157,7 @@ namespace Univer.Desktop.UI
                 OpenOnlineTest = value => current(() => OpenOnlineTest(value)),
                 Shortcut = value => !viewer && loadedOnce ? SitePolicy.NewsShortcut(value) : null,
                 Load = value => current(() => browser.Load(value)),
-                Download = value => QueueAsync(() => DownloadAsync(value)),
+                Download = (value, gesture) => QueueAsync(() => DownloadAsync(value, userGesture: gesture)),
                 Language = value => QueueAsync(() => AdoptLanguageAsync(value)),
                 Logout = () => QueueAsync(LogoutAsync),
                 Navigating = (value, method) => { if (Active == browser) BeginNavigation(browser, viewer, value, method); },
@@ -166,9 +166,9 @@ namespace Univer.Desktop.UI
                 LoginRedirect = value => { if (!viewer) automation.ResumeAfterLogin(value); },
                 Submissions = submissions
             };
-            browser.LifeSpanHandler = new PopupHandler(current, value =>
+            browser.LifeSpanHandler = new PopupHandler(current, (value, gesture) =>
             {
-                if (SitePolicy.ProtectedDownload(value) || SitePolicy.DocumentDownload(value)) QueueAsync(() => DownloadAsync(value));
+                if (SitePolicy.ProtectedDownload(value) || SitePolicy.DocumentDownload(value)) QueueAsync(() => DownloadAsync(value, userGesture: gesture));
                 else if (SitePolicy.PrintDocument(value)) OpenDocument(value);
                 else if (SitePolicy.Trusted(value)) browser.Load(value);
                 else PageLink(browser, value);

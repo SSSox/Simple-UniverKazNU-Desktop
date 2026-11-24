@@ -188,10 +188,22 @@
         return { section: message.section.slice(0, 300), urls: urls, stop: message.stop === true };
     }
     async function read(url, signal) {
-        var response = await fetch(url, { credentials: 'include', cache: 'no-store', redirect: 'follow', signal: signal });
-        var final = new URL(response.url || url);
+        var response, current = new URL(url);
+        for (var redirects = 0; ; redirects++) {
+            if (current.origin !== ext.origin || current.username || current.password) throw new Error('answer');
+            response = await fetch(current.href, { credentials: 'include', cache: 'no-store', redirect: 'manual', signal: signal });
+            // Browsers may hide a manual redirect's destination; never follow one we cannot check.
+            if (response.type === 'opaqueredirect') throw new Error('answer');
+            if ([301, 302, 303, 307, 308].indexOf(response.status) < 0) break;
+            var target = response.headers.get('location');
+            if (!target || redirects >= 20) throw new Error('answer');
+            current = new URL(target, current.href);
+        }
+        var final = new URL(response.url || current.href);
         // 213 is the site's sign-in answer; anything else that is not the file itself is not saved either.
         if (response.status !== 200 || final.origin !== ext.origin || /^\/user\/login/i.test(final.pathname)) throw new Error('answer');
+        var mediaType = (response.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
+        if (mediaType === 'text/html' || mediaType === 'application/xhtml+xml') throw new Error('page');
         // A compressed answer's Content-Length counts the encoded bytes, not the file the blob holds.
         var encoded = !/^(identity)?$/i.test((response.headers.get('content-encoding') || '').trim());
         var length = encoded ? 0 : Number(response.headers.get('content-length'));
@@ -204,7 +216,7 @@
         var bytes = await local(blob, 0, head);
         if (pageInstead(bytes)) throw new Error('page');
         var all = tail ? join(bytes, await local(blob, blob.size - tail, blob.size)) : bytes;
-        var name = resolve(response.headers.get('content-disposition'), url, response.headers.get('content-type') || '', all);
+        var name = resolve(response.headers.get('content-disposition'), url, mediaType, all);
         return { blob: new Blob([blob], { type: 'application/octet-stream' }), name: name };
     }
     // An answer with no size to check first is read piece by piece and dropped once it passes MAX_BYTES.

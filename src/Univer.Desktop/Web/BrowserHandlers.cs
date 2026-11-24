@@ -93,7 +93,7 @@ namespace Univer.Desktop.Web
         // Runs on Chromium's thread: a direct address for a clicked page that would only redirect, or null.
         public Func<string, string> Shortcut { get; set; }
         public Action<string> Load { get; set; }
-        public Action<string> Download { get; set; }
+        public Action<string, bool> Download { get; set; }
         public Action<string> Language { get; set; }
         public Action Logout { get; set; }
         // A link in a printed document: closes the viewer and opens the address in the main browser.
@@ -151,7 +151,7 @@ namespace Univer.Desktop.Web
             // Only the user's own click on the site's exit link pauses automatic sign-in; a redirect or script reaching /user/logout
             // ends just the server session, and the login page signs in again.
             if (SitePolicy.UserLogout(url, userGesture, isRedirect)) { dispatch(Logout); return true; }
-            if ((SitePolicy.ProtectedDownload(url) || SitePolicy.DocumentDownload(url)) && method == "GET") { dispatch(() => Download(url)); return true; }
+            if ((SitePolicy.ProtectedDownload(url) || SitePolicy.DocumentDownload(url)) && method == "GET") { var gesture = userGesture && !isRedirect; dispatch(() => Download(url, gesture)); return true; }
             // Server redirects (for example to the read notice at sign-in) are never rewritten.
             // Only a user's click is redirected; application loads (startup, retry, fixtures) go where they were sent.
             var replacement = method == "GET" && !isRedirect && userGesture ? Shortcut(url) : null;
@@ -174,8 +174,8 @@ namespace Univer.Desktop.Web
     internal sealed class PopupHandler : LifeSpanHandler
     {
         private readonly Action<Action> dispatch;
-        private readonly Action<string> route;
-        public PopupHandler(Action<Action> dispatch, Action<string> route) { this.dispatch = dispatch; this.route = route; }
+        private readonly Action<string, bool> route;
+        public PopupHandler(Action<Action> dispatch, Action<string, bool> route) { this.dispatch = dispatch; this.route = route; }
         // CEF owns child browser windows; managed WinForms owns the application lifetime.
         // Also suppress WM_CLOSE for CEF-created auxiliary windows during session disposal.
         protected override bool DoClose(IWebBrowser chromium, IBrowser browser) { return true; }
@@ -184,7 +184,7 @@ namespace Univer.Desktop.Web
             IBrowserSettings settings, ref bool noJavascriptAccess, out IWebBrowser newBrowser)
         {
             newBrowser = null;
-            if (SitePolicy.Trusted(url) || (userGesture && SitePolicy.External(url))) dispatch(() => route(url));
+            if (SitePolicy.Trusted(url) || (userGesture && SitePolicy.External(url))) dispatch(() => route(url, userGesture));
             return true;
         }
     }

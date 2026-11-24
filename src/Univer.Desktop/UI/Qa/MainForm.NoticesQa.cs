@@ -132,7 +132,7 @@ namespace Univer.Desktop.UI
                 var names = new List<string>();
                 foreach (var language in new[] { "kz", "en", "ru" }) { prefs.Language = language; Localize(); names.Add(noticesButton.AccessibleName); }
                 Check(names.SequenceEqual(new[] { "Хабарландырулар, оқылмаған: 1", "Notifications, unread: 1", "Уведомления, непрочитанных: 1" }), "the bell is named with its unread count in Kazakh, English and Russian", results);
-                Check(storage.LoadNotices().Count == notices.Count, "the list is saved with the app's local data", results);
+                Check(storage.LoadNotices(NoticeAccount, prefs.NoticesClearPending).Count == notices.Count, "the list is saved with the app's local data", results);
                 await ClearNoticesAsync();
                 Check(notices.Count == 0 && !File.Exists(Path.Combine(storage.Root, "notices.json")), "a session change empties the list and deletes its file", results);
             }

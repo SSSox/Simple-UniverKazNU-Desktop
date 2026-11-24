@@ -18,6 +18,22 @@ namespace Univer.Desktop.Core
         public const int MaxPages = 12;
         private const string CopyPage = Copy + ":";
 
+        // An export belongs to one document, one opening of its sheet and one app session.
+        public sealed class Source
+        {
+            public readonly string Document, Opening;
+            public readonly int Generation;
+
+            public Source(string document, string opening, int generation)
+            { Document = document; Opening = opening; Generation = generation; }
+
+            public bool StillOpen(Source current)
+            {
+                return current != null && !string.IsNullOrEmpty(Document) && !string.IsNullOrEmpty(Opening) && Opening != "0" &&
+                    current.Document == Document && current.Opening == Opening && current.Generation == Generation;
+            }
+        }
+
         // The action of a message, or null for anything else. "copy:N" copies page N alone.
         public static string Action(string payload)
         {

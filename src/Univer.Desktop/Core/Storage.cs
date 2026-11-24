@@ -34,6 +34,7 @@ namespace Univer.Desktop.Core
         // (Storage.FinishSessionClear). Older preference files have none.
         public bool SessionClearPending { get; set; }
         public bool KeptCopiesClearPending { get; set; }
+        public bool NoticesClearPending { get; set; }
         public bool Readable { get; set; } = true;
         public bool Sidebar { get; set; } = true;
         public string Profile { get; set; } = Guid.NewGuid().ToString("N");
@@ -72,7 +73,7 @@ namespace Univer.Desktop.Core
         public string StartPage { get; set; } = StartPages.Home;
         public Preferences Clone()
         {
-            return new Preferences { Language = Language, AutoLoginPaused = AutoLoginPaused, SessionClearPending = SessionClearPending, KeptCopiesClearPending = KeptCopiesClearPending, Readable = Readable, Sidebar = Sidebar,
+            return new Preferences { Language = Language, AutoLoginPaused = AutoLoginPaused, SessionClearPending = SessionClearPending, KeptCopiesClearPending = KeptCopiesClearPending, NoticesClearPending = NoticesClearPending, Readable = Readable, Sidebar = Sidebar,
                 Profile = Profile, Zoom = Zoom, Window = Window, Tray = Tray, Animations = Animations, LegacyWarningDismissed = LegacyWarningDismissed, Theme = Theme,
                 UpdateVersion = UpdateVersion, UpdateSkipped = UpdateSkipped, UpdateChecked = UpdateChecked,
                 ExternalLinks = ExternalLinks, WebProfile = WebProfile, PinOffered = PinOffered, Reminders = Reminders, ReminderLead = ReminderLead, Grades = Grades, GradeInterval = GradeInterval,
@@ -164,29 +165,36 @@ namespace Univer.Desktop.Core
         // stays paused. A start also retries any pending kept copy deletes. A review run changes nothing on disk.
         public bool FinishSessionClear(Preferences preferences, bool save = true)
         {
+            var credentialsPending = CredentialsRemovalPending;
             var sessionPending = preferences.SessionClearPending;
-            if (!sessionPending && !preferences.KeptCopiesClearPending) return false;
+            if (!sessionPending && !preferences.KeptCopiesClearPending && !preferences.NoticesClearPending)
+            {
+                if (save && credentialsPending) FinishCredentialRemoval();
+                return credentialsPending;
+            }
             if (sessionPending)
             {
                 preferences.Profile = Guid.NewGuid().ToString("N"); preferences.WebProfile = Guid.NewGuid().ToString("N");
                 preferences.AutoLoginPaused = true; preferences.SessionClearPending = false;
+                preferences.NoticesClearPending = preferences.KeptCopiesClearPending = true;
             }
             if (!save) return true;
-            if (sessionPending)
-            {
-                TryRemoveSessionFile(path => File.Delete(Path.Combine(path, "notices.json")));
-                TryRemoveSessionFile(GradeFile.Remove);
-            }
-            preferences.KeptCopiesClearPending = true;
+            if (sessionPending) TryRemoveSessionFile(GradeFile.Remove);
+            var noticesRemoved = !preferences.NoticesClearPending || TryRemoveSessionFile(path => File.Delete(Path.Combine(path, "notices.json")));
             // Attempt every delete, even if another copy is locked.
-            var removed = TryRemoveSessionFile(ScheduleFile.Remove) & TryRemoveSessionFile(ExamFile.Remove) & TryRemoveSessionFile(LastGradesFile.Remove);
-            if (sessionPending || removed)
+            var removed = !preferences.KeptCopiesClearPending ||
+                (TryRemoveSessionFile(ScheduleFile.Remove) & TryRemoveSessionFile(ExamFile.Remove) & TryRemoveSessionFile(LastGradesFile.Remove));
+            if (sessionPending || (preferences.NoticesClearPending && noticesRemoved) || (preferences.KeptCopiesClearPending && removed))
             {
                 var updated = preferences.Clone();
+                updated.NoticesClearPending = !noticesRemoved;
                 updated.KeptCopiesClearPending = !removed;
                 SavePreferences(updated);
+                preferences.NoticesClearPending = updated.NoticesClearPending;
                 preferences.KeptCopiesClearPending = updated.KeptCopiesClearPending;
             }
+            // Even a locked credential file must leave the ended session's browser profiles behind.
+            if (credentialsPending) FinishCredentialRemoval();
             return true;
         }
 
@@ -204,6 +212,7 @@ namespace Univer.Desktop.Core
         // beside a plain save holds no secret, and its removal is best effort.
         public Credentials LoadCredentials()
         {
+            if (CredentialsRemovalPending) return null;
             var plain = Path.Combine(root, "credentials.dpapi");
             var sealedLogin = Path.Combine(root, "account.dpapi");
             if (!File.Exists(plain)) return ReadCredentials(sealedLogin);
@@ -219,6 +228,7 @@ namespace Univer.Desktop.Core
         }
         public void SaveCredentials(Credentials credentials)
         {
+            FinishCredentialRemoval();
             var sealedLogin = credentials.Sealed && credentials.Password == null;
             var bytes = Encoding.UTF8.GetBytes(json.Serialize(credentials));
             try { AtomicFile.Write(Path.Combine(root, sealedLogin ? "account.dpapi" : "credentials.dpapi"), ProtectedData.Protect(bytes, Entropy, DataProtectionScope.CurrentUser), durable: true); }
@@ -229,7 +239,30 @@ namespace Univer.Desktop.Core
             catch (UnauthorizedAccessException) { }
         }
         public bool PlainFileLeft() { return File.Exists(Path.Combine(root, "credentials.dpapi")); }
-        public void RemoveCredentials() { File.Delete(Path.Combine(root, "credentials.dpapi")); File.Delete(Path.Combine(root, "account.dpapi")); }
+        public bool CredentialsRemovalPending { get { return File.Exists(Path.Combine(root, "credentials.remove")); } }
+        public void RemoveCredentials(bool removeLock = false)
+        {
+            // The marker reaches disk before either password copy is touched. A failure keeps both reads and PIN
+            // unlocking blocked until a later attempt finishes the removal. A forgotten PIN removes the whole lock,
+            // including an unreadable record; keep that intent across a restart too.
+            if (removeLock || !CredentialsRemovalPending)
+                AtomicFile.Write(Path.Combine(root, "credentials.remove"), new[] { removeLock ? (byte)1 : (byte)0 }, durable: true);
+            FinishCredentialRemoval();
+        }
+        private void FinishCredentialRemoval()
+        {
+            if (!CredentialsRemovalPending) return;
+            var marker = File.ReadAllBytes(Path.Combine(root, "credentials.remove"));
+            File.Delete(Path.Combine(root, "credentials.dpapi"));
+            File.Delete(Path.Combine(root, "account.dpapi"));
+            if (marker.Length > 0 && marker[0] == 1) RemoveLock();
+            else
+            {
+                var record = ReadLock();
+                if (record != null && record.Account != null) { record.Account = null; SaveLock(record); }
+            }
+            File.Delete(Path.Combine(root, "credentials.remove"));
+        }
         // The app PIN's check and guess counter (Core/AppLock.cs), protected like the credentials under an entropy of its own.
         private static readonly byte[] LockEntropy = Encoding.UTF8.GetBytes("Univer.Desktop.lock.v1");
         public bool LockExists { get { return File.Exists(Path.Combine(root, "lock.dpapi")); } }
@@ -240,6 +273,11 @@ namespace Univer.Desktop.Core
         public bool PinMarked { get { return File.Exists(Path.Combine(root, "lock.pin")); } }
         public ILockStore LockStore { get { return new FileLockStore(this); } }
         public LockRecord LoadLock()
+        {
+            if (CredentialsRemovalPending) throw new IOException("Credential removal is pending");
+            return ReadLock();
+        }
+        private LockRecord ReadLock()
         {
             var path = Path.Combine(root, "lock.dpapi");
             if (!File.Exists(path)) return null;
@@ -279,23 +317,33 @@ namespace Univer.Desktop.Core
             var snapshot = new Credentials { Login = credentials.Login, Password = credentials.Password, Sealed = credentials.Sealed };
             return writes.RunAsync(() => Task.Run(() => SaveCredentials(snapshot)));
         }
-        public Task RemoveCredentialsAsync() { return writes.RunAsync(() => Task.Run((Action)RemoveCredentials)); }
+        public Task RemoveCredentialsAsync(bool removeLock = false) { return writes.RunAsync(() => Task.Run(() => RemoveCredentials(removeLock))); }
         // The site's notifications of the signed-in account: titles and page messages, never a form value or a secret.
-        // An unreadable file starts an empty list.
-        public List<SiteNotice> LoadNotices()
+        // An unreadable, unbound or different account's file starts an empty list.
+        private sealed class NoticeCache
         {
+            public string Account { get; set; }
+            public List<SiteNotice> Notices { get; set; }
+        }
+        public List<SiteNotice> LoadNotices(string account, bool clearPending = false)
+        {
+            if (clearPending || string.IsNullOrEmpty(account)) return new List<SiteNotice>();
             var path = Path.Combine(root, "notices.json");
-            try { return File.Exists(path) ? Notices.Normalize(json.Deserialize<List<SiteNotice>>(File.ReadAllText(path)), Notices.Now()) : new List<SiteNotice>(); }
+            try
+            {
+                var cache = File.Exists(path) ? json.Deserialize<NoticeCache>(ReadShared(path)) : null;
+                return cache != null && cache.Account == account ? Notices.Normalize(cache.Notices, Notices.Now()) : new List<SiteNotice>();
+            }
             catch (Exception) { return new List<SiteNotice>(); }
         }
-        public Task SaveNoticesAsync(IEnumerable<SiteNotice> notices)
+        public Task SaveNoticesAsync(string account, IEnumerable<SiteNotice> notices)
         {
             var snapshot = notices.Select(n => n.Copy()).ToList();
             var path = Path.Combine(root, "notices.json");
             return writes.RunAsync(() => Task.Run(() =>
             {
-                if (snapshot.Count == 0) File.Delete(path);
-                else AtomicFile.Write(path, Encoding.UTF8.GetBytes(json.Serialize(snapshot)));
+                if (snapshot.Count == 0 || string.IsNullOrEmpty(account)) File.Delete(path);
+                else AtomicFile.Write(path, Encoding.UTF8.GetBytes(json.Serialize(new NoticeCache { Account = account, Notices = snapshot })));
             }));
         }
         // The app's copy of this week's classes (Core/ScheduleCopy.cs); another account's, damaged or missing is none.

@@ -37,7 +37,7 @@ namespace Univer.Desktop.UI
             // (the window is busy or locked) is answered as failed.
             if (reportBusy) { AnswerReport(browser, action, false, null, null, true); return; }
             if (rotating || commandBusy || LockShown) { AnswerReport(browser, action, false, null, null); return; }
-            reportBusy = true; string result = null, opening = null; var cancelled = false; var address = browser.Address;
+            reportBusy = true; string result = null; GradeReport.Source source = null; var cancelled = false; var address = browser.Address; var epoch = sessionEpoch;
             try
             {
                 // A new press starts afresh: an earlier failure of the summary does not stay over this one's answer.
@@ -45,44 +45,56 @@ namespace Univer.Desktop.UI
                 try
                 {
                     // The opening of the sheet the press belongs to: closing it, or opening it again, drops the work.
-                    opening = await AutomationController.EvaluateAsync(browser, ReportOpened);
-                    result = await MakeReportAsync(browser, action, page, address, opening);
+                    source = ReadReportSource(await AutomationController.EvaluateAsync(browser, ReportOpened), epoch);
+                    result = await MakeReportAsync(browser, action, page, address, source);
                 }
                 catch (Exception) { result = null; }
                 // Closed or left while it was made: nothing is told, a failure included (the student has moved on).
-                try { cancelled = result == ReportCancelled || (result == null && !closing && !await ReportStillAsync(browser, address, opening)); }
-                catch (Exception) { cancelled = false; }
+                try { cancelled = result == ReportCancelled || (result == null && !closing && !await ReportStillAsync(browser, address, source)); }
+                catch (Exception) { cancelled = true; }
             }
             finally { reportBusy = false; }
-            if (!closing && !cancelled) FinishReport(browser, action, page, result != null, string.IsNullOrEmpty(result) ? null : result, opening);
+            if (!closing && !cancelled && epoch == sessionEpoch) FinishReport(browser, action, page, result != null, string.IsNullOrEmpty(result) ? null : result, source.Opening);
         }
         // The file's name (the first one when a long summary made several pictures), "" for a print or a copy, null for a
         // failure, ReportCancelled when the sheet closed meanwhile.
-        private async Task<string> MakeReportAsync(ChromiumWebBrowser browser, string action, int page, string address, string opening)
+        private async Task<string> MakeReportAsync(ChromiumWebBrowser browser, string action, int page, string address, GradeReport.Source source)
         {
             // A click that arrives after the sheet closed, after Original or on another page makes nothing.
-            if (!await ReportStillAsync(browser, address, opening)) return ReportCancelled;
+            if (!await ReportStillAsync(browser, address, source)) return ReportCancelled;
             if (action == GradeReport.Print) { if (reportPrint != null) reportPrint(); else browser.Print(); return ""; }
-            if (action == GradeReport.Pdf) return await SaveReportPdfAsync(browser, address, opening);
+            if (action == GradeReport.Pdf) return await SaveReportPdfAsync(browser, address, source);
             // Copy takes one page (the first, or the one pressed beside); PNG every page, each its own file.
             var pictures = await CaptureReportAsync(browser, action == GradeReport.Copy ? Math.Max(1, page) : 0);
             if (pictures == null) return null;
             // Closed or left while the pictures were taken: what was drawn is not the summary, and nothing is written yet.
-            if (!await ReportStillAsync(browser, address, opening)) return ReportCancelled;
+            if (!await ReportStillAsync(browser, address, source)) return ReportCancelled;
             if (action == GradeReport.Copy) return CopyReportPicture(pictures[0]) ? "" : null;
             return SaveReportPictures(pictures);
         }
-        // The same opening of the sheet is still on the page the press came from. A page that does not answer in time (a
-        // busy renderer) is taken as open: only a sheet closed or opened again, another page or a navigation begun drops the work.
-        private async Task<bool> ReportStillAsync(ChromiumWebBrowser browser, string address, string opening)
+        // Only a positive reply from the originating document and sheet opening lets the export continue.
+        private async Task<bool> ReportStillAsync(ChromiumWebBrowser browser, string address, GradeReport.Source source)
         {
-            // No sheet when the press was read ("0"), or no summary in the page at all (""): nothing to make.
-            if (opening == "0" || opening == "" || browser.IsDisposed || browser.Address != address) return false;
-            if (awaitingCommit == browser && DateTime.UtcNow - awaitingSince < TimeSpan.FromSeconds(20)) return false;
-            var now = await AutomationController.EvaluateAsync(browser, ReportOpened);
-            return now == null || (now != "" && now != "0" && (opening == null || now == opening));
+            if (source == null || !ReportCurrent(browser, address, source.Generation)) return false;
+            try
+            {
+                var now = await AutomationController.EvaluateAsync(browser, ReportOpened);
+                return ReportCurrent(browser, address, source.Generation) && source.StillOpen(ReadReportSource(now, sessionEpoch));
+            }
+            catch (Exception) { return false; }
         }
-        private const string ReportOpened = "window.__univerReportV1?String(window.__univerReportV1.opened()):''";
+        private bool ReportCurrent(ChromiumWebBrowser browser, string address, int epoch)
+        {
+            return !closing && !rotating && !browser.IsDisposed && browser.Address == address && epoch == sessionEpoch &&
+                !(awaitingCommit == browser && DateTime.UtcNow - awaitingSince < TimeSpan.FromSeconds(20));
+        }
+        private static GradeReport.Source ReadReportSource(string json, int epoch)
+        {
+            if (string.IsNullOrEmpty(json)) return null;
+            var parts = new JavaScriptSerializer().Deserialize<string[]>(json);
+            return parts != null && parts.Length == 2 ? new GradeReport.Source(parts[0], parts[1], epoch) : null;
+        }
+        private const string ReportOpened = "window.__univerAutomationV1&&window.__univerReportV1?JSON.stringify([window.__univerAutomationV1.probe().document,String(window.__univerReportV1.opened())]):''";
         // What MakeReportAsync returns when the sheet closed meanwhile: no file, and no failure to report.
         private const string ReportCancelled = "|cancelled|";
         private void FinishReport(ChromiumWebBrowser browser, string action, int page, bool ok, string name, string opening)
@@ -117,7 +129,7 @@ namespace Univer.Desktop.UI
             Directory.CreateDirectory(folder);
             return folder;
         }
-        private async Task<string> SaveReportPdfAsync(ChromiumWebBrowser browser, string address, string opening)
+        private async Task<string> SaveReportPdfAsync(ChromiumWebBrowser browser, string address, GradeReport.Source source)
         {
             var temp = Path.Combine(ReportFolder(), PartialDownloads.NewName());
             Task<bool> print = null;
@@ -146,7 +158,7 @@ namespace Univer.Desktop.UI
                     }
                 }
                 // Closed or left while Chromium printed: the printout is not the summary.
-                if (!await ReportStillAsync(browser, address, opening)) return ReportCancelled;
+                if (!await ReportStillAsync(browser, address, source)) return ReportCancelled;
                 return SaveReport(temp, "pdf", null);
             }
             finally

@@ -139,6 +139,8 @@ namespace Univer.Desktop.Core
         }
         // A UMKD material the server sends on to a web page on another site: the teacher left a link there, not a file.
         public static bool MaterialLink(string material, string target) { return ProtectedDownload(material) && !Trusted(target) && StudyLink(target); }
+        // A material's external redirect may open only on behalf of the user who requested the download.
+        public static bool OpenMaterialLink(string material, string target, bool userGesture) { return userGesture && MaterialLink(material, target); }
         // The host of an outside address as the user should read it, or "".
         public static string Host(string url) { Uri uri; return Uri.TryCreate(url, UriKind.Absolute, out uri) ? uri.Host : ""; }
     }

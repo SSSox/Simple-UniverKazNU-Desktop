@@ -57,6 +57,78 @@ namespace Univer.Desktop.Tests
         }
 
         [Fact]
+        public void Keep_MarksTheStagedFileBeforeAttemptingTheFinalName()
+        {
+            var temp = Part("lecture");
+            Directory.CreateDirectory(Path.Combine(root, "lecture.pdf"));
+            Assert.Throws<IOException>(() => SavedFile.Keep(temp, root, "lecture.pdf", Site));
+            Assert.True(File.Exists(temp));
+            Assert.Contains("ZoneId=3", SavedFile.Zone(temp) ?? "");
+        }
+
+        [Fact]
+        public void Keep_FailedMarkDoesNotPublishTheFinalName()
+        {
+            var temp = Part("lecture");
+            File.SetAttributes(temp, FileAttributes.ReadOnly);
+            try
+            {
+                Assert.Throws<IOException>(() => SavedFile.Keep(temp, root, "lecture.pdf", Site));
+                Assert.True(File.Exists(temp));
+                Assert.False(File.Exists(Path.Combine(root, "lecture.pdf")));
+            }
+            finally
+            {
+                foreach (var path in Directory.GetFiles(root)) File.SetAttributes(path, FileAttributes.Normal);
+            }
+        }
+
+        [Fact]
+        public void Keep_VolumeWithoutStreamsStillGetsTheFile()
+        {
+            var temp = Part("lecture");
+            File.SetAttributes(temp, FileAttributes.ReadOnly);
+            try
+            {
+                Assert.False(SavedFile.Mark(temp, Site));
+                // Simulate the volume capability reported by FAT without requiring a second drive.
+                var saved = SavedFile.Keep(temp, root, "lecture.pdf", Site, path =>
+                {
+                    Assert.Equal(temp, path);
+                    Assert.False(File.Exists(Path.Combine(root, "lecture.pdf")));
+                    return true;
+                });
+                Assert.Equal("lecture", File.ReadAllText(saved));
+                Assert.Null(SavedFile.Zone(saved));
+                Assert.False(File.Exists(temp));
+            }
+            finally
+            {
+                foreach (var path in Directory.GetFiles(root)) File.SetAttributes(path, FileAttributes.Normal);
+            }
+        }
+
+        [Theory]
+        [InlineData("header")]
+        [InlineData("hint")]
+        [InlineData("url")]
+        public void Keep_TemporaryLookingDownloadNameSurvivesCleanup(string source)
+        {
+            var suggested = PartialDownloads.NewName();
+            var name = FileNames.Resolve(source == "header" ? "attachment; filename=\"" + suggested + "\"" : null,
+                source == "hint" ? suggested : null, "https://univer.kaznu.kz/" + suggested,
+                "application/octet-stream", new byte[0], 0);
+            var saved = SavedFile.Keep(Part("finished"), root, name, null);
+            var abandoned = Path.Combine(root, PartialDownloads.NewName());
+            File.WriteAllText(abandoned, "unfinished");
+            File.SetLastWriteTimeUtc(saved, DateTime.UtcNow.AddHours(-1));
+            File.SetLastWriteTimeUtc(abandoned, DateTime.UtcNow.AddHours(-1));
+            Assert.Equal(1, PartialDownloads.CleanUp(root, TimeSpan.FromMinutes(1)));
+            Assert.Equal("finished", File.ReadAllText(saved));
+            Assert.False(File.Exists(abandoned));
+        }
+
+        [Fact]
         public void Mark_ThatCannotBeWrittenIsNotAnError()
         {
             // No such folder: the same answer a drive without alternate streams gives.

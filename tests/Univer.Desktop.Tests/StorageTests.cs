@@ -26,6 +26,126 @@ namespace Univer.Desktop.Tests
             var path = Path.Combine(root, "credentials.dpapi"); var bytes = File.ReadAllBytes(path); bytes[bytes.Length / 2] ^= 1; File.WriteAllBytes(path, bytes);
             Assert.Throws<CryptographicException>(() => storage.LoadCredentials());
         }
+        [Fact]
+        public void Credentials_RemovalAlsoClearsThePinSealedAccount()
+        {
+            var storage = new Storage(root);
+            var account = new Credentials { Login = "synthetic student", Password = "local fixture" };
+            const string pin = "482613";
+            new PinGuard(storage.LockStore, iterations: 5).Enable(pin, account);
+            storage.SaveCredentials(account.LoginOnly());
+
+            storage.RemoveCredentials();
+
+            Assert.Null(new Storage(root).LoadCredentials());
+            var unlocked = new PinGuard(new Storage(root).LockStore, iterations: 5).Guess(pin);
+            Assert.Equal(PinOutcome.Success, unlocked.Outcome);
+            Assert.Null(unlocked.Account);
+        }
+        [Theory]
+        [InlineData("credentials.dpapi")]
+        [InlineData("account.dpapi")]
+        [InlineData("lock.dpapi")]
+        public void Credentials_FailedRemovalStaysPendingAndBlocksPinRestoration(string lockedName)
+        {
+            var storage = new Storage(root);
+            var account = new Credentials { Login = "synthetic student", Password = "local fixture" };
+            const string pin = "482613";
+            new PinGuard(storage.LockStore, iterations: 5).Enable(pin, account);
+            // Simulate a previous interrupted sealing with both standalone records still on disk.
+            storage.SaveCredentials(account.LoginOnly());
+            File.WriteAllBytes(Path.Combine(root, "credentials.dpapi"), new byte[] { 1 });
+            storage.SavePreferences(new Preferences { SessionClearPending = true, AutoLoginPaused = true });
+            var marker = Path.Combine(root, "credentials.remove");
+            using (File.Open(Path.Combine(root, lockedName), FileMode.Open, FileAccess.Read, FileShare.Read))
+            {
+                Assert.ThrowsAny<IOException>(() => storage.RemoveCredentials());
+                Assert.True(File.Exists(marker));
+                var next = new Storage(root);
+                Assert.Null(next.Load().Credentials);
+                var before = next.LoadPreferences(); var oldProfile = before.Profile; var oldWebProfile = before.WebProfile;
+                Assert.ThrowsAny<IOException>(() => next.FinishSessionClear(before));
+                Assert.NotEqual(oldProfile, next.LoadPreferences().Profile);
+                Assert.NotEqual(oldWebProfile, next.LoadPreferences().WebProfile);
+                Assert.False(next.LoadPreferences().SessionClearPending);
+                var unlocked = new PinGuard(next.LockStore, iterations: 5).Guess(pin);
+                Assert.NotEqual(PinOutcome.Success, unlocked.Outcome);
+                Assert.Null(unlocked.Account);
+                Assert.True(File.Exists(marker));
+            }
+
+            var restarted = new Storage(root);
+            Assert.True(restarted.FinishSessionClear(restarted.LoadPreferences()));
+            Assert.Null(restarted.LoadCredentials());
+            Assert.False(File.Exists(marker));
+            Assert.False(File.Exists(Path.Combine(root, "credentials.dpapi")));
+            Assert.False(File.Exists(Path.Combine(root, "account.dpapi")));
+            var result = new PinGuard(restarted.LockStore, iterations: 5).Guess(pin);
+            Assert.Equal(PinOutcome.Success, result.Outcome);
+            Assert.Null(result.Account);
+        }
+        [Theory]
+        [InlineData(false)]
+        [InlineData(true)]
+        public void Credentials_StartupFinishesRemovalBeforeOrAfterStandaloneFilesWent(bool standaloneRemoved)
+        {
+            var storage = new Storage(root);
+            const string pin = "482613";
+            var account = new Credentials { Login = "synthetic student", Password = "local fixture" };
+            new PinGuard(storage.LockStore, iterations: 5).Enable(pin, account);
+            storage.SaveCredentials(account.LoginOnly());
+            storage.SavePreferences(new Preferences { SessionClearPending = true, AutoLoginPaused = true });
+            // The durable marker survived an exit at either boundary of account removal.
+            File.WriteAllBytes(Path.Combine(root, "credentials.remove"), new byte[0]);
+            if (standaloneRemoved) File.Delete(Path.Combine(root, "account.dpapi"));
+
+            var next = new Storage(root);
+            Assert.Null(next.Load().Credentials);
+            Assert.True(next.FinishSessionClear(next.LoadPreferences()));
+            var result = new PinGuard(next.LockStore, iterations: 5).Guess(pin);
+            Assert.Equal(PinOutcome.Success, result.Outcome);
+            Assert.Null(result.Account);
+            Assert.False(File.Exists(Path.Combine(root, "credentials.remove")));
+        }
+        [Fact]
+        public void Credentials_RemovalMarkerMustBeDurableBeforeEitherRecordChanges()
+        {
+            var storage = new Storage(root);
+            const string pin = "482613";
+            var account = new Credentials { Login = "synthetic student", Password = "local fixture" };
+            new PinGuard(storage.LockStore, iterations: 5).Enable(pin, account);
+            storage.SaveCredentials(account.LoginOnly());
+            var sealedAccount = storage.LoadLock().Account;
+            using (File.Open(Path.Combine(root, "credentials.remove.new"), FileMode.Create, FileAccess.ReadWrite, FileShare.None))
+                Assert.ThrowsAny<IOException>(() => storage.RemoveCredentials());
+
+            Assert.False(File.Exists(Path.Combine(root, "credentials.remove")));
+            Assert.Equal(account.Login, storage.LoadCredentials().Login);
+            Assert.Equal(sealedAccount, storage.LoadLock().Account);
+        }
+        [Fact]
+        public void Credentials_ForgottenPinRemovalRetriesAnUnreadableLockAfterRestart()
+        {
+            var storage = new Storage(root);
+            var account = new Credentials { Login = "synthetic student", Password = "local fixture" };
+            storage.SaveCredentials(account);
+            var lockPath = Path.Combine(root, "lock.dpapi");
+            File.WriteAllBytes(lockPath, new byte[] { 1 });
+            File.WriteAllBytes(Path.Combine(root, "lock.pin"), new byte[0]);
+            storage.SavePreferences(new Preferences { SessionClearPending = true, AutoLoginPaused = true });
+            using (File.Open(lockPath, FileMode.Open, FileAccess.Read, FileShare.Read))
+            {
+                Assert.ThrowsAny<IOException>(() => storage.RemoveCredentials(true));
+                Assert.True(storage.CredentialsRemovalPending);
+                Assert.Null(new Storage(root).LoadCredentials());
+            }
+
+            var next = new Storage(root);
+            Assert.True(next.FinishSessionClear(next.LoadPreferences()));
+            Assert.False(next.CredentialsRemovalPending);
+            Assert.False(next.LockExists);
+            Assert.False(next.PinMarked);
+        }
         [Theory]
         [InlineData("..")]
         [InlineData("../../outside")]

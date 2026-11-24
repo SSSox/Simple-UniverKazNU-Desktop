@@ -14,10 +14,17 @@ namespace Univer.Desktop.Core
         // overwrites a user's existing file. A file the app made itself (origin null, the grade summary) gets no mark.
         public static string Keep(string temp, string folder, string name, string origin)
         {
+            return Keep(temp, folder, name, origin, WithoutStreams);
+        }
+        internal static string Keep(string temp, string folder, string name, string origin, Func<string, bool> withoutStreams)
+        {
+            // Publish only after the staged file's mark is written and read back. Only a volume known not to support
+            // named streams may keep an unmarked download; an access or I/O failure on NTFS must leave it staged.
+            if (origin != null && !Mark(temp, origin) && !withoutStreams(temp)) throw new IOException("downloadFailed");
             for (var i = 0; ; i++)
             {
                 var destination = Path.Combine(folder, i == 0 ? name : Path.GetFileNameWithoutExtension(name) + " (" + i + ")" + Path.GetExtension(name));
-                try { File.Move(temp, destination); if (origin != null) Mark(destination, origin); return destination; }
+                try { File.Move(temp, destination); return destination; }
                 catch (IOException) { if (i >= 999 || !File.Exists(destination)) throw; }
             }
         }
@@ -26,6 +33,7 @@ namespace Univer.Desktop.Core
         // shares) has none, and that never fails the download.
         public static bool Mark(string path, string origin)
         {
+            var bytes = Encoding.ASCII.GetBytes("[ZoneTransfer]\r\nZoneId=3\r\nHostUrl=" + origin + "\r\n");
             try
             {
                 using (var handle = CreateFileW(Long(path) + ZoneStream, 0x40000000, 0, IntPtr.Zero, 2, 0, IntPtr.Zero))
@@ -33,11 +41,10 @@ namespace Univer.Desktop.Core
                     if (handle.IsInvalid) return false;
                     using (var stream = new FileStream(handle, FileAccess.Write))
                     {
-                        var bytes = Encoding.ASCII.GetBytes("[ZoneTransfer]\r\nZoneId=3\r\nHostUrl=" + origin + "\r\n");
                         stream.Write(bytes, 0, bytes.Length);
                     }
                 }
-                return true;
+                return Zone(path) == Encoding.ASCII.GetString(bytes);
             }
             catch (IOException) { return false; }
             catch (UnauthorizedAccessException) { return false; }
@@ -59,6 +66,13 @@ namespace Univer.Desktop.Core
             catch (ArgumentException) { return null; }
         }
         private const string ZoneStream = ":Zone.Identifier";
+        private static bool WithoutStreams(string path)
+        {
+            var volume = new StringBuilder(260); uint serial, componentLength, flags;
+            return GetVolumePathNameW(Path.GetFullPath(path), volume, volume.Capacity) &&
+                GetVolumeInformationW(volume.ToString(), null, 0, out serial, out componentLength, out flags, null, 0) &&
+                (flags & 0x00040000) == 0; // FILE_NAMED_STREAMS
+        }
         // The stream's name makes a path near the 260-character limit longer than Windows may take without this prefix.
         // The prefix turns off Windows' own reading of "/" and "..", so a shorter path goes as it is.
         private static string Long(string path)
@@ -70,5 +84,9 @@ namespace Univer.Desktop.Core
         // .NET Framework's own file APIs refuse a path with a stream name, so the stream is opened through Windows.
         [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true, ExactSpelling = true)]
         private static extern SafeFileHandle CreateFileW(string name, uint access, uint share, IntPtr security, uint creation, uint flags, IntPtr template);
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true, ExactSpelling = true)]
+        private static extern bool GetVolumePathNameW(string name, StringBuilder volume, int length);
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true, ExactSpelling = true)]
+        private static extern bool GetVolumeInformationW(string root, StringBuilder volume, int volumeLength, out uint serial, out uint componentLength, out uint flags, StringBuilder fileSystem, int fileSystemLength);
     }
 }

@@ -28,6 +28,7 @@ namespace Univer.Desktop.UI
         private int trayUnread = -1;
         private bool NoticesActive { get { return (credentials != null && !prefs.AutoLoginPaused && !guard.Stopped && !selfTest && !accountReview) || noticesQa; } }
         private bool NoticesShown { get { return noticesPanel != null && noticesPanel.Visible; } }
+        private string NoticeAccount { get { return ScheduleWeek.AccountMark(noticesQa ? "QA notices" : credentials?.Login); } }
         private void BuildNotices()
         {
             noticesButton.Compact = true; noticesButton.Size = new Size(28, 28); noticesButton.Icon = UiIcon.Bell;
@@ -43,7 +44,8 @@ namespace Univer.Desktop.UI
             noticesPanel.VisibleChanged += (s, e) => noticesButton.Selected = noticesPanel.Visible;
             workspace.Resize += (s, e) => PlaceNotices(); canvas.LocationChanged += (s, e) => PlaceNotices();
             noticeChecking.Tick += (s, e) => EndNoticeCheck(true);
-            if (credentials != null && !prefs.AutoLoginPaused && !selfTest && !accountReview) notices = storage.LoadNotices();
+            noticesClearPending = prefs.NoticesClearPending;
+            if (credentials != null && !prefs.AutoLoginPaused && !storageFailed && !selfTest && !accountReview) notices = storage.LoadNotices(NoticeAccount, noticesClearPending);
         }
         // The toolbar bell, the tray item and an open panel follow the list.
         private void RenderNotices()
@@ -183,7 +185,11 @@ namespace Univer.Desktop.UI
         }
         private async Task SaveNoticesAsync()
         {
-            try { await storage.SaveNoticesAsync(notices); noticesClearPending = false; }
+            try
+            {
+                if (noticesClearPending) await FinishNoticesClearAsync();
+                await storage.SaveNoticesAsync(NoticeAccount, notices);
+            }
             // The list stays in memory and the next change writes it again; a failed write never blocks the site.
             catch (Exception) { }
         }
@@ -193,15 +199,28 @@ namespace Univer.Desktop.UI
             var serializer = new System.Web.Script.Serialization.JavaScriptSerializer();
             return serializer.Serialize(before) != serializer.Serialize(after);
         }
-        // A session change: the list belonged to the account that was signed in. A failed delete is retried with the
-        // next write, and the list is never shown without an automatic sign-in.
+        // A session change: the list belonged to the account that was signed in. Save the pending delete before trying
+        // it, so a restart cannot reload the old list even if this account signs in again.
         private async Task ClearNoticesAsync()
         {
             notices = new List<SiteNotice>(); noticeFetchedAt = long.MinValue; noticeScanDue = true; noticeRefreshing = noticeRefreshQueued = noticeFailed = false; noticeChecking.Stop();
             HideNotices(); messages.ClearNotices();
             RenderNotices();
-            try { await storage.SaveNoticesAsync(notices); noticesClearPending = false; }
-            catch (Exception) { noticesClearPending = true; }
+            noticesClearPending = prefs.NoticesClearPending = true;
+            try
+            {
+                await storage.SavePreferencesAsync(prefs);
+                await FinishNoticesClearAsync();
+            }
+            catch (Exception) { }
+        }
+        private async Task FinishNoticesClearAsync()
+        {
+            await storage.SaveNoticesAsync(NoticeAccount, new List<SiteNotice>());
+            prefs.NoticesClearPending = false;
+            try { await storage.SavePreferencesAsync(prefs); }
+            catch (Exception) { prefs.NoticesClearPending = true; throw; }
+            noticesClearPending = false;
         }
         // New notifications: a toast while the window is in front, a tray balloon while it is hidden or minimized.
         private void AnnounceNotices(List<SiteNotice> fresh)

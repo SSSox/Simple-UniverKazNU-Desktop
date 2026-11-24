@@ -205,7 +205,7 @@ namespace Univer.Desktop.UI
             });
         }
         // again: the user chose "Download again" for a file the list already has.
-        private async Task DownloadAsync(string url, string suggestedName = null, bool again = false)
+        private async Task DownloadAsync(string url, string suggestedName = null, bool again = false, bool userGesture = false)
         {
             if (closing || rotating || commandBusy) return;
             var browser = Active; var service = downloads;
@@ -228,11 +228,12 @@ namespace Univer.Desktop.UI
             if (service != downloads || closing || rotating || commandBusy) return;
             string link = null;
             var result = await service.DownloadAsync(url, browser?.Address, agent, suggestedName, source, key, folder, found => link = found);
-            // A material that is the teacher's link opens like any other link the user clicks.
+            // Only the original click may open a teacher's link; a script may still request a native file download.
             if (result == "studyLink")
             {
                 if (service != downloads || closing || rotating) return;
-                if (SitePolicy.StudyLink(link)) OpenWebLink(link); else SetStatus("externalBlocked");
+                if (!userGesture) { SetStatus("offOrigin"); return; }
+                if (SitePolicy.OpenMaterialLink(url, link, userGesture)) OpenWebLink(link); else SetStatus("externalBlocked");
                 return;
             }
             // Nothing was saved and nothing keeps running, so the click gets an answer instead of silence.
@@ -242,12 +243,12 @@ namespace Univer.Desktop.UI
             // automation signs in again, then repeat this GET once; an explicit logout or a stopped guard stays manual.
             // A section waiting for its sign-in keeps its place: the same sign-in serves the student's next click.
             if (credentials == null || prefs.AutoLoginPaused || guard.Blocked || url == resumedUrl || (resumeDownload != null && (resumeDownload.Url == url || resumeDownload.Run != null))) return;
-            resumeDownload = new PendingDownload { Url = url, Name = suggestedName, Until = DateTime.UtcNow.AddSeconds(90) };
+            resumeDownload = new PendingDownload { Url = url, Name = suggestedName, UserGesture = userGesture, Until = DateTime.UtcNow.AddSeconds(90) };
             SetStatus("downloadSigningIn");
             browser.Load(lastMethod == "GET" && SitePolicy.Trusted(browser.Address) ? browser.Address : lastGet);
         }
         // Run and Rest: a section's «Скачать все» that goes on from Url, the refused file, after the sign-in.
-        private sealed class PendingDownload { public string Url, Name; public DateTime Until; public bool Loaded; public DownloadRecord Earlier; public SectionRun Run; public IList<string> Rest; }
+        private sealed class PendingDownload { public string Url, Name; public DateTime Until; public bool Loaded, UserGesture; public DownloadRecord Earlier; public SectionRun Run; public IList<string> Rest; }
         private PendingDownload resumeDownload, duplicate;
         // QA: notes a download that would start, in place of the request.
         private Func<string, bool> downloadProbe;
@@ -259,7 +260,7 @@ namespace Univer.Desktop.UI
         private void DownloadAgain()
         {
             var pending = duplicate; duplicate = null; messages.Dismiss(); RenderFeedback();
-            if (pending != null) QueueAsync(() => DownloadAsync(pending.Url, pending.Name, true));
+            if (pending != null) QueueAsync(() => DownloadAsync(pending.Url, pending.Name, true, userGesture: true));
         }
         private string resumedUrl;
         private void ResumeDownload()
@@ -270,7 +271,7 @@ namespace Univer.Desktop.UI
             if (DateTime.UtcNow > pending.Until) { SetStatus("downloadLogin"); return; }
             if (pending.Run != null) { ResumeSectionRun(pending); return; }
             // One repeat only: a second login answer for the same file is left to the user.
-            QueueAsync(async () => { resumedUrl = pending.Url; try { await DownloadAsync(pending.Url, pending.Name); } finally { resumedUrl = null; } });
+            QueueAsync(async () => { resumedUrl = pending.Url; try { await DownloadAsync(pending.Url, pending.Name, userGesture: pending.UserGesture); } finally { resumedUrl = null; } });
         }
         // A hand-off to Moodle that never came within its time leaves no «Открытие Moodle…» behind.
         private void ExpireSignOn()

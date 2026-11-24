@@ -4,6 +4,13 @@
     'use strict';
     var origin = 'https://univer.kaznu.kz';
     if (location.origin !== origin || window.__univerAutomationV1) return;
+    var root = document, apply = Reflect.apply, select = Document.prototype.querySelector, contains = Node.prototype.contains;
+    var formAction = Object.getOwnPropertyDescriptor(HTMLFormElement.prototype, 'action').get, Url = URL;
+    var urlOrigin = Object.getOwnPropertyDescriptor(Url.prototype, 'origin').get;
+    var ownerDocument = Object.getOwnPropertyDescriptor(Node.prototype, 'ownerDocument').get;
+    var documentWindow = Object.getOwnPropertyDescriptor(Document.prototype, 'defaultView').get;
+    var inputValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+    var setAttribute = Element.prototype.setAttribute, dispatch = EventTarget.prototype.dispatchEvent, NativeEvent = Event;
     var token = Date.now().toString(36) + Math.random().toString(36).slice(2);
     var loginClicked = false, sequence = 0, domAt = 0;
     var episodes = {notice: {}, agreement: {}, reauth: {}};
@@ -46,7 +53,11 @@
     }
     function normalize(text) { return (text || '').replace(/\s+/g, ' ').trim().toLowerCase(); }
     function trustedAction(form) {
-        try { return new URL(form.action, form.ownerDocument.URL).origin === origin; }
+        try {
+            var doc = apply(ownerDocument, form, []), win = apply(documentWindow, doc, []);
+            return win && win.document === doc && win.location.origin === origin &&
+                apply(urlOrigin, new Url(apply(formAction, form, [])), []) === origin;
+        }
         catch (_) { return false; }
     }
     function documents() {
@@ -237,13 +248,26 @@
         while (walker.nextNode()) if (/\S/.test(walker.currentNode.data)) return true;
         return false;
     }
-    function valid(expected) { return location.origin === origin && token === expected; }
+    function valid(expected) { return document === root && location.origin === origin && token === expected; }
+    // Use document-start DOM methods: a page replacement of querySelector must not invent a credential form. Recheck
+    // after filling the login too, since its input/change handlers can detach the form or change where it submits.
+    function credentialTarget(target, id) {
+        try {
+            var doc = apply(ownerDocument, target.form, []);
+            if (id === 'login_frm' && !/^\/user\/login(?:moodle)?\/?$/i.test(location.pathname)) return false;
+            return visible(target.login) && visible(target.password) && visible(target.button) &&
+                !target.login.disabled && !target.password.disabled && !target.button.disabled &&
+                document === root && location.origin === origin &&
+                apply(select, doc, [id === 'login_frm' ? 'form#login_frm' : '#auth_modal form#modal_auth_frm']) === target.form &&
+                apply(contains, target.form, [target.login]) && apply(contains, target.form, [target.password]) &&
+                apply(contains, target.form, [target.button]) && trustedAction(target.form);
+        } catch (_) { return false; }
+    }
     function setValue(input, value) {
-        var win = input.ownerDocument.defaultView;
-        Object.getOwnPropertyDescriptor(win.HTMLInputElement.prototype, 'value').set.call(input, value);
-        input.setAttribute('value', value); // Legacy jQuery reads attr('value'). Readonly is preserved.
-        input.dispatchEvent(new win.Event('input', {bubbles: true}));
-        input.dispatchEvent(new win.Event('change', {bubbles: true}));
+        apply(inputValue, input, [value]);
+        apply(setAttribute, input, ['value', value]); // Legacy jQuery reads attr('value'). Readonly is preserved.
+        apply(dispatch, input, [new NativeEvent('input', {bubbles: true})]);
+        apply(dispatch, input, [new NativeEvent('change', {bubbles: true})]);
     }
     function check(kind, expected, appearance) {
         if (!valid(expected)) return 'wait';
@@ -277,8 +301,13 @@
             if (!valid(expected) || loginClicked) return 'wait';
             // 'not-ready' certifies that nothing was submitted, so the native reservation may be returned.
             if (!probe().loginReady) return 'not-ready';
-            var target = loginForm(); loginClicked = true;
-            setValue(target.login, login); setValue(target.password, password);
+            var target = loginForm();
+            if (!target || !credentialTarget(target, 'login_frm')) return 'not-ready';
+            loginClicked = true;
+            setValue(target.login, login);
+            if (!credentialTarget(target, 'login_frm')) { loginClicked = false; return 'not-ready'; }
+            setValue(target.password, password);
+            if (!credentialTarget(target, 'login_frm')) return 'wait';
             target.button.click(); // Dynamic encryption/key handler remains intact.
             return 'submitted';
         },
@@ -287,12 +316,17 @@
             var target = reauthForm(documents()), e = episode('reauth', target);
             if (e.clicked || ajax.reauth.state === 'pending') return 'wait';
             if (!target || !target.ready || target.attempt !== 1 || e.id !== challenge) return 'not-ready';
+            if (!credentialTarget(target, 'modal_auth_frm')) return 'not-ready';
             // Do not replace the account bound by the site's readonly reauthentication field.
             // The site may show the login in another case or with spaces around it (as Android compares); it is only read.
             if (target.login.readOnly && target.login.value.trim().toLowerCase() !== String(login).trim().toLowerCase()) return 'account-mismatch';
             e.clicked = true; ajax.reauth = {state: 'pending', challenge: e.id, doc: target.form.ownerDocument};
             if (!target.login.readOnly) setValue(target.login, login);
+            if (!credentialTarget(target, 'modal_auth_frm')) {
+                e.clicked = false; ajax.reauth = {state: '', challenge: ''}; return 'not-ready';
+            }
             setValue(target.password, password);
+            if (!credentialTarget(target, 'modal_auth_frm')) return 'wait';
             target.button.click(); // Official ajl() serializes nonce/cheat and performs AJAX.
             return 'submitted';
         },

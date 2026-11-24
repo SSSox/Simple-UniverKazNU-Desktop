@@ -7,6 +7,43 @@ namespace Univer.Desktop.Tests
     public sealed class GradeReportTests
     {
         [Theory]
+        [InlineData("document-1", "42", 7, true)]
+        [InlineData("document-1", null, 7, false)]
+        [InlineData("document-1", "", 7, false)]
+        [InlineData("document-1", "0", 7, false)]
+        [InlineData("document-1", "43", 7, false)]
+        [InlineData("document-2", "42", 7, false)]
+        [InlineData(null, "42", 7, false)]
+        [InlineData("", "42", 7, false)]
+        [InlineData("document-1", "42", 8, false)]
+        public void Source_RequiresTheSameDocumentOpeningAndSession(string document, string opening, int generation, bool expected)
+        {
+            var source = new GradeReport.Source("document-1", "42", 7);
+            Assert.Equal(expected, source.StillOpen(new GradeReport.Source(document, opening, generation)));
+        }
+
+        [Theory]
+        [InlineData(null, "42")]
+        [InlineData("", "42")]
+        [InlineData("document-1", null)]
+        [InlineData("document-1", "")]
+        [InlineData("document-1", "0")]
+        public void Source_RequiresAPositiveOrigin(string document, string opening)
+        {
+            var source = new GradeReport.Source(document, opening, 7);
+            Assert.False(source.StillOpen(new GradeReport.Source(document, opening, 7)));
+        }
+
+        [Fact]
+        public void Source_UnansweredFinalQueryCancelsAFinishedExport()
+        {
+            var source = new GradeReport.Source("document-1", "42", 7);
+            Assert.True(source.StillOpen(new GradeReport.Source("document-1", "42", 7)));
+            // PDF rendering finished, but a reload destroyed the renderer context before the final query replied.
+            Assert.False(source.StillOpen(null));
+        }
+
+        [Theory]
         [InlineData("print", "print")]
         [InlineData("pdf", "pdf")]
         [InlineData("png", "png")]

@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.IO.Compression;
 using System.Linq;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Univer.Desktop.Core;
@@ -258,6 +260,109 @@ namespace Univer.Desktop.Tests
         }
 
         // ---- Workbooks ----
+        private static Workbook Xlsx(string[] targets, Action<ZipArchive> parts, CancellationToken stop, bool understateWorksheetLengths = false)
+        {
+            using (var memory = new MemoryStream())
+            {
+                using (var zip = new ZipArchive(memory, ZipArchiveMode.Create, true))
+                {
+                    const string relationships = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
+                    using (var writer = new StreamWriter(zip.CreateEntry("xl/workbook.xml").Open(), new UTF8Encoding(false)))
+                    {
+                        writer.Write("<workbook xmlns:r='" + relationships + "'><sheets>");
+                        for (var i = 0; i < targets.Length; i++) writer.Write("<sheet name='Sheet" + i + "' r:id='rId" + i + "'/>");
+                        writer.Write("</sheets></workbook>");
+                    }
+                    using (var writer = new StreamWriter(zip.CreateEntry("xl/_rels/workbook.xml.rels").Open(), new UTF8Encoding(false)))
+                    {
+                        writer.Write("<Relationships xmlns='http://schemas.openxmlformats.org/package/2006/relationships'>");
+                        for (var i = 0; i < targets.Length; i++) writer.Write("<Relationship Id='rId" + i + "' Type='" + relationships + "/worksheet' Target='" + targets[i] + "'/>");
+                        writer.Write("</Relationships>");
+                    }
+                    parts(zip);
+                }
+                if (understateWorksheetLengths)
+                {
+                    // Leave compressed sizes intact, but make worksheet lengths in the central directory lie.
+                    var bytes = memory.GetBuffer();
+                    var at = BitConverter.ToInt32(bytes, (int)memory.Length - 6);
+                    while (BitConverter.ToInt32(bytes, at) == 0x02014B50)
+                    {
+                        var nameLength = BitConverter.ToUInt16(bytes, at + 28);
+                        if (Encoding.UTF8.GetString(bytes, at + 46, nameLength).StartsWith("xl/worksheets/", StringComparison.Ordinal)) Put(bytes, at + 24, 1);
+                        at += 46 + nameLength + BitConverter.ToUInt16(bytes, at + 30) + BitConverter.ToUInt16(bytes, at + 32);
+                    }
+                }
+                memory.Position = 0;
+                using (var zip = new ZipArchive(memory, ZipArchiveMode.Read)) return XlsxHtml.Read(zip, Options, stop);
+            }
+        }
+        private static void Worksheet(ZipArchive zip, string target, Action<TextWriter> content)
+        {
+            using (var writer = new StreamWriter(zip.CreateEntry("xl/" + target).Open(), new UTF8Encoding(false)))
+            {
+                writer.Write("<worksheet><sheetData>");
+                content(writer);
+                writer.Write("</sheetData></worksheet>");
+            }
+        }
+
+        [Theory]
+        [InlineData("worksheets/sheet.xml")]
+        [InlineData("worksheets/../worksheets/%73heet.xml")]
+        public void Xlsx_RepeatedWorksheetTargetsAreNotReparsed(string repeatedTarget)
+        {
+            var targets = new[] { "worksheets/sheet.xml" }.Concat(Enumerable.Repeat(repeatedTarget, 15)).ToArray();
+            var rows = string.Concat(Enumerable.Repeat("<row/>", 20000));
+            var error = Within(20, stop => Xunit.Record.Exception(() => Xlsx(targets,
+                zip => Worksheet(zip, targets[0], writer => writer.Write(rows)), stop)));
+            Assert.IsType<InvalidDataException>(error);
+        }
+
+        [Fact]
+        public void Xlsx_TooManyDistinctEmptyWorksheetsAreRejected()
+        {
+            var targets = Enumerable.Range(0, 257).Select(i => "worksheets/sheet" + i + ".xml").ToArray();
+            var error = Within(20, stop => Xunit.Record.Exception(() => Xlsx(targets, zip =>
+            {
+                foreach (var target in targets) Worksheet(zip, target, writer => { });
+            }, stop)));
+            Assert.IsType<PreviewLimitException>(error);
+        }
+
+        [Fact]
+        public void Xlsx_EmptyRowsAcrossWorksheetsShareAParsingBudget()
+        {
+            var targets = new[] { "worksheets/first.xml", "worksheets/second.xml" };
+            var rows = string.Concat(Enumerable.Repeat("<row r='1'/>", 1000));
+            var error = Within(20, stop => Xunit.Record.Exception(() => Xlsx(targets, zip =>
+            {
+                foreach (var target in targets) Worksheet(zip, target, writer =>
+                {
+                    for (var i = 0; i < 1000; i++) writer.Write(rows);
+                    writer.Write("<row r='1'/>");
+                });
+            }, stop)));
+            Assert.IsType<PreviewLimitException>(error);
+        }
+
+        [Theory]
+        [InlineData(false)]
+        [InlineData(true)]
+        public void Xlsx_DecompressedWorksheetBytesShareAParsingBudget(bool understateWorksheetLengths)
+        {
+            var targets = Enumerable.Range(0, 3).Select(i => "worksheets/sheet" + i + ".xml").ToArray();
+            var whitespace = new string(' ', 1024 * 1024);
+            var error = Within(20, stop => Xunit.Record.Exception(() => Xlsx(targets, zip =>
+            {
+                foreach (var target in targets) Worksheet(zip, target, writer =>
+                {
+                    for (var i = 0; i < 48; i++) writer.Write(whitespace);
+                });
+            }, stop, understateWorksheetLengths)));
+            Assert.IsType<PreviewLimitException>(error);
+        }
+
         [Fact]
         public void Sheet_MergedAreasBeyondARealSheetStayCheapToDraw()
         {

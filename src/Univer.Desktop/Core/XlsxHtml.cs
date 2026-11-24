@@ -15,6 +15,8 @@ namespace Univer.Desktop.Core
     internal static class XlsxHtml
     {
         private const long SheetLimit = 64L * 1024 * 1024, PartLimit = 16L * 1024 * 1024, StringLimit = 32 * 1024 * 1024;
+        private const long TotalSheetLimit = 128L * 1024 * 1024;
+        private const int SheetCountLimit = 256, ParsedRowLimit = 2000000;
         public static PreviewDocument Convert(string path, PreviewOptions options, CancellationToken cancellation = default(CancellationToken))
         {
             using (var archive = ZipFile.OpenRead(path)) return Convert(archive, options, cancellation);
@@ -41,8 +43,13 @@ namespace Univer.Desktop.Core
             var strings = SharedStrings(archive.GetEntry(stringsTarget), cancellation);
             var sheets = workbook.Elements().FirstOrDefault(e => e.Name.LocalName == "sheets");
             var stored = 0;
+            var sheetCount = 0;
+            var targets = new HashSet<string>(StringComparer.Ordinal);
+            var budget = new SheetBudget();
             foreach (var sheet in sheets?.Elements().Where(e => e.Name.LocalName == "sheet") ?? Enumerable.Empty<XElement>())
             {
+                cancellation.ThrowIfCancellationRequested();
+                if (++sheetCount > SheetCountLimit) throw new PreviewLimitException();
                 var state = (string)sheet.Attribute("state");
                 if (state == "hidden" || state == "veryHidden") continue;
                 var id = sheet.Attributes().FirstOrDefault(a => a.Name.LocalName == "id")?.Value;
@@ -50,8 +57,9 @@ namespace Univer.Desktop.Core
                 if (id == null || !relations.TryGetValue(id, out relation) || !relation.Type.EndsWith("/worksheet", StringComparison.Ordinal)) continue;
                 var entry = archive.GetEntry(relation.Target);
                 if (entry == null) continue;
+                if (!targets.Add(entry.FullName)) throw new InvalidDataException("Repeated worksheet");
                 var data = new SheetData { Name = (string)sheet.Attribute("name") ?? "" };
-                stored += Sheet(entry, data, book, strings, date1904, options, cancellation, stored);
+                stored += Sheet(entry, data, book, strings, date1904, options, cancellation, stored, budget);
                 book.Sheets.Add(data);
             }
             return book;
@@ -170,12 +178,41 @@ namespace Univer.Desktop.Core
             }
             return result;
         }
-        // Returns the number of cells stored.
-        private static int Sheet(ZipArchiveEntry entry, SheetData sheet, Workbook book, List<string> strings, bool date1904, PreviewOptions options, CancellationToken cancellation, int alreadyStored)
+        private sealed class SheetBudget
         {
-            if (entry.Length > SheetLimit) throw new PreviewLimitException();
+            public long Bytes;
+            public int Rows;
+        }
+        // ZIP lengths can understate the data, so count the actual decompressed bytes as well.
+        private sealed class SheetStream : Stream
+        {
+            private readonly Stream source;
+            private readonly SheetBudget budget;
+            private long bytes;
+            public SheetStream(Stream source, SheetBudget budget) { this.source = source; this.budget = budget; }
+            public override int Read(byte[] buffer, int offset, int count)
+            {
+                var read = source.Read(buffer, offset, count);
+                bytes += read; budget.Bytes += read;
+                if (bytes > SheetLimit || budget.Bytes > TotalSheetLimit) throw new PreviewLimitException();
+                return read;
+            }
+            public override bool CanRead { get { return source.CanRead; } }
+            public override bool CanSeek { get { return false; } }
+            public override bool CanWrite { get { return false; } }
+            public override long Length { get { throw new NotSupportedException(); } }
+            public override long Position { get { throw new NotSupportedException(); } set { throw new NotSupportedException(); } }
+            public override void Flush() { throw new NotSupportedException(); }
+            public override long Seek(long offset, SeekOrigin origin) { throw new NotSupportedException(); }
+            public override void SetLength(long value) { throw new NotSupportedException(); }
+            public override void Write(byte[] buffer, int offset, int count) { throw new NotSupportedException(); }
+        }
+        // Returns the number of cells stored.
+        private static int Sheet(ZipArchiveEntry entry, SheetData sheet, Workbook book, List<string> strings, bool date1904, PreviewOptions options, CancellationToken cancellation, int alreadyStored, SheetBudget budget)
+        {
+            if (entry.Length > SheetLimit || budget.Bytes + entry.Length > TotalSheetLimit) throw new PreviewLimitException();
             var stored = 0; var culture = options.Culture;
-            using (var stream = entry.Open()) using (var reader = XmlReader.Create(stream, DocxHtml.XmlSettings(SheetLimit * 4)))
+            using (var stream = entry.Open()) using (var reader = XmlReader.Create(new SheetStream(stream, budget), DocxHtml.XmlSettings(SheetLimit * 4)))
             {
                 int row = -1, column = -1;
                 while (reader.Read())
@@ -199,6 +236,7 @@ namespace Univer.Desktop.Core
                             }
                             break;
                         case "row":
+                            if (++budget.Rows > ParsedRowLimit) throw new PreviewLimitException();
                             int number;
                             row = int.TryParse(reader.GetAttribute("r"), out number) && number >= 1 ? number - 1 : row + 1;
                             column = -1;

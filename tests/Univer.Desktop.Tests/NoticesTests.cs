@@ -147,16 +147,70 @@ namespace Univer.Desktop.Tests
         {
             var storage = new Storage(root);
             var list = Notices.Merge(new List<SiteNotice>(), Scan("/student/rating/", 2, 1, true, Detail("Анкета", "30.11.2026")), Notices.Now());
-            await storage.SaveNoticesAsync(list);
-            var loaded = new Storage(root).LoadNotices();
+            var account = ScheduleWeek.AccountMark("first student");
+            await storage.SaveNoticesAsync(account, list);
+            var loaded = new Storage(root).LoadNotices(account);
             Assert.Equal(1, Notices.Shown(Notices.Showing(loaded).Single()));
             Assert.Equal("30.11.2026", loaded.Single().Details.Single().Until);
-            File.WriteAllText(Path.Combine(root, "notices.json"), "[{\"Key\":\"counter:x\",\"Kind\":\"counter\",\"Url\":\"https://evil.example/\",\"Count\":3}]");
-            Assert.Empty(storage.LoadNotices());
+            File.WriteAllText(Path.Combine(root, "notices.json"), "{\"Account\":\"" + account + "\",\"Notices\":[{\"Key\":\"counter:x\",\"Kind\":\"counter\",\"Url\":\"https://evil.example/\",\"Count\":3}]}");
+            Assert.Empty(storage.LoadNotices(account));
             File.WriteAllText(Path.Combine(root, "notices.json"), "{broken");
-            Assert.Empty(storage.LoadNotices());
-            await storage.SaveNoticesAsync(new List<SiteNotice>());
+            Assert.Empty(storage.LoadNotices(account));
+            await storage.SaveNoticesAsync(account, new List<SiteNotice>());
             Assert.False(File.Exists(Path.Combine(root, "notices.json")));
+        }
+        [Fact]
+        public async Task Storage_NoticesBelongOnlyToTheAccountThatSavedThem()
+        {
+            var storage = new Storage(root);
+            var account = ScheduleWeek.AccountMark("first student");
+            var list = Notices.Merge(new List<SiteNotice>(), Scan("/student/rating/", 2), Notices.Now());
+            await storage.SaveNoticesAsync(account, list);
+
+            var next = new Storage(root);
+            Assert.Single(next.LoadNotices(account));
+            Assert.Empty(next.LoadNotices(ScheduleWeek.AccountMark("second student")));
+            Assert.Empty(next.LoadNotices(""));
+            Assert.Empty(next.LoadNotices(account, true));
+        }
+        [Fact]
+        public void Storage_UnboundLegacyNoticesAreNotAssignedToTheCurrentAccount()
+        {
+            var storage = new Storage(root);
+            var list = Notices.Merge(new List<SiteNotice>(), Scan("/student/rating/", 2), Notices.Now());
+            File.WriteAllText(Path.Combine(root, "notices.json"), new System.Web.Script.Serialization.JavaScriptSerializer().Serialize(list));
+            Assert.Empty(storage.LoadNotices(ScheduleWeek.AccountMark("first student")));
+        }
+        [Fact]
+        public async Task Storage_LockedNoticesStayPendingAcrossAccountSwitchAndRestarts()
+        {
+            var storage = new Storage(root);
+            var account = ScheduleWeek.AccountMark("first student");
+            await storage.SaveNoticesAsync(account, Notices.Merge(new List<SiteNotice>(), Scan("/student/rating/", 2), Notices.Now()));
+            storage.SavePreferences(new Preferences { SessionClearPending = true, AutoLoginPaused = true });
+            var path = Path.Combine(root, "notices.json");
+            using (File.Open(path, FileMode.Open, FileAccess.Read, FileShare.Read))
+            {
+                var prefs = storage.LoadPreferences();
+                Assert.True(storage.FinishSessionClear(prefs));
+                Assert.True(prefs.NoticesClearPending);
+                Assert.True(new Storage(root).LoadPreferences().NoticesClearPending);
+
+                // A new sign-in may resume before another program releases the old cache.
+                prefs.AutoLoginPaused = false; await storage.SavePreferencesAsync(prefs);
+                var next = new Storage(root); prefs = next.LoadPreferences();
+                Assert.True(next.FinishSessionClear(prefs));
+                Assert.True(prefs.NoticesClearPending);
+                Assert.False(prefs.AutoLoginPaused);
+                Assert.Empty(next.LoadNotices(ScheduleWeek.AccountMark("second student"), prefs.NoticesClearPending));
+                Assert.Empty(next.LoadNotices(account, prefs.NoticesClearPending));
+            }
+
+            var restarted = new Storage(root); var clean = restarted.LoadPreferences();
+            Assert.True(restarted.FinishSessionClear(clean));
+            Assert.False(File.Exists(path));
+            Assert.False(restarted.LoadPreferences().NoticesClearPending);
+            Assert.False(restarted.FinishSessionClear(clean));
         }
         public void Dispose() { try { Directory.Delete(root, true); } catch (IOException) { } catch (UnauthorizedAccessException) { } }
     }

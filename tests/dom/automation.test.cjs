@@ -1,6 +1,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const vm = require('node:vm');
 const { JSDOM } = require('jsdom');
 const script = fs.readFileSync('src/Univer.Desktop/Assets/univer-automation.js', 'utf8');
 const desktop = fs.readFileSync('src/Univer.Desktop/Assets/desktop.js', 'utf8');
@@ -8,7 +9,7 @@ const common = fs.readFileSync('src/Univer.Desktop/Assets/page-common.js', 'utf8
 const layout = common + '\n' + fs.readFileSync('src/Univer.Desktop/Assets/univer-layout.js', 'utf8');
 const paint = fs.readFileSync('src/Univer.Desktop/Assets/paint-gate.js', 'utf8');
 
-function page(html, url = 'https://univer.kaznu.kz/user/login') {
+function page(html, url = 'https://univer.kaznu.kz/user/login', bootstrap = script) {
   const dom = new JSDOM(html, { url, runScripts: 'outside-only' });
   const w = dom.window;
   Object.defineProperty(w.document, 'readyState', { value: 'complete', configurable: true });
@@ -19,9 +20,263 @@ function page(html, url = 'https://univer.kaznu.kz/user/login') {
   const hooks = {};
   const jq = () => ({ bind: (event, fn) => { hooks[event] = fn; } });
   w.jQuery = jq;
-  w.eval(script);
-  return { w, api: w.__univerAutomationV1, hooks, close: () => w.close() };
+  const run = source => new vm.Script(source).runInContext(dom.getInternalVMContext());
+  run(bootstrap);
+  return { w, api: w.__univerAutomationV1, hooks, run, close: () => w.close() };
 }
+
+// Execute the actual C# script expressions, with presentation work omitted. A hand-written native caller would miss
+// a regression where the controller accidentally goes back to resolving the public window property.
+const controller = fs.readFileSync('src/Univer.Desktop/Web/AutomationController.cs', 'utf8');
+const nativeBinding = '__univerAutomation_fixture';
+const reference = /private string AutomationReference\s*{\s*get\s*{\s*return ([\s\S]*?);\s*}\s*}/.exec(controller);
+const nativeReference = reference ? new Function('automationBinding', `return ${reference[1]}`)(nativeBinding) : null;
+function nativeExpression(signature, pattern, overrides = {}) {
+  const body = controller.slice(controller.indexOf(signature));
+  const expression = pattern.exec(body)[1];
+  const values = {
+    bundle: script, prefs: {}, viewer: false, active: true, TimingScript: '', WakeScript: '',
+    ConfigurePaint: () => '', Early: () => '', ApplyView: () => '', ViewScript: () => '',
+    NativeChannel: { Script: () => 'null' }, MessageKey: 'fixture-channel', automationBinding: nativeBinding,
+    AutomationReference: nativeReference,
+    Quote: JSON.stringify, string: { Join: (separator, items) => items.join(separator) }, ...overrides
+  };
+  return new Function(...Object.keys(values), `return ${expression}`)(...Object.values(values));
+}
+function nativePage(html, url) {
+  return page(html, url, nativeExpression('public string DocumentScript(', /return ([\s\S]*?);\r?\n\s*}/));
+}
+function nativeProbe(p) {
+  return p.run(nativeExpression('private string StepScript(', /return ([\s\S]*?);\r?\n\s*}/));
+}
+function nativeCall(p, method, ...args) {
+  return p.run(nativeExpression('public async Task<string> CallAsync(', /return await EvaluateAsync\(browser, ([\s\S]*?)\);/, {
+    method, quoted: args.map(JSON.stringify)
+  }));
+}
+function replaceAutomation(p, received) {
+  const fake = {
+    probe: () => ({ trusted: true, ready: true, document: 'forged', reauth: true, reauthReady: true,
+      reauthAttempt: 1, reauthChallenge: 'forged-challenge', loginReady: true, loginPage: true }),
+    login: (...args) => received.push(args), reauthenticate: (...args) => received.push(args)
+  };
+  p.w.__univerAutomationV1 = fake;
+  return fake;
+}
+
+test('native probes and credential calls ignore a page replacement on an ordinary page without a form', () => {
+  const p = nativePage('<p>News</p>', 'https://univer.kaznu.kz/news/student/1/'), received = [];
+  replaceAutomation(p, received);
+  const probe = JSON.parse(nativeProbe(p)).probe;
+  if (probe.reauthReady) nativeCall(p, 'reauthenticate', probe.document, probe.reauthChallenge, 'fixture-account', 'fixture-password');
+  if (probe.loginReady) nativeCall(p, 'login', probe.document, 'fixture-account', 'fixture-password');
+  assert.deepEqual(received, []);
+  assert.equal(probe.reauth, false);
+  assert.equal(probe.loginReady, false);
+  nativeCall(p, 'reauthenticate', 'forged', 'forged-challenge', 'fixture-account', 'fixture-password');
+  nativeCall(p, 'login', 'forged', 'fixture-account', 'fixture-password');
+  assert.deepEqual(received, []);
+  p.close();
+});
+
+test('native login keeps the document-start methods when the page replaces the object or its methods', () => {
+  const p = nativePage('<form id="login_frm" action="/user/login"><input type="text"><input type="password"><input name="btn" type="submit"></form>');
+  p.w.document.querySelector('[name=btn]').addEventListener('click', e => e.preventDefault());
+  const received = [], probe = JSON.parse(nativeProbe(p)).probe;
+  const fake = replaceAutomation(p, received);
+  try { p.api.login = fake.login; p.api.probe = fake.probe; } catch (_) { }
+  p.w[nativeBinding] = fake;
+  assert.throws(() => p.run(`${nativeBinding}=window.__univerAutomationV1`), /constant/i);
+  assert.equal(nativeCall(p, 'login', probe.document, 'fixture-account', 'fixture-password'), 'submitted');
+  assert.deepEqual(received, []);
+  assert.equal(p.w.document.querySelector('[type=password]').value, 'fixture-password');
+  assert.equal(p.w[nativeBinding], fake, 'a same-named window property cannot replace the private lexical reference');
+  p.close();
+});
+
+test('native reauthentication keeps its private handler after the page replaces the public object', () => {
+  const p = nativePage(reauthHtml(), 'https://univer.kaznu.kz/news/student/1/'), received = [];
+  p.w.ajl = () => {};
+  p.w.document.querySelector('#modal_auth_ajl_btn').addEventListener('click', e => e.preventDefault());
+  const probe = JSON.parse(nativeProbe(p)).probe;
+  replaceAutomation(p, received);
+  assert.equal(nativeCall(p, 'reauthenticate', probe.document, probe.reauthChallenge, 'fixture-account', 'fixture-password'), 'submitted');
+  assert.deepEqual(received, []);
+  assert.equal(p.w.document.querySelector('#modal_auth_pass').value, 'fixture-password');
+  p.close();
+});
+
+test('a missed document-start installation never falls back to the page handler for credentials', () => {
+  const p = page('<p>News</p>', 'https://univer.kaznu.kz/news/student/1/', ''), received = [];
+  replaceAutomation(p, received);
+  assert.equal(nativeProbe(p), 'bootstrap');
+  nativeCall(p, 'login', 'forged', 'fixture-account', 'fixture-password');
+  nativeCall(p, 'reauthenticate', 'forged', 'forged-challenge', 'fixture-account', 'fixture-password');
+  assert.deepEqual(received, []);
+  p.close();
+});
+
+test('credentials are withheld if a field event changes the login or reauthentication form origin', () => {
+  for (const reauth of [false, true]) {
+    const p = page(reauth ? reauthHtml().replace('readonly', '') :
+      '<form id="login_frm" action="/user/login"><input type="text"><input type="password"><input name="btn" type="submit"></form>',
+    reauth ? 'https://univer.kaznu.kz/news/student/1/' : undefined);
+    p.w.ajl = () => {};
+    const form = p.w.document.querySelector('form'), password = form.querySelector('[type=password]');
+    form.querySelector('[type=text]').addEventListener('input', () => { form.action = 'https://evil.test/collect'; });
+    form.querySelector('[type=submit]').addEventListener('click', e => e.preventDefault());
+    const probe = p.api.probe();
+    const result = reauth ? p.api.reauthenticate(probe.document, probe.reauthChallenge, 'fixture-account', 'fixture-password') :
+      p.api.login(probe.document, 'fixture-account', 'fixture-password');
+    assert.equal(result, 'not-ready');
+    assert.equal(password.value, '');
+    p.close();
+  }
+});
+
+test('a replaced DOM query cannot fill a detached credential form on an ordinary page', () => {
+  const p = nativePage(reauthHtml(), 'https://univer.kaznu.kz/news/student/1/');
+  p.w.ajl = () => {};
+  const probe = JSON.parse(nativeProbe(p)).probe, form = p.w.document.querySelector('form');
+  form.remove();
+  const select = p.w.document.querySelector.bind(p.w.document);
+  p.w.document.querySelector = selector => selector.includes('modal_auth_frm') ? form : select(selector);
+  assert.equal(nativeCall(p, 'reauthenticate', probe.document, probe.reauthChallenge, 'fixture-account', 'fixture-password'), 'not-ready');
+  assert.equal(form.querySelector('[type=password]').value, '');
+  p.close();
+});
+
+test('a form action getter replaced by the page cannot disguise a foreign submission target', () => {
+  const p = nativePage(reauthHtml(), 'https://univer.kaznu.kz/news/student/1/');
+  p.w.ajl = () => {};
+  const probe = JSON.parse(nativeProbe(p)).probe, form = p.w.document.querySelector('form');
+  form.setAttribute('action', 'https://evil.test/collect');
+  Object.defineProperty(form, 'action', { value: 'https://univer.kaznu.kz/user/ajl' });
+  assert.equal(nativeCall(p, 'reauthenticate', probe.document, probe.reauthChallenge, 'fixture-account', 'fixture-password'), 'not-ready');
+  assert.equal(form.querySelector('[type=password]').value, '');
+  p.close();
+});
+
+test('a URL origin getter replaced by the page cannot disguise a foreign submission target', () => {
+  const p = nativePage(reauthHtml(), 'https://univer.kaznu.kz/news/student/1/');
+  p.w.ajl = () => {};
+  const probe = JSON.parse(nativeProbe(p)).probe, form = p.w.document.querySelector('form');
+  form.setAttribute('action', 'https://evil.test/collect');
+  Object.defineProperty(p.w.URL.prototype, 'origin', { get: () => 'https://univer.kaznu.kz' });
+  form.querySelector('[type=submit]').addEventListener('click', e => e.preventDefault());
+  assert.equal(nativeCall(p, 'reauthenticate', probe.document, probe.reauthChallenge, 'fixture-account', 'fixture-password'), 'not-ready');
+  assert.equal(form.querySelector('[type=password]').value, '');
+  p.close();
+});
+
+test('native credential calls reject a stale document, removed form, or changed login URL after the probe', () => {
+  for (const change of ['stale', 'removed', 'url']) {
+    const p = nativePage('<form id="login_frm" action="/user/login"><input type="text"><input type="password"><input name="btn" type="submit"></form>');
+    const probe = JSON.parse(nativeProbe(p)).probe, form = p.w.document.querySelector('form');
+    if (change === 'removed') form.remove();
+    if (change === 'url') p.w.history.replaceState(null, '', '/news/student/1/');
+    nativeCall(p, 'login', change === 'stale' ? 'previous-document' : probe.document, 'fixture-account', 'fixture-password');
+    assert.equal(form.querySelector('[type=text]').value, '');
+    assert.equal(form.querySelector('[type=password]').value, '');
+    p.close();
+  }
+});
+
+test('page callbacks cannot reach a native caller with credential arguments through caller or arguments', () => {
+  const p = nativePage(reauthHtml(), 'https://univer.kaznu.kz/news/student/1/');
+  p.w.ajl = () => {};
+  const probe = JSON.parse(nativeProbe(p)).probe;
+  p.w.document.querySelector('#modal_auth_ajl_btn').addEventListener('click', e => e.preventDefault());
+  p.w.eval(`
+    window.leaked = [];
+    var select = document.querySelector;
+    document.querySelector = function intercepted(selector) {
+      try { if (intercepted.caller) leaked.push(intercepted.caller.arguments); } catch (_) {}
+      return select.call(this, selector);
+    };
+  `);
+  assert.equal(nativeCall(p, 'reauthenticate', probe.document, probe.reauthChallenge, 'fixture-account', 'fixture-password'), 'submitted');
+  assert.equal(p.w.leaked.length, 0);
+  p.close();
+});
+
+for (const reauth of [false, true]) for (const interception of ['setAttribute', 'dispatchEvent', 'Event']) {
+  test(`native ${reauth ? 'reauthentication' : 'login'} bypasses the page replacement of ${interception}`, () => {
+    const p = nativePage(reauth ? reauthHtml().replace('readonly', '') :
+      '<form id="login_frm" action="/user/login"><input type="text"><input type="password"><input name="btn" type="submit"></form>',
+    reauth ? 'https://univer.kaznu.kz/news/student/1/' : undefined);
+    p.w.ajl = () => {};
+    const form = p.w.document.querySelector('form'), received = [], events = [], submitted = [];
+    for (const type of ['input', 'change']) form.addEventListener(type, event => {
+      events.push([type, event.target.value]);
+    });
+    form.querySelector('[type=submit]').addEventListener('click', event => {
+      event.preventDefault();
+      submitted.push([form.querySelector('[type=text]').value, form.querySelector('[type=password]').value]);
+    });
+    const probe = JSON.parse(nativeProbe(p)).probe;
+    if (interception === 'setAttribute') {
+      const original = p.w.Element.prototype.setAttribute;
+      p.w.Element.prototype.setAttribute = function (name, value) {
+        if (name === 'value') received.push(value);
+        return Reflect.apply(original, this, [name, value]);
+      };
+    } else if (interception === 'dispatchEvent') {
+      const original = p.w.EventTarget.prototype.dispatchEvent;
+      p.w.EventTarget.prototype.dispatchEvent = function (event) {
+        if (this instanceof p.w.HTMLInputElement) received.push(this.value);
+        return Reflect.apply(original, this, [event]);
+      };
+    } else {
+      const Original = p.w.Event;
+      p.w.Event = function (type, options) {
+        received.push(form.querySelector('[type=password]').value);
+        return new Original(type, options);
+      };
+    }
+    const result = reauth ? nativeCall(p, 'reauthenticate', probe.document, probe.reauthChallenge, 'fixture-account', 'fixture-password') :
+      nativeCall(p, 'login', probe.document, 'fixture-account', 'fixture-password');
+    assert.equal(result, 'submitted');
+    assert.deepEqual(received, [], 'replaced DOM APIs must not be called with credentials in the form');
+    assert.deepEqual(submitted, [['fixture-account', 'fixture-password']], 'the original site handler still submits');
+    assert.deepEqual(events, [['input', 'fixture-account'], ['change', 'fixture-account'],
+      ['input', 'fixture-password'], ['change', 'fixture-password']], 'site input/change listeners still run');
+    assert.equal(form.querySelector('[type=password]').getAttribute('value'), 'fixture-password', 'legacy jQuery still sees the value attribute');
+    p.close();
+  });
+}
+
+test('native reauthentication uses captured DOM APIs for a form in a same-origin frame', () => {
+  const p = nativePage('<iframe></iframe>', 'https://univer.kaznu.kz/news/student/1/');
+  const child = page(reauthHtml().replace('readonly', ''), 'https://univer.kaznu.kz/student/news');
+  const frame = p.w.document.querySelector('iframe'), received = [], events = [];
+  Object.defineProperty(frame, 'contentDocument', { value: child.w.document });
+  Object.defineProperty(child.w, 'frameElement', { value: frame });
+  child.w.ajl = () => {};
+  const form = child.w.document.querySelector('form');
+  let clicks = 0;
+  form.addEventListener('input', event => events.push(event.target.value));
+  form.querySelector('[type=submit]').addEventListener('click', event => { event.preventDefault(); clicks++; });
+  const probe = JSON.parse(nativeProbe(p)).probe;
+  for (const w of [p.w, child.w]) {
+    const attribute = w.Element.prototype.setAttribute, dispatch = w.EventTarget.prototype.dispatchEvent, Original = w.Event;
+    w.Element.prototype.setAttribute = function (name, value) {
+      received.push(value);
+      return Reflect.apply(attribute, this, [name, value]);
+    };
+    w.EventTarget.prototype.dispatchEvent = function (event) {
+      received.push(this.value);
+      return Reflect.apply(dispatch, this, [event]);
+    };
+    w.Event = function (type, options) { received.push(type); return new Original(type, options); };
+  }
+  assert.equal(nativeCall(p, 'reauthenticate', probe.document, probe.reauthChallenge, 'fixture-account', 'fixture-password'), 'submitted');
+  assert.deepEqual(received, []);
+  assert.deepEqual(events, ['fixture-account', 'fixture-password']);
+  assert.equal(form.querySelector('[type=password]').value, 'fixture-password');
+  assert.equal(clicks, 1);
+  p.close(); child.close();
+});
 
 test('dynamic login uses visible inputs and clicks the original submit handler once', () => {
   const p = page('<form id="login_frm" action="/user/login"><input type="text" hidden value="decoy"><input type="text" id="dynamic-a"><input type="password" id="dynamic-b"><input type="hidden" name="key" value="fixture-nonce"><input name="btn" type="submit"></form>');
