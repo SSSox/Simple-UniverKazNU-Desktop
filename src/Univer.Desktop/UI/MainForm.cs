@@ -66,11 +66,11 @@ namespace Univer.Desktop.UI
         private float SidebarZoom { get { return Math.Max(0.8f, Math.Min(1.6f, appliedZoom / 100f)); } }
         private int SZ(int value) { return (int)Math.Round(value * layoutScale * SidebarZoom); }
         private ChromiumWebBrowser Active { get { return document ?? main; } }
-        public MainForm(Storage storage, bool selfTest, bool liveSmoke, bool accountReview = false, bool reviewAll = false)
+        public MainForm(Storage storage, bool selfTest, bool liveSmoke, bool accountReview = false, bool reviewAll = false, Preferences preloadedPreferences = null, Task<PageShapes> preloadedShapes = null)
         {
             this.storage = storage; this.selfTest = selfTest; this.liveSmoke = liveSmoke; this.accountReview = accountReview; this.reviewAll = reviewAll; stopping = lifetime.Token;
             browserMouse = new BrowserMouse((delta, time) => Dispatch(() => WheelZoom(delta, time)), forward => Dispatch(() => SideButton(forward)));
-            var stored = storage.Load(); prefs = stored.Preferences; credentials = stored.Credentials; storageFailed = stored.Failed; credentialsUnreadable = stored.CredentialsUnreadable;
+            var stored = storage.Load(preloadedPreferences); prefs = stored.Preferences; credentials = stored.Credentials; storageFailed = stored.Failed; credentialsUnreadable = stored.CredentialsUnreadable;
             plainPassword = stored.PlainFile; Program.Mark("stored");
             // A review that may only use the existing session: without credentials in memory an expired session stops at
             // the login page instead of signing in. Nothing is saved in review mode, so the stored record is untouched.
@@ -102,7 +102,7 @@ namespace Univer.Desktop.UI
             if (!selfTest && !accountReview) zoomPercent = appliedZoom = prefs.Zoom;
             zoomSettle.Tick += ZoomSettled;
             Icon = LoadAppIcon() ?? Icon;
-            BuildShell(); Program.Mark("shell"); BuildTray(); BuildReminders(); BuildOffline(); BuildShapes(); Program.Mark("shapes"); CreateSession(); Program.Mark("session"); Localize(); HookTheme(); BuildUpdates(); Program.Mark("built");
+            BuildShell(); Program.Mark("shell"); BuildTray(); BuildReminders(); BuildOffline(); BuildShapes(preloadedShapes); Program.Mark("shapes"); CreateSession(); Program.Mark("session"); Localize(); HookTheme(); BuildUpdates(); Program.Mark("built");
             timer.Tick += async (s, e) =>
             {
                 if (rotating || closing || commandBusy) return;
@@ -565,7 +565,7 @@ namespace Univer.Desktop.UI
             }
             return false;
         }
-        private void RememberWindow()
+        private void RememberWindow(bool wait = true)
         {
             if (selfTest || accountReview || storageFailed) return;
             var bounds = WindowState == FormWindowState.Normal ? Bounds : RestoreBounds;
@@ -573,7 +573,13 @@ namespace Univer.Desktop.UI
             if (bounds.Width >= 100 && bounds.Height >= 100)
                 snapshot.Window = string.Join(",", bounds.X, bounds.Y, bounds.Width, bounds.Height, WindowState == FormWindowState.Maximized ? "1" : "0");
             // Serialized behind any pending settings write; a failure only loses the window position.
-            try { storage.SavePreferencesAsync(snapshot).Wait(TimeSpan.FromSeconds(2)); } catch (Exception) { }
+            var save = storage.SavePreferencesAsync(snapshot);
+            if (wait)
+            {
+                try { save.Wait(TimeSpan.FromSeconds(2)); } catch (Exception) { }
+                return;
+            }
+            QueueAsync(async () => { try { await save; } catch (Exception) { } });
         }
         // Each poll is round trips into Chromium. While nobody can see the window (tray or minimized), and once a shown page
         // has settled, the timer runs at a calmer 1 s pace; deadlines and attempt budgets use real time. A navigation goes

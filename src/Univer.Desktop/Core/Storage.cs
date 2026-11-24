@@ -137,11 +137,15 @@ namespace Univer.Desktop.Core
             using (var reader = new StreamReader(stream, Encoding.UTF8, true)) return reader.ReadToEnd();
         }
         // Loaded independently, so an unreadable DPAPI record (for example after a Windows password reset) keeps valid settings.
-        public StoredState Load()
+        public StoredState Load(Preferences preloaded = null)
         {
             var state = new StoredState();
-            try { state.Preferences = LoadPreferences(); }
-            catch (Exception) { state.Preferences = new Preferences { AutoLoginPaused = true }; state.Failed = true; }
+            if (preloaded != null) state.Preferences = preloaded.Clone();
+            else
+            {
+                try { state.Preferences = LoadPreferences(); }
+                catch (Exception) { state.Preferences = new Preferences { AutoLoginPaused = true }; state.Failed = true; }
+            }
             try { state.Credentials = LoadCredentials(); }
             catch (Exception) { state.CredentialsUnreadable = true; }
             state.PlainFile = PlainFileLeft();

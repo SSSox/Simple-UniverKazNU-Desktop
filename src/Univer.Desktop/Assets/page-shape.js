@@ -15,12 +15,13 @@
     var page = colour(getComputedStyle(document.body).backgroundColor);
     if (!page || page[3] < .5) page = colour(getComputedStyle(root).backgroundColor) || [255, 255, 255, 1];
     // The colour a box is painted on: its nearest ancestor with a solid background, else the page.
-    var grounds = new Map();
+    var grounds = new Map(), styles = new Map();
     function ground(node) {
         var parent = node.parentElement;
         if (!parent || parent === document.body || parent === root) return page;
         if (grounds.has(parent)) return grounds.get(parent);
-        var c = colour(getComputedStyle(parent).backgroundColor), found = c && c[3] >= .5 ? c : ground(parent);
+        var ps = styles.get(parent) || getComputedStyle(parent);
+        var c = colour(ps.backgroundColor), found = c && c[3] >= .5 ? c : ground(parent);
         grounds.set(parent, found); return found;
     }
     // 0 no plate, 1 a card lighter than what it lies on, 2 a track darker than it, 3 a coloured plate (the selected tab, a
@@ -60,6 +61,7 @@
     }
     // The first screen of the document, wherever the reader has scrolled since.
     function seen(r) { return r.width >= 2 && r.height >= 2 && r.bottom + top > 0 && r.top + top < height && r.right > 0 && r.left < width; }
+    var acceptedNode = null, acceptedStyle = null, acceptedRect = null;
     var walker = document.createTreeWalker(document.body, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT, {
         acceptNode: function (node) {
             if (node.nodeType === 3) return /\S/.test(node.data) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT;
@@ -77,15 +79,18 @@
             // screen; drawn where it is stuck, its boxes piled up over the placeholder's last rows.
             if (style.position === 'sticky' && style.bottom !== 'auto' && r.bottom >= height - (parseFloat(style.bottom) || 0) - 2) return NodeFilter.FILTER_REJECT;
             if (r.top + top > height && style.position !== 'absolute') return NodeFilter.FILTER_REJECT;
+            acceptedNode = node; acceptedStyle = style; acceptedRect = r;
+            styles.set(node, style);
             return NodeFilter.FILTER_ACCEPT;
         }
     });
-    var node, line = null;
+    var node, line = null, range = null;
     while ((node = walker.nextNode()) && items.length < limit) {
         if (node.nodeType === 3) {
             var parent = node.parentElement;
             if (!parent || /^(TEXTAREA|SELECT|OPTION)$/.test(parent.tagName) || inAccent(parent)) continue;
-            var range = document.createRange(); range.selectNodeContents(node);
+            if (!range) range = document.createRange();
+            range.selectNodeContents(node);
             Array.from(range.getClientRects()).forEach(function (r) {
                 if (!seen(r)) return;
                 // Neighbouring pieces of one line become one bar.
@@ -95,7 +100,9 @@
             });
             continue;
         }
-        var style = getComputedStyle(node), r = node.getBoundingClientRect();
+        var style = node === acceptedNode ? acceptedStyle : getComputedStyle(node);
+        var r = node === acceptedNode ? acceptedRect : node.getBoundingClientRect();
+        acceptedNode = acceptedStyle = acceptedRect = null;
         if (!seen(r)) continue;
         if (/^(IMG|SVG|CANVAS|VIDEO|svg)$/.test(node.tagName)) { if (r.width <= 96 && r.height <= 96 && !inAccent(node)) add(1, r, Math.min(r.width, r.height) / 4); continue; }
         if (r.width >= width - 2 && r.height >= height - 2) continue;

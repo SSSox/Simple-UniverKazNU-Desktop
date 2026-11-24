@@ -1,6 +1,7 @@
 using System;
 using System.Drawing;
 using System.Runtime.InteropServices;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using Univer.Desktop.Core;
@@ -76,15 +77,15 @@ namespace Univer.Desktop.UI
             // UserClosing reason, so a later plain WM_CLOSE from Task Manager or an installer must still exit.
             if (exitRequested || trayIcon == null || !prefs.Tray || !closeCommand || e.CloseReason != CloseReason.UserClosing) return false;
             e.Cancel = true;
-            RememberWindow();
-            trayMotion?.Cancel(); var generation = ++trayMotionGeneration;
+            RememberWindow(wait: false);
+            trayMotion?.Cancel(); var generation = Interlocked.Increment(ref trayMotionGeneration);
             trayRestoreState = WindowState == FormWindowState.Minimized ? FormWindowState.Normal : WindowState;
             if (Motion.Enabled && !Motion.KeyboardInput)
             {
                 if (!Motion.Reduced) WindowState = FormWindowState.Minimized;
                 var fade = Motion.Reduced;
                 trayMotion = Motion.Run(fade ? 140 : Motion.Normal, t => { if (fade && !IsDisposed) Opacity = 1 - .85 * Motion.EaseOut(t); }, () =>
-                { if (!closing && generation == trayMotionGeneration) { Hide(); Opacity = 1; TrimHiddenMemory(); } });
+                { if (!closing && generation == Volatile.Read(ref trayMotionGeneration)) { Hide(); Opacity = 1; TrimHiddenMemory(); } });
             }
             else { Hide(); TrimHiddenMemory(); }
             if (!trayHintShown)
@@ -100,14 +101,20 @@ namespace Univer.Desktop.UI
         {
             if (closing || Visible) return;
             downloadsView?.ReleaseViewer();
-            GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect();
-            try { using (var self = System.Diagnostics.Process.GetCurrentProcess()) SetProcessWorkingSetSize(self.Handle, (IntPtr)(-1), (IntPtr)(-1)); }
-            catch (Exception) { }
+            var generation = Volatile.Read(ref trayMotionGeneration);
+            Task.Run(() =>
+            {
+                if (stopping.IsCancellationRequested || Volatile.Read(ref trayMotionGeneration) != generation) return;
+                GC.Collect(GC.MaxGeneration, GCCollectionMode.Optimized);
+                if (stopping.IsCancellationRequested || Volatile.Read(ref trayMotionGeneration) != generation) return;
+                try { using (var self = System.Diagnostics.Process.GetCurrentProcess()) SetProcessWorkingSetSize(self.Handle, (IntPtr)(-1), (IntPtr)(-1)); }
+                catch (Exception) { }
+            });
         }
         private void RestoreFromTray()
         {
             if (closing) return;
-            ++trayMotionGeneration; trayMotion?.Cancel(); Opacity = 1;
+            Interlocked.Increment(ref trayMotionGeneration); trayMotion?.Cancel(); Opacity = 1;
             if (!Visible) Show();
             if (WindowState == FormWindowState.Minimized) WindowState = trayRestoreState;
             Activate(); BringToFront();
@@ -145,7 +152,7 @@ namespace Univer.Desktop.UI
         private void ExitApplication() { exitRequested = true; if (!Visible) Show(); Close(); }
         private void DisposeTray()
         {
-            ++trayMotionGeneration; trayMotion?.Cancel();
+            Interlocked.Increment(ref trayMotionGeneration); trayMotion?.Cancel();
             if (trayIcon != null) { trayIcon.Visible = false; trayIcon.Dispose(); trayIcon = null; }
             trayMenu?.Dispose(); trayMenu = null;
         }

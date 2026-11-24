@@ -1,6 +1,5 @@
 using System;
 using System.IO;
-using System.Text;
 using System.Threading.Tasks;
 using CefSharp.WinForms;
 using Univer.Desktop.Core;
@@ -17,7 +16,10 @@ namespace Univer.Desktop.UI
         private Task shapeWrite = Task.FromResult(0);
         private string ShapesPath { get { return Path.Combine(storage.Root, "page-shapes.json"); } }
         // The account review keeps what it measures in memory only.
-        private void BuildShapes() { pageShapes = selfTest || accountReview ? new PageShapes() : PageShapes.Read(ShapesPath); }
+        private void BuildShapes(Task<PageShapes> preloaded = null)
+        {
+            pageShapes = selfTest || accountReview ? new PageShapes() : preloaded != null ? preloaded.GetAwaiter().GetResult() : PageShapes.Read(ShapesPath);
+        }
         // The placeholder for a navigation: the destination's drawn shape and, in the reading layout, its layout from the last visit.
         private void ShowRoute(string url)
         {
@@ -35,7 +37,12 @@ namespace Univer.Desktop.UI
                 {
                     await Task.Delay(1500);
                     if (!Current(browser, epoch, address)) return;
-                    if (shapeScript == null) shapeScript = File.ReadAllText(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Assets", "page-shape.js"));
+                    if (shapeScript == null)
+                    {
+                        var scriptPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Assets", "page-shape.js");
+                        shapeScript = await Task.Run(() => File.ReadAllText(scriptPath));
+                        if (!Current(browser, epoch, address)) return;
+                    }
                     var shape = PageShape.Parse(await AutomationController.EvaluateAsync(browser, shapeScript));
                     if (shape == null || !Current(browser, epoch, address)) return;
                     pageShapes.Remember(address, shape);
@@ -56,13 +63,8 @@ namespace Univer.Desktop.UI
         private void SaveShapes()
         {
             if (selfTest || accountReview) return;
-            var json = pageShapes.Serialize(); var path = ShapesPath;
-            shapeWrite = shapeWrite.ContinueWith(_ =>
-            {
-                try { AtomicFile.Write(path, new UTF8Encoding(false).GetBytes(json)); }
-                catch (IOException) { }
-                catch (UnauthorizedAccessException) { }
-            }, TaskScheduler.Default);
+            var snapshot = pageShapes.Clone(); var path = ShapesPath;
+            shapeWrite = shapeWrite.ContinueWith(_ => snapshot.Write(path), TaskScheduler.Default);
         }
         // A new account's pages are not the previous one's.
         private void ForgetShapes() { if (pageShapes == null) return; pageShapes.Clear(); loading.Captured = null; SaveShapes(); }

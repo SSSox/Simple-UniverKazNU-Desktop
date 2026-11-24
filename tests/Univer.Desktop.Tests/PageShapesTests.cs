@@ -97,5 +97,62 @@ namespace Univer.Desktop.Tests
             Assert.Equal(0, PageShapes.Load("garbage").Count);
             Assert.Equal(0, PageShapes.Read(Path.Combine(Path.GetTempPath(), "missing-" + System.Guid.NewGuid().ToString("N") + ".json")).Count);
         }
+
+        [Fact]
+        public void FromDictionaryValidatesWithAndWithoutVersion()
+        {
+            var dict = new System.Collections.Generic.Dictionary<string, object>
+            {
+                { "w", 1104 }, { "o", 1104 }, { "h", 777 },
+                { "items", new object[] { new object[] { 0, 32, 100, 1024, 140, 10, 1, 1 } } }
+            };
+            Assert.Null(PageShape.FromDictionary(null));
+            Assert.Null(PageShape.FromDictionary(dict, requireVersion: true));
+            var shape = PageShape.FromDictionary(dict, requireVersion: false);
+            Assert.NotNull(shape);
+            Assert.Equal(1104, shape.Width);
+            Assert.Single(shape.Items);
+            Assert.Equal(new[] { 0, 32, 100, 1024, 140, 10, 1, 1 }, shape.Items[0]);
+
+            dict["v"] = PageShape.Version;
+            Assert.NotNull(PageShape.FromDictionary(dict, requireVersion: true));
+            dict["v"] = PageShape.Version + 1;
+            Assert.Null(PageShape.FromDictionary(dict, requireVersion: true));
+        }
+
+        [Fact]
+        public void LoadHandlesExtraEntryVersionAndMixedInvalidPages()
+        {
+            const string mixed = "{\"v\":2,\"pages\":[" +
+                "{\"k\":\"/first\",\"v\":2,\"w\":1104,\"o\":1104,\"h\":777,\"items\":[[0,32,100,500,80,8,1,1]]}," +
+                "{\"k\":\"/bad\",\"w\":10,\"o\":10,\"h\":10,\"items\":[[0,1,1,1,1,0,0,0]]}," +
+                "{\"k\":\"/second\",\"w\":1104,\"o\":1104,\"h\":777,\"items\":[[1,48,120,300,10,4,0,0]]}" +
+                "]}";
+            var loaded = PageShapes.Load(mixed);
+            Assert.Equal(2, loaded.Count);
+            Assert.NotNull(loaded.Find("https://univer.kaznu.kz/first"));
+            Assert.Null(loaded.Find("https://univer.kaznu.kz/bad"));
+            Assert.Equal(new[] { 1, 48, 120, 300, 10, 4, 0, 0 }, loaded.Find("https://univer.kaznu.kz/second").Items[0]);
+        }
+
+        [Fact]
+        public void CloneCreatesAnIndependentSnapshotForBackgroundSerialization()
+        {
+            var shapes = new PageShapes();
+            var first = PageShape.Parse(Answer);
+            var second = PageShape.Parse("{\"v\":2,\"w\":1000,\"o\":1000,\"h\":700,\"items\":[[0,10,20,300,40,6,2,0]]}");
+            shapes.Remember("https://univer.kaznu.kz/student/myschedule/", first);
+
+            var snapshot = shapes.Clone();
+            shapes.Remember("https://univer.kaznu.kz/student/attestation/", second);
+            shapes.Clear();
+
+            Assert.Equal(0, shapes.Count);
+            Assert.Equal(1, snapshot.Count);
+            var reloaded = PageShapes.Load(snapshot.Serialize());
+            Assert.Equal(1, reloaded.Count);
+            Assert.NotNull(reloaded.Find("https://univer.kaznu.kz/student/myschedule/"));
+            Assert.Null(reloaded.Find("https://univer.kaznu.kz/student/attestation/"));
+        }
     }
 }

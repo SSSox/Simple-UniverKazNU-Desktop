@@ -28,24 +28,27 @@ namespace Univer.Desktop.Core
             if (string.IsNullOrEmpty(json) || json.Length > 200000) return null;
             try
             {
-                var data = new JavaScriptSerializer().DeserializeObject(json) as Dictionary<string, object>;
-                if (data == null || Number(data, "v") != Version) return null;
-                var shape = new PageShape { Width = Number(data, "w"), Outer = Number(data, "o"), Height = Number(data, "h") };
-                if (shape.Width < 200 || shape.Width > 8000 || shape.Outer < shape.Width || shape.Outer > shape.Width + 40 || shape.Height < 100 || shape.Height > 8000) return null;
-                object raw; if (!data.TryGetValue("items", out raw)) return null;
-                var list = raw as object[]; if (list == null || list.Length > MaxItems) return null;
-                foreach (var entry in list)
-                {
-                    var values = entry as object[]; if (values == null || values.Length != 8) return null;
-                    var item = new int[8];
-                    for (var i = 0; i < 8; i++) { if (!(values[i] is int)) return null; item[i] = (int)values[i]; }
-                    if (!Valid(item, shape)) return null;
-                    shape.Items.Add(item);
-                }
-                return shape.Items.Count > 0 ? shape : null;
+                return FromDictionary(new JavaScriptSerializer().DeserializeObject(json) as Dictionary<string, object>, requireVersion: true);
             }
             catch (ArgumentException) { return null; }
             catch (InvalidOperationException) { return null; }
+        }
+        public static PageShape FromDictionary(Dictionary<string, object> data, bool requireVersion = true)
+        {
+            if (data == null || (requireVersion && Number(data, "v") != Version)) return null;
+            var shape = new PageShape { Width = Number(data, "w"), Outer = Number(data, "o"), Height = Number(data, "h") };
+            if (shape.Width < 200 || shape.Width > 8000 || shape.Outer < shape.Width || shape.Outer > shape.Width + 40 || shape.Height < 100 || shape.Height > 8000) return null;
+            object raw; if (!data.TryGetValue("items", out raw)) return null;
+            var list = raw as object[]; if (list == null || list.Length > MaxItems) return null;
+            foreach (var entry in list)
+            {
+                var values = entry as object[]; if (values == null || values.Length != 8) return null;
+                var item = new int[8];
+                for (var i = 0; i < 8; i++) { if (!(values[i] is int)) return null; item[i] = (int)values[i]; }
+                if (!Valid(item, shape)) return null;
+                shape.Items.Add(item);
+            }
+            return shape.Items.Count > 0 ? shape : null;
         }
         public static bool Valid(int[] item, PageShape shape)
         {
@@ -82,6 +85,17 @@ namespace Univer.Desktop.Core
             while (order.Count > Keep) { shapes.Remove(order[0]); order.RemoveAt(0); }
         }
         public void Clear() { shapes.Clear(); order.Clear(); }
+        public PageShapes Clone()
+        {
+            var copy = new PageShapes();
+            foreach (var key in order)
+            {
+                PageShape shape;
+                if (!shapes.TryGetValue(key, out shape)) continue;
+                copy.shapes[key] = shape; copy.order.Add(key);
+            }
+            return copy;
+        }
         public string Serialize()
         {
             var list = order.Select(key => new Dictionary<string, object> { { "k", key }, { "w", shapes[key].Width }, { "o", shapes[key].Outer }, { "h", shapes[key].Height }, { "items", shapes[key].Items } }).ToList();
@@ -102,8 +116,7 @@ namespace Univer.Desktop.Core
                 {
                     var entry = page as Dictionary<string, object>; object key;
                     if (entry == null || !entry.TryGetValue("k", out key) || !(key is string) || ((string)key).Length > 300 || !((string)key).StartsWith("/", StringComparison.Ordinal)) continue;
-                    var copy = new Dictionary<string, object>(entry) { { "v", PageShape.Version } };
-                    var shape = PageShape.Parse(new JavaScriptSerializer { MaxJsonLength = 16 * 1024 * 1024 }.Serialize(copy));
+                    var shape = PageShape.FromDictionary(entry, requireVersion: false);
                     if (shape == null) continue;
                     result.shapes[(string)key] = shape; result.order.Remove((string)key); result.order.Add((string)key);
                 }

@@ -322,6 +322,39 @@ namespace Univer.Desktop.Tests
             Assert.All(KeptCopyNames, name => Assert.True(File.Exists(Path.Combine(root, name))));
         }
 
+        [Fact]
+        public void Load_WithPreloadedPreferences_ReusesThemWithoutReparsingDisk()
+        {
+            var storage = new Storage(root);
+            var saved = new Preferences { Language = "en", Theme = ThemeChoice.Dark, Zoom = 120 };
+            storage.SavePreferences(saved);
+            var preloaded = storage.LoadPreferences();
+            // Overwrite preferences.json with invalid JSON: Load(preloaded) must use the passed copy rather than re-reading disk.
+            File.WriteAllText(Path.Combine(root, "preferences.json"), "{invalid");
+
+            var state = storage.Load(preloaded);
+            Assert.False(state.Failed);
+            Assert.Equal("en", state.Preferences.Language);
+            Assert.Equal(ThemeChoice.Dark, state.Preferences.Theme);
+            Assert.Equal(120, state.Preferences.Zoom);
+            Assert.NotSame(preloaded, state.Preferences);
+        }
+
+        [Fact]
+        public void Load_WithPreloadedPreferencesAndMissingFile_StillPausesAutoLoginForSavedCredentials()
+        {
+            var storage = new Storage(root);
+            storage.SaveCredentials(new Credentials { Login = "synthetic", Password = "local fixture" });
+            var preloaded = storage.LoadPreferences();
+            Assert.False(preloaded.AutoLoginPaused);
+
+            var state = storage.Load(preloaded);
+            Assert.False(state.Failed);
+            Assert.NotNull(state.Credentials);
+            Assert.True(state.Preferences.AutoLoginPaused);
+            Assert.False(preloaded.AutoLoginPaused);
+        }
+
         private static readonly string[] KeptCopyNames = { ScheduleFile.Name, ExamFile.Name, LastGradesFile.Name };
 
         private void WriteKeptCopies()

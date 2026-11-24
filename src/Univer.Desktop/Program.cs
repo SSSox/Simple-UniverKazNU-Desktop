@@ -5,6 +5,7 @@ using System.Runtime;
 using System.Runtime.InteropServices;
 using System.Runtime.CompilerServices;
 using System.Threading;
+using System.Threading.Tasks;
 using System.Windows.Forms;
 using CefSharp;
 using CefSharp.WinForms;
@@ -82,18 +83,21 @@ namespace Univer.Desktop
 #else
                     var storage = new Storage(data, BrowserProfileFlavor.Modern);
 #endif
-                    // Work that needs no window runs on a worker while Chromium starts below: the installed font families and
-                    // the page scripts. Both are lazy, so the window waits for them only if they are still being read.
+                    // Work that needs no window runs on a worker while Chromium starts below: the installed font families,
+                    // the page scripts and the saved page shapes. All wait only if they are still being read.
                     ThreadPool.QueueUserWorkItem(_ =>
                     {
                         try { UI.Theme.LoadFontsEarly(); Web.AutomationController.LoadScriptsEarly(); }
                         catch (Exception) { /* The window reads them itself and reports what fails. */ }
                     });
+                    var preloadedShapes = selfTest || accountReview ? null : Task.Run(() => PageShapes.Read(Path.Combine(storage.Root, "page-shapes.json")));
                     var settings = new CefSettings { RootCachePath = storage.BrowserRoot, LogSeverity = LogSeverity.Disable, PersistSessionCookies = true };
                     // Date fields and the PDF viewer follow Chromium's per-process locale; Kazakh has none, so Russian (same dd.mm.yyyy)
                     // stands in. The header sent to the site does not change.
-                    string startLanguage, startTheme;
-                    try { var start = storage.LoadPreferences(); startLanguage = start.Language; startTheme = start.Theme; } catch (Exception) { startLanguage = "ru"; startTheme = ThemeChoice.System; }
+                    Preferences startPrefs = null;
+                    try { startPrefs = storage.LoadPreferences(); } catch (Exception) { }
+                    var startLanguage = startPrefs?.Language ?? "ru";
+                    var startTheme = startPrefs?.Theme ?? ThemeChoice.System;
                     // The window is built in the chosen theme from the start, so nothing is recoloured on the first paint.
                     // Self-test starts light whatever Windows uses; its theme step switches to dark itself.
                     UI.Theme.Set(!selfTest && Array.IndexOf(args, "--qa-flash") < 0 && ThemeChoice.IsDark(startTheme, UI.Theme.SystemDark()));
@@ -141,7 +145,7 @@ namespace Univer.Desktop
                     CefReady = Clock.ElapsedMilliseconds;
                     try
                     {
-                        using (var form = new MainForm(storage, selfTest, Array.IndexOf(args, "--live-smoke") >= 0, accountReview, reviewAll))
+                        using (var form = new MainForm(storage, selfTest, Array.IndexOf(args, "--live-smoke") >= 0, accountReview, reviewAll, startPrefs, preloadedShapes))
                         {
                             // Self-test records the failure itself; users get a recoverable message, never a stack trace.
                             if (!selfTest) Application.ThreadException += (sender, error) => form.ReportUnexpectedError();
