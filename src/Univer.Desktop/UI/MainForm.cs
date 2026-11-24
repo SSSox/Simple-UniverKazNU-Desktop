@@ -80,8 +80,22 @@ namespace Univer.Desktop.UI
             // session. The login file goes only after the mark is saved: a failed write keeps it for the next start.
             var orphan = stored.SealedOrphan && !storageFailed && !accountReview;
             if (orphan) prefs.SessionClearPending = true;
+            // A pending account removal has to finish even when preferences.json could not be read. Otherwise every later
+            // PIN read throws and the removal never retries. A file that is only locked is not a broken settings file.
+            if (!accountReview && storage.CredentialsRemovalPending)
+            {
+                try { storage.FinishPendingCredentialRemoval(); }
+                catch (PendingCredentialRemovalException) { }
+                catch (Exception) { storageFailed = true; }
+            }
             // A logout that the previous run did not finish ends here, before any browser profile is opened.
-            if (!storageFailed) { try { storage.FinishSessionClear(prefs, !accountReview); } catch (Exception) { storageFailed = true; } }
+            // A locked credential file is not a broken settings file; a failed preferences write still is.
+            if (!storageFailed)
+            {
+                try { storage.FinishSessionClear(prefs, !accountReview); }
+                catch (PendingCredentialRemovalException) { }
+                catch (Exception) { storageFailed = true; }
+            }
             if (orphan && !storageFailed)
             {
                 try { storage.RemoveCredentials(); } catch (Exception) { }
@@ -591,7 +605,7 @@ namespace Univer.Desktop.UI
         // What every tick on a signed-in page does for the app; a quiet page's skipped ticks do it too.
         private void SignedInWork()
         {
-            _ = FinishKeptCopiesClearAsync();
+            _ = FinishKeptCopiesClearAsync(); _ = FinishNoticesClearAsync();
             RecoverySucceeded(); OfflineSiteWorks(); ResumeDownload(); NoticeContent(); ScheduleContent(); ExamContent(); GradeContent(); LastGradesContent(); MaybeOfferPin();
         }
         // The user pressed something on the shown page or came back to the window: a page that was being asked rarely is

@@ -75,6 +75,8 @@ namespace Univer.Desktop.UI
             busy = value;
             if (busy) ShowKey("lockChecking", false);
             foreach (var key in keys) key.Enabled = !busy && !Waiting;
+            // "Forgot your PIN?" is part of the pad: it stays shut while a guess is in flight.
+            extra.Enabled = !busy;
             Cursor = busy ? Cursors.WaitCursor : Cursors.Default;
         }
         // Too many wrong codes: the pad stays shut and counts down to the next try.

@@ -355,6 +355,168 @@ namespace Univer.Desktop.Tests
             Assert.False(preloaded.AutoLoginPaused);
         }
 
+        [Fact]
+        public void PendingRemoval_IsRetriedByLoadLockOnceTheFileIsFree()
+        {
+            var storage = new Storage(root);
+            const string pin = "482613";
+            var account = new Credentials { Login = "synthetic student", Password = "local fixture" };
+            new PinGuard(storage.LockStore, iterations: 5).Enable(pin, account);
+            storage.SaveCredentials(account.LoginOnly());
+            var lockPath = Path.Combine(root, "lock.dpapi");
+            using (File.Open(lockPath, FileMode.Open, FileAccess.Read, FileShare.Read))
+            {
+                Assert.ThrowsAny<IOException>(() => storage.RemoveCredentials());
+                Assert.True(storage.CredentialsRemovalPending);
+                // Still locked: reading the PIN must not pretend the removal finished.
+                var pending = Assert.ThrowsAny<IOException>(() => storage.LoadLock());
+                Assert.Equal("Credential removal is pending", pending.Message);
+                Assert.True(storage.CredentialsRemovalPending);
+            }
+
+            var record = storage.LoadLock();
+            Assert.False(storage.CredentialsRemovalPending);
+            Assert.NotNull(record);
+            Assert.Null(record.Account);
+            var opened = new PinGuard(new Storage(root).LockStore, iterations: 5).Guess(pin);
+            Assert.Equal(PinOutcome.Success, opened.Outcome);
+            Assert.Null(opened.Account);
+        }
+
+        [Fact]
+        public void PendingRemoval_DropsALockThatCanNeverBeDecrypted()
+        {
+            var storage = new Storage(root);
+            var account = new Credentials { Login = "synthetic student", Password = "local fixture" };
+            new PinGuard(storage.LockStore, iterations: 5).Enable("482613", account);
+            storage.SaveCredentials(account.LoginOnly());
+            var lockPath = Path.Combine(root, "lock.dpapi");
+            var bytes = File.ReadAllBytes(lockPath);
+            bytes[bytes.Length / 2] ^= 0x5A;
+            File.WriteAllBytes(lockPath, bytes);
+            var marker = Path.Combine(root, "credentials.remove");
+            File.WriteAllBytes(marker, new byte[] { 0 });
+            // The tamper rewrites the lock; the marker has to stay the later of the two or the lock would look new.
+            File.SetLastWriteTimeUtc(marker, File.GetLastWriteTimeUtc(lockPath).AddMinutes(1));
+
+            Assert.Null(storage.LoadLock());
+            Assert.False(storage.CredentialsRemovalPending);
+            Assert.False(storage.LockExists);
+            Assert.False(storage.PinMarked);
+            Assert.Null(storage.LoadLock());
+        }
+
+        [Fact]
+        public void SaveLock_FinishesPendingRemovalBeforeTheNewPinIsWritten()
+        {
+            var storage = new Storage(root);
+            var oldAccount = new Credentials { Login = "synthetic student", Password = "local fixture" };
+            new PinGuard(storage.LockStore, iterations: 5).Enable("482613", oldAccount);
+            storage.SaveCredentials(oldAccount.LoginOnly());
+            var marker = Path.Combine(root, "credentials.remove");
+            File.WriteAllBytes(marker, new byte[] { 0 });
+
+            var fresh = new Credentials { Login = "synthetic student", Password = "replacement fixture" };
+            var guard = new PinGuard(storage.LockStore, iterations: 5);
+            guard.Enable("135792", fresh);
+            storage.SaveCredentials(fresh.LoginOnly());
+
+            Assert.False(storage.CredentialsRemovalPending);
+            var opened = guard.Guess("135792");
+            Assert.Equal(PinOutcome.Success, opened.Outcome);
+            Assert.NotNull(opened.Account);
+            Assert.Equal(fresh.Password, opened.Account.Password);
+            Assert.Equal(fresh.Login, storage.LoadCredentials().Login);
+        }
+
+        [Fact]
+        public void SaveCredentials_DoesNotWipeALockWrittenAfterTheRemovalMarker()
+        {
+            var storage = new Storage(root);
+            var account = new Credentials { Login = "synthetic student", Password = "local fixture" };
+            var guard = new PinGuard(storage.LockStore, iterations: 5);
+            guard.Enable("482613", account);
+            var marker = Path.Combine(root, "credentials.remove");
+            File.WriteAllBytes(marker, new byte[] { 0 });
+            File.SetLastWriteTimeUtc(marker, DateTime.UtcNow.AddMinutes(-5));
+
+            storage.SaveCredentials(account.LoginOnly());
+
+            Assert.False(File.Exists(marker));
+            var opened = guard.Guess("482613");
+            Assert.Equal(PinOutcome.Success, opened.Outcome);
+            Assert.NotNull(opened.Account);
+            Assert.Equal(account.Password, opened.Account.Password);
+        }
+
+        [Fact]
+        public void SaveCredentials_DoesNotRemoveALockWrittenAfterAForgottenPinMarker()
+        {
+            var storage = new Storage(root);
+            var account = new Credentials { Login = "synthetic student", Password = "local fixture" };
+            var guard = new PinGuard(storage.LockStore, iterations: 5);
+            guard.Enable("482613", account);
+            var marker = Path.Combine(root, "credentials.remove");
+            File.WriteAllBytes(marker, new byte[] { 1 });
+            File.SetLastWriteTimeUtc(marker, DateTime.UtcNow.AddMinutes(-5));
+
+            storage.SaveCredentials(account.LoginOnly());
+
+            Assert.False(storage.CredentialsRemovalPending);
+            Assert.True(storage.LockExists);
+            var opened = guard.Guess("482613");
+            Assert.Equal(PinOutcome.Success, opened.Outcome);
+            Assert.NotNull(opened.Account);
+            Assert.Equal(account.Password, opened.Account.Password);
+        }
+
+        [Fact]
+        public void PendingRemoval_FinishesWhenPreferencesCannotBeRead()
+        {
+            var storage = new Storage(root);
+            const string pin = "482613";
+            var account = new Credentials { Login = "synthetic student", Password = "local fixture" };
+            new PinGuard(storage.LockStore, iterations: 5).Enable(pin, account);
+            storage.SaveCredentials(account.LoginOnly());
+            File.WriteAllBytes(Path.Combine(root, "credentials.remove"), new byte[] { 0 });
+            var preferences = Path.Combine(root, "preferences.json");
+            File.WriteAllText(preferences, "{broken");
+            var broken = File.ReadAllBytes(preferences);
+
+            var opened = new Storage(root);
+            Assert.True(opened.Load().Failed);
+            opened.FinishPendingCredentialRemoval();
+
+            Assert.False(opened.CredentialsRemovalPending);
+            Assert.Null(opened.LoadLock().Account);
+            Assert.Equal(broken, File.ReadAllBytes(preferences));
+            var result = new PinGuard(opened.LockStore, iterations: 5).Guess(pin);
+            Assert.Equal(PinOutcome.Success, result.Outcome);
+            Assert.Null(result.Account);
+        }
+
+        [Fact]
+        public void PendingRemoval_TransientFailureDoesNotTouchPreferences()
+        {
+            var storage = new Storage(root);
+            var account = new Credentials { Login = "synthetic student", Password = "local fixture" };
+            new PinGuard(storage.LockStore, iterations: 5).Enable("482613", account);
+            storage.SaveCredentials(account.LoginOnly());
+            File.WriteAllBytes(Path.Combine(root, "credentials.remove"), new byte[] { 0 });
+            var preferences = Path.Combine(root, "preferences.json");
+            File.WriteAllText(preferences, "{broken");
+            var broken = File.ReadAllText(preferences);
+            var lockPath = Path.Combine(root, "lock.dpapi");
+            using (File.Open(lockPath, FileMode.Open, FileAccess.Read, FileShare.Read))
+            {
+                Assert.ThrowsAny<IOException>(() => storage.FinishPendingCredentialRemoval());
+            }
+
+            Assert.True(storage.CredentialsRemovalPending);
+            Assert.True(storage.LockExists);
+            Assert.Equal(broken, File.ReadAllText(preferences));
+        }
+
         private static readonly string[] KeptCopyNames = { ScheduleFile.Name, ExamFile.Name, LastGradesFile.Name };
 
         private void WriteKeptCopies()

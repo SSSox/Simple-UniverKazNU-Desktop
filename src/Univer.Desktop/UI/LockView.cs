@@ -38,6 +38,8 @@ namespace Univer.Desktop.UI
         }
         // The PIN record exists but cannot be read (another Windows profile, a damaged file): only signing in again helps.
         public void SetUnavailable(bool value) { Unavailable = value; Pad.Visible = !value; problem.Visible = again.Visible = value; Arrange(); }
+        // The pad is hidden while the record cannot be read, so a later failure has to use this line or it is invisible.
+        public void ShowProblem(string text) { problem.Text = text ?? ""; }
         public void FocusInput() { if (Unavailable) again.Focus(); else Pad.Focus(); }
         private void Arrange()
         {

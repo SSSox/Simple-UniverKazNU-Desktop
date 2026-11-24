@@ -59,7 +59,7 @@ namespace Univer.Desktop.UI
                     automation.Navigating(); guard.Stop(); prefs.AutoLoginPaused = true; SyncKeptCopies();
                     // Persist the stop before replacing credentials or clearing the browser, and with it the mark that the
                     // old session still has to go: a run that ends before the profiles are replaced is finished by the next.
-                    updated.AutoLoginPaused = true; updated.SessionClearPending = true; await storage.SavePreferencesAsync(updated); prefs = updated; guard.Stop();
+                    updated.AutoLoginPaused = true; updated.SessionClearPending = true; await CommitPreferencesAsync(updated); guard.Stop();
                     if (change == SettingsChange.NewCredentials) { await SaveAccountAsync(next); credentials = next; }
                     // The new session is paused until the rotation ends, and then signs in by itself.
                     rotated = true; accountStarting = true;
@@ -67,11 +67,11 @@ namespace Univer.Desktop.UI
                     {
                         await RotateSessionAsync();
                         updated = prefs.Clone(); updated.AutoLoginPaused = false;
-                        await storage.SavePreferencesAsync(updated); prefs = updated;
+                        await CommitPreferencesAsync(updated);
                     }
                     finally { accountStarting = false; }
                 }
-                else { await storage.SavePreferencesAsync(updated); prefs = updated; }
+                else await CommitPreferencesAsync(updated);
                 if (closing) return false;
                 storageFailed = false; messages.ClearStorageError(); SyncKeptCopies(); GradesChanged(gradesWere);
                 // Windows' own line, written after the preferences: a refused write leaves the rest saved and says so.
@@ -113,7 +113,7 @@ namespace Univer.Desktop.UI
             guard.Stop(); automation.Navigating(); prefs.AutoLoginPaused = true;
             // The copies leave memory with the pause, before the write below: a refused write must not leave them in the tray.
             SyncKeptCopies();
-            await storage.SavePreferencesAsync(stopped); prefs = stopped;
+            await CommitPreferencesAsync(stopped);
             if (remove) { await RemoveAccountAsync(); credentials = null; }
             // The sidebar says so while the old session ends: under the cover it must not still read «Вход сохранён».
             if (!closing) UpdateAccountLine();
@@ -152,7 +152,7 @@ namespace Univer.Desktop.UI
                 CloseBrowsers(); context.Dispose(); context = null;
                 // The other-site window's sign-ins (Moodle) belonged to the session that ends here.
                 var clean = prefs.Clone(); clean.Profile = Guid.NewGuid().ToString("N"); clean.WebProfile = Guid.NewGuid().ToString("N"); clean.AutoLoginPaused = true; clean.SessionClearPending = false;
-                await storage.SavePreferencesAsync(clean); prefs = clean;
+                await CommitPreferencesAsync(clean);
                 stopping.ThrowIfCancellationRequested();
                 CreateSession(); replaced = true; messages.NewSession(); lastGet = SitePolicy.Home; lastMethod = "GET";
                 await storage.CleanOldProfilesAsync(clean.Profile); await storage.CleanOldWebProfilesAsync(clean.WebProfile);

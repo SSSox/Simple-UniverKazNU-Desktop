@@ -96,6 +96,12 @@ namespace Univer.Desktop.Core
         // removes it.
         public bool PlainFile { get; set; }
     }
+    // A credential file is still locked. The marker stays, and the next read tries again. Callers that treat every
+    // IOException as a broken settings file must be able to tell this one apart from a failed preferences write.
+    internal sealed class PendingCredentialRemovalException : IOException
+    {
+        public PendingCredentialRemovalException(Exception inner) : base("Credential removal is pending", inner) { }
+    }
     internal sealed class Storage
     {
         private readonly string root;
@@ -162,7 +168,28 @@ namespace Univer.Desktop.Core
             if (state.Credentials != null && !File.Exists(Path.Combine(root, "preferences.json"))) state.Preferences.AutoLoginPaused = true;
             return state;
         }
-        public void SavePreferences(Preferences preferences) { AtomicFile.Write(Path.Combine(root, "preferences.json"), Encoding.UTF8.GetBytes(json.Serialize(preferences)), durable: true); }
+        public void SavePreferences(Preferences preferences)
+        {
+            // A settings snapshot taken before a notice clear must not erase that clear while notices.json is still there.
+            // The clear itself deletes the file first, and only then may a save turn the mark off.
+            KeepPendingNoticeClear(preferences);
+            AtomicFile.Write(Path.Combine(root, "preferences.json"), Encoding.UTF8.GetBytes(json.Serialize(preferences)), durable: true);
+        }
+        private void KeepPendingNoticeClear(Preferences preferences)
+        {
+            if (preferences.NoticesClearPending || !File.Exists(Path.Combine(root, "notices.json"))) return;
+            try
+            {
+                var path = Path.Combine(root, "preferences.json");
+                if (!File.Exists(path)) return;
+                var saved = json.Deserialize<Preferences>(ReadShared(path));
+                if (saved != null && saved.NoticesClearPending) preferences.NoticesClearPending = true;
+            }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+            catch (ArgumentException) { }
+            catch (InvalidOperationException) { }
+        }
         // The previous run began a logout or an account change and ended before the browser profiles were replaced, so
         // they may still hold that session. This start leaves them behind: the settings name new, empty profiles (the old
         // ones are deleted as obsolete profiles), the stored notifications of that account go, and automatic sign-in
@@ -253,19 +280,57 @@ namespace Univer.Desktop.Core
                 AtomicFile.Write(Path.Combine(root, "credentials.remove"), new[] { removeLock ? (byte)1 : (byte)0 }, durable: true);
             FinishCredentialRemoval();
         }
+        // Retries a removal the last run (or this one) could not finish. A locked file still throws, so the marker stays.
+        // Startup calls this even when preferences.json itself could not be read.
+        internal void FinishPendingCredentialRemoval() { FinishCredentialRemoval(); }
         private void FinishCredentialRemoval()
         {
             if (!CredentialsRemovalPending) return;
-            var marker = File.ReadAllBytes(Path.Combine(root, "credentials.remove"));
+            // Only a locked file is pending. A preferences write that fails in the same startup must stay a storage failure.
+            try { CompleteCredentialRemoval(); }
+            catch (IOException ex) { throw new PendingCredentialRemovalException(ex); }
+            catch (UnauthorizedAccessException ex) { throw new PendingCredentialRemovalException(ex); }
+        }
+        private void CompleteCredentialRemoval()
+        {
+            var markerPath = Path.Combine(root, "credentials.remove");
+            // Captured before anything is deleted: a lock written after this is a new PIN, not the account being removed.
+            var markerWritten = File.GetLastWriteTimeUtc(markerPath);
+            var marker = File.ReadAllBytes(markerPath);
             File.Delete(Path.Combine(root, "credentials.dpapi"));
             File.Delete(Path.Combine(root, "account.dpapi"));
-            if (marker.Length > 0 && marker[0] == 1) RemoveLock();
-            else
+            var removeLock = marker.Length > 0 && marker[0] == 1;
+            if (removeLock)
             {
-                var record = ReadLock();
-                if (record != null && record.Account != null) { record.Account = null; SaveLock(record); }
+                if (!LockWrittenAfter(markerWritten)) RemoveLock();
             }
-            File.Delete(Path.Combine(root, "credentials.remove"));
+            else if (!LockWrittenAfter(markerWritten))
+            {
+                LockRecord record = null;
+                var undecryptable = false;
+                try { record = ReadLock(); }
+                // A Windows password reset or a damaged record can never yield the sealed password. Leaving the marker
+                // would make every later read throw. A locked file (IOException, UnauthorizedAccessException) stays pending.
+                catch (CryptographicException) { undecryptable = true; }
+                catch (InvalidDataException) { undecryptable = true; }
+                catch (ArgumentException) { undecryptable = true; }
+                catch (InvalidOperationException) { undecryptable = true; }
+                if (undecryptable)
+                {
+                    if (!LockWrittenAfter(markerWritten)) RemoveLock();
+                }
+                else if (record != null && record.Account != null && !LockWrittenAfter(markerWritten))
+                {
+                    record.Account = null;
+                    WriteLock(record);
+                }
+            }
+            File.Delete(markerPath);
+        }
+        private bool LockWrittenAfter(DateTime markerWritten)
+        {
+            var path = Path.Combine(root, "lock.dpapi");
+            return File.Exists(path) && File.GetLastWriteTimeUtc(path) > markerWritten;
         }
         // The app PIN's check and guess counter (Core/AppLock.cs), protected like the credentials under an entropy of its own.
         private static readonly byte[] LockEntropy = Encoding.UTF8.GetBytes("Univer.Desktop.lock.v1");
@@ -278,7 +343,8 @@ namespace Univer.Desktop.Core
         public ILockStore LockStore { get { return new FileLockStore(this); } }
         public LockRecord LoadLock()
         {
-            if (CredentialsRemovalPending) throw new IOException("Credential removal is pending");
+            // An interrupted removal is tried again here. If the file is still locked, this throws and the PIN stays closed.
+            FinishCredentialRemoval();
             return ReadLock();
         }
         private LockRecord ReadLock()
@@ -290,6 +356,12 @@ namespace Univer.Desktop.Core
             finally { Array.Clear(bytes, 0, bytes.Length); }
         }
         public void SaveLock(LockRecord record)
+        {
+            // Finish first, through WriteLock below, so this new record is not what a later credential save erases.
+            FinishCredentialRemoval();
+            WriteLock(record);
+        }
+        private void WriteLock(LockRecord record)
         {
             Directory.CreateDirectory(root);
             var bytes = Encoding.UTF8.GetBytes(json.Serialize(record));

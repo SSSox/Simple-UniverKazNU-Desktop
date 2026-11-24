@@ -212,6 +212,35 @@ namespace Univer.Desktop.Tests
             Assert.False(restarted.LoadPreferences().NoticesClearPending);
             Assert.False(restarted.FinishSessionClear(clean));
         }
+        [Fact]
+        public async Task StalePreferencesSave_KeepsAPendingNoticeClearUntilTheFileIsGone()
+        {
+            var storage = new Storage(root);
+            var account = ScheduleWeek.AccountMark("first student");
+            await storage.SaveNoticesAsync(account, Notices.Merge(new List<SiteNotice>(), Scan("/student/rating/", 2), Notices.Now()));
+            var pending = storage.LoadPreferences();
+            pending.NoticesClearPending = true;
+            storage.SavePreferences(pending);
+
+            var stale = storage.LoadPreferences().Clone();
+            stale.NoticesClearPending = false;
+            stale.Language = "en";
+            await storage.SavePreferencesAsync(stale);
+
+            var saved = new Storage(root).LoadPreferences();
+            Assert.True(saved.NoticesClearPending);
+            Assert.Equal("en", saved.Language);
+            Assert.Single(storage.LoadNotices(account, false));
+            Assert.Empty(storage.LoadNotices(account, saved.NoticesClearPending));
+
+            File.Delete(Path.Combine(root, "notices.json"));
+            stale.Language = "kz";
+            stale.NoticesClearPending = false;
+            await storage.SavePreferencesAsync(stale);
+            var cleared = new Storage(root).LoadPreferences();
+            Assert.False(cleared.NoticesClearPending);
+            Assert.Equal("kz", cleared.Language);
+        }
         public void Dispose() { try { Directory.Delete(root, true); } catch (IOException) { } catch (UnauthorizedAccessException) { } }
     }
 }

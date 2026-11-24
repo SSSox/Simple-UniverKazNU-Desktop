@@ -22,7 +22,7 @@ namespace Univer.Desktop.UI
         // A requested check that never reports back counts as failed.
         private readonly Timer noticeChecking = new Timer { Interval = 20000 };
         private long noticeFetchedAt = long.MinValue, noticeTriedAt = long.MinValue;
-        private bool noticeScanDue = true, noticeBusy, noticeRefreshing, noticeRefreshQueued, noticeFailed, noticesClearPending;
+        private bool noticeScanDue = true, noticeBusy, noticeRefreshing, noticeRefreshQueued, noticeFailed, noticesSaving, noticesSaveQueued, noticesClearSaving;
         private string noticeHeading = "";
         private int noticeCount;
         private int trayUnread = -1;
@@ -44,8 +44,7 @@ namespace Univer.Desktop.UI
             noticesPanel.VisibleChanged += (s, e) => noticesButton.Selected = noticesPanel.Visible;
             workspace.Resize += (s, e) => PlaceNotices(); canvas.LocationChanged += (s, e) => PlaceNotices();
             noticeChecking.Tick += (s, e) => EndNoticeCheck(true);
-            noticesClearPending = prefs.NoticesClearPending;
-            if (credentials != null && !prefs.AutoLoginPaused && !storageFailed && !selfTest && !accountReview) notices = storage.LoadNotices(NoticeAccount, noticesClearPending);
+            if (credentials != null && !prefs.AutoLoginPaused && !storageFailed && !selfTest && !accountReview) notices = storage.LoadNotices(NoticeAccount, prefs.NoticesClearPending);
         }
         // The toolbar bell, the tray item and an open panel follow the list.
         private void RenderNotices()
@@ -169,7 +168,7 @@ namespace Univer.Desktop.UI
             if (closing || generation != NoticeGeneration || !NoticesActive) return;
             var previous = notices;
             var next = Notices.Merge(previous, scan, Notices.Now());
-            if (!Changed(previous, next) && !noticesClearPending) return;
+            if (!Changed(previous, next) && !prefs.NoticesClearPending) return;
             notices = next; RenderNotices();
             var fresh = Notices.NewlyUnread(previous, next);
             if (fresh.Count > 0) AnnounceNotices(fresh);
@@ -179,19 +178,36 @@ namespace Univer.Desktop.UI
         {
             if (closing) return;
             var next = change(notices);
-            if (!Changed(notices, next) && !noticesClearPending) return;
+            if (!Changed(notices, next) && !prefs.NoticesClearPending) return;
             notices = next; RenderNotices();
             await SaveNoticesAsync();
         }
         private async Task SaveNoticesAsync()
         {
+            if (noticesSaving || noticesClearSaving) { noticesSaveQueued = true; return; }
+            noticesSaving = true;
+            var again = false;
             try
             {
-                if (noticesClearPending) await FinishNoticesClearAsync();
-                await storage.SaveNoticesAsync(NoticeAccount, notices);
+                var epoch = sessionEpoch;
+                var account = NoticeAccount;
+                var snapshot = notices.Select(n => n.Copy()).ToList();
+                var moved = closing || rotating;
+                if (!moved && prefs.NoticesClearPending) await FinishNoticesClearAsync();
+                // The account or the session moved on: this snapshot belongs to the one that started the save.
+                // A clear that is still pending must not be overwritten by it either.
+                moved = moved || closing || rotating || epoch != sessionEpoch || account != NoticeAccount || prefs.NoticesClearPending;
+                if (!moved) await storage.SaveNoticesAsync(account, snapshot);
             }
             // The list stays in memory and the next change writes it again; a failed write never blocks the site.
             catch (Exception) { }
+            finally
+            {
+                again = noticesSaveQueued;
+                noticesSaveQueued = false;
+                noticesSaving = false;
+            }
+            if (again && !closing) await SaveNoticesAsync();
         }
         private static bool Changed(List<SiteNotice> before, List<SiteNotice> after)
         {
@@ -206,21 +222,58 @@ namespace Univer.Desktop.UI
             notices = new List<SiteNotice>(); noticeFetchedAt = long.MinValue; noticeScanDue = true; noticeRefreshing = noticeRefreshQueued = noticeFailed = false; noticeChecking.Stop();
             HideNotices(); messages.ClearNotices();
             RenderNotices();
-            noticesClearPending = prefs.NoticesClearPending = true;
+            prefs.NoticesClearPending = true;
+            var epoch = sessionEpoch;
+            var account = NoticeAccount;
             try
             {
                 await storage.SavePreferencesAsync(prefs);
-                await FinishNoticesClearAsync();
+                if (!closing && epoch == sessionEpoch && account == NoticeAccount)
+                    await storage.SaveNoticesAsync(account, new List<SiteNotice>());
             }
             catch (Exception) { }
         }
+        // The mark on prefs is the only copy. Same quiet-moment checks as the kept-copy clear: a busy, rotating or
+        // closing window must not turn it off, and a failed delete puts it back.
         private async Task FinishNoticesClearAsync()
         {
-            await storage.SaveNoticesAsync(NoticeAccount, new List<SiteNotice>());
-            prefs.NoticesClearPending = false;
-            try { await storage.SavePreferencesAsync(prefs); }
-            catch (Exception) { prefs.NoticesClearPending = true; throw; }
-            noticesClearPending = false;
+            if (!prefs.NoticesClearPending || storageFailed || noticesClearSaving || commandBusy || rotating || closing || accountReview) return;
+            var epoch = sessionEpoch;
+            var account = NoticeAccount;
+            noticesClearSaving = true;
+            var cleared = false;
+            try
+            {
+                await storage.SaveNoticesAsync(account, new List<SiteNotice>());
+                if (closing || rotating || epoch != sessionEpoch || account != NoticeAccount || storageFailed || commandBusy || accountReview) return;
+                if (!prefs.NoticesClearPending) return;
+                prefs.NoticesClearPending = false;
+                try
+                {
+                    await storage.SavePreferencesAsync(prefs);
+                    cleared = epoch == sessionEpoch && account == NoticeAccount && !prefs.NoticesClearPending;
+                }
+                catch (Exception) { if (epoch == sessionEpoch) prefs.NoticesClearPending = true; }
+            }
+            catch (Exception) { if (epoch == sessionEpoch && !prefs.NoticesClearPending) prefs.NoticesClearPending = true; }
+            finally { noticesClearSaving = false; }
+            // The clear runs on its own from a signed-in tick. Notices read while it waited are still only in memory;
+            // the next unchanged scan would not write them, and a restart would load an empty list.
+            if (!cleared || noticesSaving || closing || rotating || epoch != sessionEpoch || account != NoticeAccount || storageFailed || accountReview) return;
+            if (!noticesSaveQueued && notices.Count == 0) return;
+            noticesSaveQueued = false;
+            await SaveNoticesAsync();
+        }
+        // A settings snapshot taken earlier must take the live mark at the moment it is saved, so a clear that started
+        // or finished since is neither dropped nor put back.
+        private async Task CommitPreferencesAsync(Preferences updated)
+        {
+            updated.NoticesClearPending = prefs.NoticesClearPending;
+            var seen = updated.NoticesClearPending;
+            await storage.SavePreferencesAsync(updated);
+            updated.NoticesClearPending = prefs.NoticesClearPending;
+            prefs = updated;
+            if (prefs.NoticesClearPending != seen) await storage.SavePreferencesAsync(prefs);
         }
         // New notifications: a toast while the window is in front, a tray balloon while it is hidden or minimized.
         private void AnnounceNotices(List<SiteNotice> fresh)

@@ -78,6 +78,7 @@ namespace Univer.Desktop.UI
             if (!CloseOverLock()) StartLockCloser();
             if (findBar.Searching) findBar.Close();
             // A moment when another program holds the file is not a lost record: it is read again before giving up.
+            // LoadLock also retries a pending account removal; if that file stays locked, the pad stays unavailable.
             var unreadable = true;
             for (var attempt = 0; attempt < 3 && unreadable; attempt++)
             {
@@ -130,15 +131,14 @@ namespace Univer.Desktop.UI
             PinResult result;
             try { result = await Task.Run(() => pinGuard.Guess(pin)); }
             catch (Exception) { result = new PinResult(PinOutcome.Failed); }
-            finally { lockChecking = false; }
-            if (closing) return;
-            lockView.Pad.SetBusy(false);
+            if (closing) { lockChecking = false; lockView.Pad.SetBusy(false); return; }
+            // Stay busy through a success: Forgot PIN stays disabled while the opened account is being put in place.
+            if (result.Outcome != PinOutcome.Success) { lockChecking = false; lockView.Pad.SetBusy(false); }
             switch (result.Outcome)
             {
                 case PinOutcome.Success:
-                    // No second PIN is taken while the opened account is being put in place.
-                    lockChecking = true;
-                    try { await AcceptUnlockAsync(pin, result); } finally { lockChecking = false; }
+                    try { await AcceptUnlockAsync(pin, result); }
+                    finally { lockChecking = false; lockView.Pad.SetBusy(false); }
                     if (!closing) Unlock();
                     return;
                 case PinOutcome.Wiped: await WipeAsync("lockWiped"); return;
@@ -153,7 +153,7 @@ namespace Univer.Desktop.UI
         }
         private async Task ForgotPinAsync()
         {
-            if (!locked || lockDialogOpen || wiping) return;
+            if (!locked || lockDialogOpen || wiping || lockChecking) return;
             var lang = prefs.Language; DialogResult answer;
             lockDialogOpen = true;
             try { using (var form = new ChoiceForm(Strings.Get("lockForgotTitle", lang), Strings.Get("lockForgotMessage", lang), Strings.Get("lockForgotAction", lang), Strings.Get("lockCancel", lang), true)) answer = form.ShowDialog(this); }
@@ -171,14 +171,23 @@ namespace Univer.Desktop.UI
                 var until = DateTime.UtcNow.AddSeconds(15);
                 while ((commandBusy || rotating) && !closing && DateTime.UtcNow < until) await Task.Delay(100);
                 if (closing) return;
-                if (commandBusy || rotating) { lockView.Pad.ShowKey("lockFailed", true); return; }
+                if (commandBusy || rotating) { ShowLockFailure("lockFailed"); return; }
                 var ended = false;
                 commandBusy = true; SetCommandEnabled(false);
                 try { await EndSessionAsync(true); ended = true; }
-                catch (Exception e) { if (!closing) { guard.Stop(); ReportSessionFault(e, true); } }
+                catch (Exception e)
+                {
+                    if (!closing)
+                    {
+                        // The account is already gone and RecoverSession has a fresh window. A Chromium fault after that
+                        // is not a reason to keep the lock over an empty session. A locked file still fails closed.
+                        if (!StorageFault(e) && credentials == null && !storage.CredentialsRemovalPending) ended = true;
+                        else { guard.Stop(); ReportSessionFault(e, true); }
+                    }
+                }
                 finally { commandBusy = false; if (!closing) SetCommandEnabled(true); }
                 if (closing) return;
-                if (!ended || credentials != null) { if (locked) lockView.Pad.ShowKey("lockFailed", true); return; }
+                if (!ended || credentials != null) { if (locked) ShowLockFailure("lockFailed"); return; }
                 try { pinGuard.Forget(); } catch (IOException) { } catch (UnauthorizedAccessException) { }
                 if (locked || covered) Unlock();
                 if (messageKey != null) SetStatus(messageKey);
@@ -321,9 +330,18 @@ namespace Univer.Desktop.UI
             try { await storage.SaveCredentialsAsync(account.LoginOnly()); plainPassword = false; }
             catch (Exception) { }
         }
+        // The pad is hidden when the PIN record cannot be read, so the failure has to land on the lock card itself.
+        private void ShowLockFailure(string key)
+        {
+            if (lockView.Unavailable) lockView.ShowProblem(Strings.Get(key, prefs.Language));
+            else lockView.Pad.ShowKey(key, true);
+        }
         // A new account from Settings: sealed under the PIN when one is set and opened, otherwise in the plain DPAPI file.
         private async Task SaveAccountAsync(Credentials next)
         {
+            // Finish a removal that an earlier attempt left behind before this password is sealed. A locked file throws
+            // and nothing new is written, so the next credential save cannot erase it as if it were the old account.
+            if (storage.CredentialsRemovalPending) await Task.Run(() => storage.FinishPendingCredentialRemoval());
             if (PinSet && await Task.Run(() => pinGuard.StoreAccount(next))) { await storage.SaveCredentialsAsync(next.LoginOnly()); plainPassword = false; }
             else { await storage.SaveCredentialsAsync(next); plainPassword = true; }
         }
