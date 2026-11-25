@@ -41,7 +41,7 @@ namespace Univer.Desktop.Web
         // A random global lexical binding is absent from window and cannot be replaced by the page. Its value and methods
         // are captured before page scripts run; a missed document-start registration never installs it late.
         private readonly string automationBinding = "__univerAutomation_" + NativeChannel.NewKey().TrimEnd(':');
-        private string AutomationReference { get { return "(typeof " + automationBinding + "==='undefined'?null:" + automationBinding + ")"; } }
+        private string AutomationReference { get { return "(function(){try{return " + automationBinding + "}catch(_){return null}})()"; } }
         private int generation;
         private bool failedAgreement, resumePending;
         private string pendingAgreement, failedNotice, stopStatus, resumeUrl;
