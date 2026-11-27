@@ -361,7 +361,7 @@
         var saved = stored(STORE).program;
         if (!force && saved && CODE.test(saved.code || '') && Date.now() - saved.at < LIMITS.program) return programPromise = Promise.resolve(saved);
         var epoch = generation;
-        programPromise = (async function () {
+        var request = programPromise = (async function () {
             var sources = ['/student/bachelor/', '/student/educplan/'];
             for (var i = 0; i < sources.length && epoch === generation; i++) {
                 var found = null;
@@ -373,14 +373,14 @@
             }
             throw new Error('Programme unavailable');
         })();
-        programPromise.catch(function () { });
-        return programPromise;
+        request.catch(function () { if (programPromise === request) programPromise = null; });
+        return request;
     }
     /* The student's own syllabus among printed ones (study-links.js and study-pages.js mark it). Each printed syllabus is
        read once and only its programme codes, language divisions and academic year are kept; reads go two at a time
        across the page, each within its own timeout and page size, and one call waits no longer than LIMITS.ownWait. The
        programme code decides; among several, the student's language division, then the newest academic year. With the
-       programme unknown nothing is chosen; when it could not be read the call fails, so the caller may ask again later. */
+       programme unknown or a read incomplete, the call fails so the caller may ask again later. */
     var OWN = 'univer.desktop.syllabus-own.v1', OWN_KEPT = 200, OWN_SIZE = 200000;
     // A read belongs to the generation that queued it: release (Original) and refresh drop the queue and the reads in
     // flight, and a queued read whose callers have all stopped waiting (LIMITS.ownWait) is dropped before it starts.
@@ -417,15 +417,16 @@
     }
     function ownRead(href, until) {
         var saved = ownStored().entries[href], known = ownReads.get(href);
-        if (saved && Array.isArray(saved.programs) && fresh(saved.at, LIMITS.fresh)) return Promise.resolve(saved);
+        if (saved && Array.isArray(saved.programs) && saved.programs.length && fresh(saved.at, LIMITS.fresh)) return Promise.resolve(saved);
         if (known && known.job.epoch === generation) { known.job.until = Math.max(known.job.until, until); return known.promise; }
         var epoch = generation, job, promise = new Promise(function (resolve, reject) {
             ownQueue.push(job = {epoch:epoch, until:until, resolve:resolve, reject:reject, task:async function () {
                 var doc = await read(new URL(href).pathname);
                 if (epoch !== generation) throw new Error('Syllabus read dropped');
+                if (!doc.querySelector('table.students')) throw new Error('Printed syllabus unavailable');
                 var parsed = parseSyllabus(doc);
                 var facts = {at:Date.now(), year:parsed.year, programs:parsed.programs.filter(function (g) { return g.code; }).slice(0, 40).map(function (g) { return [codeKey(g.code), g.division]; })};
-                ownSave(href, facts);
+                if (facts.programs.length) ownSave(href, facts);
                 return facts;
             }});
             ownPump();
@@ -449,7 +450,7 @@
         var timer = 0, until = Date.now() + LIMITS.ownWait, deadline = new Promise(function (resolve) { timer = setTimeout(resolve, LIMITS.ownWait, null); });
         try {
             var facts = await Promise.all(list.map(function (href) { return Promise.race([ownRead(href, until).catch(function () { return null; }), deadline]); }));
-            if (epoch !== generation) throw new Error('Syllabus lookup dropped');
+            if (epoch !== generation || facts.some(function (found) { return !found; })) throw new Error('Syllabus lookup incomplete');
             var best = null;
             list.forEach(function (href, index) {
                 var found = facts[index], mine = found ? found.programs.filter(function (p) { return p[0] === code; }) : [];

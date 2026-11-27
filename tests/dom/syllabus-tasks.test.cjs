@@ -738,6 +738,35 @@ const hanging = (p, fails) => {
 };
 const prints = ids => ids.map(id => 'https://univer.kaznu.kz/student/interactive/syllabus/print/' + id + '/2');
 
+test('own(): concurrent lookups share a failed programme read, then retry it on the same page', async () => {
+    const map = routes(), p = page(site('<p>x</p>'), { routes: map });
+    try {
+        delete map['/student/bachelor/'];
+        const own = p.w.__univerSyllabusV1.own, links = prints([9004]);
+        await Promise.all([assert.rejects(own(links)), assert.rejects(own(links))]);
+        assert.deepEqual(p.requests, ['/student/bachelor/', '/student/educplan/']);
+        map['/student/bachelor/'] = home();
+        assert.equal(await own(links), links[0]);
+        assert.equal(await own(links), links[0]);
+        assert.deepEqual(p.requests.slice(2), ['/student/bachelor/', '/student/interactive/syllabus/print/9004/2']);
+    } finally { p.close(); }
+});
+
+test('own(): a failed printed read leaves the choice unverified and only the failed candidate is retried', async () => {
+    const map = routes(), p = page(site('<p>x</p>'), { routes: map }), path = '/student/interactive/syllabus/print/9004/2';
+    try {
+        const own = p.w.__univerSyllabusV1.own, links = prints([9002, 9004]);
+        delete map[path];
+        await assert.rejects(own(links));
+        map[path] = site('<p>Temporary error</p>');
+        await assert.rejects(own(links));
+        map[path] = politics;
+        assert.equal(await own(links), links[1]);
+        assert.equal(p.requests.filter(request => request.includes('/9002/')).length, 1);
+        assert.equal(p.requests.filter(request => request === path).length, 3);
+    } finally { p.close(); }
+});
+
 test('own(): Original drops the queued syllabi and aborts the active ones; nothing is read after release', async () => {
   const p = page(site('<p>x</p>'), { routes: routes() }), started = hanging(p);
   const asked = p.w.__univerSyllabusV1.own(prints([9001, 9002, 9003, 9004]));
@@ -765,7 +794,7 @@ test('own(): a lookup released while the programme is read queues nothing', asyn
 test('own(): queued syllabi whose caller stopped waiting are dropped before they start', async () => {
   const p = page(site('<p>x</p>'), { routes: routes() }), started = hanging(p, 80);
   p.w.__univerSyllabusV1.limits.ownWait = 40;
-  assert.equal(await p.w.__univerSyllabusV1.own(prints([9001, 9002, 9003, 9004])), null, 'the deadline answers nothing');
+  await assert.rejects(p.w.__univerSyllabusV1.own(prints([9001, 9002, 9003, 9004])), 'the deadline leaves the lookup eligible for retry');
   assert.equal(started.length, 2);
   // The two active reads fail after the deadline; the expired queue does not start after them.
   await new Promise(r => setTimeout(r, 120));

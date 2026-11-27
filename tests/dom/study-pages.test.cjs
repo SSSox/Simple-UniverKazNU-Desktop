@@ -475,6 +475,27 @@ test('UMKD: a «Силлабус» block the site left «Не заполнено
   apply(p); assert.equal(p.d.getElementById('syllabus').hasAttribute('data-univer-empty-section'), false, 'a real link keeps the block'); p.close();
 });
 
+test('UMKD: only an empty syllabus can be hidden, and a link anywhere in the wrapper keeps it visible', () => {
+    const html = umkdSyllabus('Не заполнено').replace('<h4>Силлабус</h4>', '<h4>Методические указания</h4>');
+    const p = page(html, 'https://univer.kaznu.kz/student/umkd/321/2026/1');
+    try {
+        const box = p.d.getElementById('syllabus'), head = box.querySelector('h4');
+        const apply = () => p.w.__univerPagesV1.apply('ru');
+        apply();
+        assert.equal(box.hasAttribute('data-univer-empty-section'), false);
+        head.textContent = 'Syllabus';
+        apply();
+        assert.equal(box.hasAttribute('data-univer-empty-section'), true);
+        const link = p.d.createElement('a');
+        link.href = '/student/interactive/syllabus/print/22/2';
+        link.textContent = 'Социология';
+        box.prepend(link);
+        apply();
+        assert.equal(box.hasAttribute('data-univer-empty-section'), false);
+        assert.equal(box.firstElementChild, link);
+    } finally { p.w.close(); }
+});
+
 test('UMKD: an own syllabus found while a link has focus moves first once the focus leaves the block', async () => {
   const body = '<a id="s1" href="/student/interactive/syllabus/print/22/1">Социология (эк.)</a><a id="s2" href="/student/interactive/syllabus/print/22/2">Социология</a>';
   const p = page(umkdSyllabus(body), 'https://univer.kaznu.kz/student/umkd/321/2026/1');

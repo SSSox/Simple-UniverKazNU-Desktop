@@ -307,10 +307,11 @@ html.univer-mobile .univer-app-card-header { display:none!important; }
 html.univer-mobile .univer-app-card-header.univer-app-sort-head { display:flex!important; flex-wrap:wrap; gap:6px; margin:8px 0; }
 html.univer-mobile .univer-app-sort-head>th { display:block!important; min-width:0!important; width:auto!important; padding:12px!important; border:1px solid #d7e3ef!important; border-radius:8px; font-size:12px!important; }
 html.univer-mobile .univer-app-card-row { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:10px; margin:8px 0 12px; padding:14px; background:white; border:1px solid #d7e3ef; border-radius:10px; }
-html.univer-mobile .univer-app-card-row>:is(td,th) { display:block; width:auto!important; min-width:0!important; border:0!important; padding:0!important; white-space:normal!important; overflow-wrap:anywhere; line-height:1.5; }
+html.univer-mobile .univer-app-card-row>:is(td,th) { display:block; width:auto!important; min-width:0!important; height:auto!important; float:none!important; border:0!important; padding:0!important; white-space:normal!important; overflow-wrap:anywhere; line-height:1.5; }
 html.univer-mobile .univer-app-card-row>td:first-child { grid-column:1/-1; font-weight:500; }
 html.univer-mobile .univer-app-card-row>td[data-univer-field]::before { content:attr(data-univer-field); display:block; font-size:12px; font-weight:400; color:#61758a; margin-bottom:4px; }
 html.univer-mobile .univer-app-card-row>td:has(a,input,textarea,select), html.univer-mobile .univer-app-card-row>.univer-app-long-field { grid-column:1/-1; }
+html.univer-mobile .univer-app-card-row>td.univer-app-blank-field { display:none!important; }
 html.univer-mobile .univer-app-card-row a { display:block; min-height:24px; padding:10px 0; overflow-wrap:anywhere; }
 html.univer-mobile .univer-app-card-section, html.univer-mobile .univer-app-card-section>:is(td,th) { display:block; box-sizing:border-box; width:100%!important; min-width:0!important; padding:8px!important; border:0!important; background:none!important; }
 html.univer-mobile .univer-app-matrix :is(td,th) { min-width:3rem!important; padding:8px!important; overflow-wrap:normal!important; word-break:normal!important; }
@@ -329,7 +330,8 @@ html.univer-mobile.univer-app-document :is(p,span) { font-size:16px!important; }
 html.univer-mobile.univer-app-document h1 { font-size:22px!important; }
 html.univer-mobile .univer-app-document-layout, html.univer-mobile .univer-app-document-layout>tbody,
 html.univer-mobile .univer-app-document-layout>tbody>tr, html.univer-mobile .univer-app-document-layout>tbody>tr>:is(td,th) { display:block!important; width:100%!important; min-width:0!important; max-width:100%!important; box-sizing:border-box; height:auto!important; padding:4px 0!important; border:0!important; }
-html.univer-mobile.univer-app-document .univer-app-table-scroll { margin:12px 0; border:1px solid #d7e3ef; border-radius:8px; }
+/* A printed sheet may float every block of its own (the syllabus's #content div); the added box stays in flow inside the sheet. */
+html.univer-mobile.univer-app-document .univer-app-table-scroll { float:none!important; width:auto!important; margin:12px 0; border:1px solid #d7e3ef; border-radius:8px; }
 html.univer-mobile.univer-app-document .univer-app-table-scroll>table:not(.univer-app-document-layout):not(.univer-app-pairs) { width:auto!important; min-width:100%; table-layout:auto!important; }
 html.univer-mobile.univer-app-document .noprint { font-size:14px!important; line-height:1.4!important; padding:4px 0!important; }
 html.univer-mobile.univer-app-document .noprint br { display:none!important; }
@@ -451,14 +453,20 @@ html.univer-mobile.univer-app-document body { padding:24px!important; background
   html.univer-mobile #login_form { margin:0!important; max-width:none; }
   html.univer-mobile .univer-app-pairs tr { display:grid!important; grid-template-columns:minmax(160px,.3fr) minmax(0,1fr); padding:10px 16px!important; }
   html.univer-mobile .univer-app-pairs td { width:auto!important; padding:4px 8px!important; }
-  html.univer-mobile .univer-app-cards { display:table!important; width:100%!important; border-collapse:collapse!important; }
-  html.univer-mobile .univer-app-cards>tbody { display:table-row-group!important; }
-  html.univer-mobile .univer-app-cards :is(.univer-app-card-row,.univer-app-card-header,.univer-app-sort-head,.univer-app-card-section) { display:table-row!important; }
-  html.univer-mobile .univer-app-cards .univer-app-card-section>:is(td,th) { width:auto!important; padding:20px 14px!important; color:#61758a; font-weight:400; }
-  html.univer-mobile .univer-app-cards :is(td,th) { display:table-cell!important; width:auto!important; border-bottom:1px solid #dfe5ec!important; padding:12px 14px!important; background:white!important; text-align:start!important; }
-  html.univer-mobile .univer-app-cards th { background:#e9f1fb!important; color:#16283b!important; }
-  html.univer-mobile .univer-app-cards td::before { display:none!important; }
-  html.univer-mobile .univer-app-cards .univer-app-card-row:hover td { background:#f3f6f9!important; }
+  /* A wide table sizes its columns by their content: a fixed layout gave every column the same share, and a word longer than
+     its share ran into the next cell. */
+  html.univer-mobile .univer-app-cards:not(.univer-app-split-cards,.univer-app-split-head) { display:table!important; table-layout:auto!important; width:100%!important; border-collapse:collapse!important; }
+  html.univer-mobile .univer-app-cards:not(.univer-app-split-cards,.univer-app-split-head)>tbody { display:table-row-group!important; }
+  html.univer-mobile .univer-app-cards:not(.univer-app-split-cards,.univer-app-split-head) :is(.univer-app-card-row,.univer-app-card-header,.univer-app-sort-head,.univer-app-card-section) { display:table-row!important; }
+  html.univer-mobile .univer-app-cards:not(.univer-app-split-cards,.univer-app-split-head) .univer-app-card-section>:is(td,th) { width:auto!important; padding:20px 14px!important; color:#61758a; font-weight:400; }
+  html.univer-mobile .univer-app-cards:not(.univer-app-split-cards,.univer-app-split-head) :is(td,th) { display:table-cell!important; width:auto!important; border-bottom:1px solid #dfe5ec!important; padding:12px 14px!important; background:white!important; text-align:start!important; }
+  html.univer-mobile .univer-app-cards:not(.univer-app-split-cards,.univer-app-split-head) th { background:#e9f1fb!important; color:#16283b!important; }
+  html.univer-mobile .univer-app-cards:not(.univer-app-split-cards,.univer-app-split-head) td::before { display:none!important; }
+  html.univer-mobile .univer-app-cards:not(.univer-app-split-cards,.univer-app-split-head) .univer-app-card-row:hover td { background:#f3f6f9!important; }
+  /* Cards whose headings sit in another table (exams, midterms, messages) stay cards, with more fields on a line. */
+  html.univer-mobile .univer-app-split-cards .univer-app-card-row { grid-template-columns:repeat(auto-fill,minmax(180px,1fr)); }
+  html.univer-mobile .univer-app-split-cards .univer-app-card-row>.univer-app-long-field { grid-column:span 2; }
+  html.univer-mobile .univer-app-split-cards .univer-app-card-row>td:first-child { grid-column:1/-1; }
   html.univer-mobile .univer-app-materials, html.univer-mobile .univer-app-courses { width:100%!important; }
   html.univer-mobile :is(.univer-app-materials,.univer-app-courses)>tbody { display:table-row-group!important; }
   html.univer-mobile :is(.univer-app-materials,.univer-app-courses)>tbody>tr { display:table-row!important; }
@@ -1155,6 +1163,8 @@ html.univer-mobile.univer-app-document body { padding:24px!important; background
                 table.classList.add('univer-app-matrix'); wrapTable(table); return;
             }
             table.classList.add('univer-app-cards'); header.classList.add('univer-app-card-header');
+            // Headings from another table cannot line up with this table's columns, so such a list stays as cards at every width.
+            if (own.indexOf(header) < 0) { table.classList.add('univer-app-split-cards'); header.closest('table')?.classList.add('univer-app-split-head'); }
             // Keep the original clickable sort headings available above the statement cards.
             if (table.matches('.table_sort')) header.classList.add('univer-app-sort-head');
             own.forEach(function (r) {
@@ -1167,6 +1177,9 @@ html.univer-mobile.univer-app-document body { padding:24px!important; background
                 if (action && cleanText(last) === cleanText(action) && cleanText(action).length <= 28) action.classList.add('univer-app-action-link');
                 cells.forEach(function (c, i) {
                     if (c.tagName === 'TH') return;
+                    // A card leaves out a field with nothing in it rather than showing its heading over a blank.
+                    var blank = !cleanText(c) && !c.querySelector('input,select,textarea,button,a,img,iframe');
+                    if (c.classList.contains('univer-app-blank-field') !== blank) c.classList.toggle('univer-app-blank-field', blank);
                     var label = header.cells[i]?.textContent.trim();
                     if (label && c.dataset.univerField !== label) c.dataset.univerField = label;
                     if (/дисциплин|название|описание|услуга|содержание|преподаватель/i.test(label || '') || c.textContent.length > 100)
@@ -1703,7 +1716,7 @@ html.univer-mobile.univer-app-document body { padding:24px!important; background
                 'univer-app-video','univer-app-media-column','univer-app-content-columns','univer-app-empty-result','univer-app-calendar-meta','univer-app-empty-nav-cell','univer-app-div-records','univer-app-schedule-controls','univer-app-schedule-grid-visible',
                 'univer-app-schedule-content','univer-app-empty-panel','univer-app-secondary-heading','univer-app-schedule-title','univer-app-print-action','univer-app-form-spacer',
                 'univer-app-header-row','univer-app-semester-link','univer-app-empty-note','univer-app-action-link','univer-app-empty-row',
-                'univer-app-today-col','univer-app-news-pager-source'];
+                'univer-app-today-col','univer-app-news-pager-source','univer-app-split-cards','univer-app-split-head','univer-app-blank-field'];
             document.querySelectorAll(recordClasses.map(function (c) { return '.' + c; }).join(',')).forEach(function (node) {
                 node.classList.remove(...recordClasses);
             });

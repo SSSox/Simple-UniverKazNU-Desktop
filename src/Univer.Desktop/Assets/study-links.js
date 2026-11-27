@@ -141,7 +141,11 @@
             motion?.stop(record.panel);
             if (!opening) {
                 // The list folds shut before it is hidden, so the card closes up instead of jumping.
-                var hide=()=>{ record.closing=false; record.panel.hidden=true; ownHeight(); };
+                var hide=()=>{
+                    record.closing=false; record.panel.hidden=true;
+                    var draw=record.afterClose; record.afterClose=null; draw?.();
+                    ownHeight();
+                };
                 record.closing=true;
                 if (animate && motion?.collapse) motion.collapse(record.panel,hide,180); else hide();
                 return;
@@ -161,11 +165,12 @@
         var status=document.createElement('p'); status.setAttribute('role','status'); status.className='univer-app-pending'; status.textContent=text().loading; panel.appendChild(status);
         ownHeight();
         if (animate) { motion?.resize(panel,1,220); motion?.reveal(panel,'content'); }
+        var course, items;
         try {
             await loadCourses(); if (!enabled || generation!==epoch) return;
-            var course=courseFor(link); if (!course) throw new Error('Course not found');
+            course=courseFor(link); if (!course) throw new Error('Course not found');
             var doc=await read(course.href); if (!enabled || generation!==epoch || !panel.isConnected) return;
-            var seen=new Set(), items=[];
+            var seen=new Set(); items=[];
             doc.querySelectorAll('#l4 a[href]').forEach(a=>{
                 var url=new URL(a.getAttribute('href'),location.origin), name=clean(a);
                 if (url.origin!==location.origin || url.search || url.hash || seen.has(url.href)) return;
@@ -174,24 +179,34 @@
                 if (!print && !file) return;
                 seen.add(url.href); items.push({href:url.href,name:name||course.name,print});
             });
-            var before=panel.getBoundingClientRect().height; window.__univerMotionUI?.stop(panel);
+        } catch (_) { items=null; }
+        if (!enabled || generation!==epoch || !panel.isConnected) return;
+        var draw=()=>{
+            var before=0;
+            if (!panel.hidden) {
+                if (items) before=panel.getBoundingClientRect().height;
+                window.__univerMotionUI?.stop(panel);
+            }
             record.items=items; record.list=null; record.own=null; panel.replaceChildren();
-            if (!items.length) { status.className=''; status.textContent=text().empty; panel.appendChild(status); }
+            if (!items) {
+                status.className=''; status.textContent=text().failed; panel.appendChild(status);
+                var retry=document.createElement('button'); retry.type='button'; retry.textContent=text().retry; retry.addEventListener('click',event=>show(link,true,event));
+                panel.appendChild(retry);
+            }
+            else if (!items.length) { status.className=''; status.textContent=text().empty; panel.appendChild(status); }
             else {
                 var list=document.createElement('ul');
                 items.forEach(item=>{ var li=document.createElement('li'), type=document.createElement('span'); type.className='univer-app-syllabus-type'; type.textContent=item.print?text().printType:text().file; item.link=anchor(item.href,item.name); item.li=li; li.append(item.link,type); list.appendChild(li); });
                 panel.appendChild(list); record.list=list;
                 markOwn(record,epoch);
             }
-            panel.appendChild(anchor(course.href,text().umkd));
-            if (animate && !panel.hidden) { window.__univerMotionUI?.resize(panel,before); window.__univerMotionUI?.reveal(panel,'content'); }
-        } catch (_) {
-            if (!enabled || generation!==epoch || !panel.isConnected) return;
-            window.__univerMotionUI?.stop(panel); panel.replaceChildren(); status.className=''; status.textContent=text().failed; panel.appendChild(status);
-            var retry=document.createElement('button'); retry.type='button'; retry.textContent=text().retry; retry.addEventListener('click',event=>show(link,true,event));
-            panel.append(retry,anchor(courseFor(link)?.href||listHref(),text().umkd));
-            if (animate && !panel.hidden) window.__univerMotionUI?.reveal(panel,'content');
-        }
+            panel.appendChild(anchor(course?.href||listHref(),text().umkd));
+            if (animate && !panel.hidden) {
+                if (items) window.__univerMotionUI?.resize(panel,before);
+                window.__univerMotionUI?.reveal(panel,'content');
+            }
+        };
+        if (record.closing) record.afterClose=draw; else draw();
     }
     document.addEventListener('click',event=>{
         if (!enabled || event.button!==0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
@@ -214,7 +229,7 @@
     }
     function release() {
         enabled=false; generation++; controller?.abort(); courses=pending=null; attempted=false;
-        panels.forEach(record=>{window.__univerMotionUI?.stop(record.panel);record.panel.remove();}); panels.clear();
+        panels.forEach(record=>{record.afterClose=null;window.__univerMotionUI?.stop(record.panel);record.panel.remove();}); panels.clear();
         kept.forEach(tr=>tr.removeAttribute('data-univer-own-height')); kept.clear();
         headings.forEach(record=>{record.header.remove();record.original.replaceWith(...record.original.childNodes);});headings.clear();
         changed.forEach((attrs,link)=>attrs.forEach(a=>{ if (a[1]===null) link.removeAttribute(a[0]); else link.setAttribute(a[0],a[1]); })); changed.clear();

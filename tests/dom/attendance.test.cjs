@@ -129,6 +129,51 @@ test('one syllabus action per subject stays visible with every lesson filter and
  assert.equal(p.d.querySelectorAll('.univer-app-course-syllabus').length,2);assert.deepEqual(calls,['/student/umkd/0/2026/1','/student/umkd/322/2026/1']);
  p.w.__univerStudyV1.release();p.w.__univerAttendanceV1.release();assert.equal(p.d.querySelector('#l4').innerHTML,original);p.close();
 });
+for (const fails of [false, true]) {
+    test(`a syllabus ${fails ? 'failure' : 'result'} waits for the loading panel to finish closing`, async () => {
+        const p = page();
+        try {
+            p.w.eval(fs.readFileSync('src/Univer.Desktop/Assets/study-links.js', 'utf8'));
+            let answer, finish, stopped = false;
+            const response = (path, body, status = 200) => ({
+                status, url: 'https://univer.kaznu.kz' + path, headers: { get: () => null }, text: async () => body
+            });
+            p.w.fetch = async path => path.includes('/0/') ?
+                response(path, '<div id="l4"><table class="inner"><tr class="link" id="321"><td>1</td><td>История</td><td>Обязательная</td></tr></table></div>') :
+                new Promise(resolve => {
+                    answer = () => resolve(response(path, '<div id="l4"><a href="/student/interactive/syllabus/print/31/2">Силлабус</a></div>', fails ? 503 : 200));
+                });
+            p.w.__univerMotionUI = {
+                stop() { if (finish) { stopped = true; finish(); } },
+                collapse(node, done) { finish = () => { finish = null; done(); }; },
+                resize() {}, reveal() {}
+            };
+            p.w.__univerStudyV1.apply('ru');
+            const button = p.d.querySelector('.univer-app-course-syllabus');
+            const click = () => button.dispatchEvent(new p.w.MouseEvent('click', { bubbles: true, detail: 1 }));
+            click();
+            await new Promise(resolve => setImmediate(resolve));
+            const panel = p.d.querySelector('.univer-app-syllabi'), loading = panel.firstChild;
+            assert.equal(loading.className, 'univer-app-pending');
+            click();
+            assert.equal(button.getAttribute('aria-expanded'), 'false');
+            assert.equal(typeof finish, 'function');
+            answer();
+            await new Promise(resolve => setImmediate(resolve));
+            assert.equal(stopped, false);
+            assert.equal(panel.hidden, false);
+            assert.equal(panel.firstChild, loading);
+            assert.equal(loading.className, 'univer-app-pending');
+            finish();
+            assert.equal(panel.hidden, true);
+            click();
+            assert.equal(panel.hidden, false);
+            assert.ok(panel.querySelector(fails ? 'button' : 'a[href*="/syllabus/print/"]'));
+            assert.equal(panel.querySelector('.univer-app-pending'), null);
+        } finally { p.close(); }
+    });
+}
+
 test('all courses open as a summary with score tiles, the class log opens on request and Original restores the page',()=>{
  const p=page(),original=p.d.querySelector('#l4').innerHTML;p.w.__univerAttendanceV1.apply('ru');
  // Headings and totals stay visible; the per-date matrices wait for a request.
@@ -157,11 +202,23 @@ test('all courses open as a summary with score tiles, the class log opens on req
  select(p,'all');p.w.__univerAttendanceV1.apply('kz');assert.equal(p.d.querySelectorAll('.univer-app-attendance-details-toggle')[0].textContent,'Сабақ журналын жасыру');
  p.w.__univerAttendanceV1.release();assert.equal(p.d.querySelector('#l4').innerHTML,original);p.close();
 });
-test('a course without classes or totals is one quiet line, and unrecognized totals keep the server wording',()=>{
+test('courses without absences show both labelled zeroes, even without classes or under a class filter', () => {
+    const p = page(fixture.replace('</table></td></tr></table>', '<tr><td class="ct">Новый предмет 01.09.2026 - 12.12.2026</td></tr></table></td></tr></table>'));
+    try {
+        p.w.__univerAttendanceV1.apply('en');
+        const pairs = card => Array.from(card.querySelectorAll('.univer-app-absence'), pair =>
+            [pair.firstChild.textContent, pair.lastChild.textContent]);
+        const zeroes = [['Without a valid reason', '0'], ['With a valid reason', '0']];
+        assert.deepEqual(Array.from(p.d.querySelectorAll('.univer-app-attendance-summary'), pairs), [zeroes, zeroes, zeroes]);
+        select(p, 'lecture');
+        assert.deepEqual(Array.from(p.d.querySelectorAll('.univer-app-attendance-summary'), pairs), [zeroes, zeroes, zeroes]);
+    } finally { p.close(); }
+});
+test('a course without classes keeps its empty message, and unrecognized totals keep the server wording',()=>{
  const html=fixture.replace('<b>РК1 (100): </b>8 <b>РК2 (100): </b>0','<b>РК1</b> ещё не выставлен').replace('</table></td></tr></table>','<tr><td class="ct" id="course-c">Новый предмет 01.09.2026 - 12.12.2026</td></tr></table></td></tr></table>');
  const p=page(html);p.w.__univerAttendanceV1.apply('ru');
  const summaries=p.d.querySelectorAll('.univer-app-attendance-summary');assert.equal(summaries.length,3);
- assert.ok(summaries[2].classList.contains('univer-app-attendance-summary-empty'));assert.equal(summaries[2].textContent,'Занятия пока не добавлены');
+ assert.ok(summaries[2].classList.contains('univer-app-attendance-summary-empty'));assert.equal(summaries[2].querySelector('.univer-app-attendance-nothing').textContent,'Занятия пока не добавлены');
  assert.equal(summaries[2].querySelector('.univer-app-attendance-details-toggle'),null);
  assert.equal(summaries[1].querySelector('.univer-app-score-total'),null);assert.equal(summaries[1].querySelector('.univer-app-attendance-overall-value').hidden,false);
  const rows=p.d.querySelectorAll('.univer-app-attendance-overview li');

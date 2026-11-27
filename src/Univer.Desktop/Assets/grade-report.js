@@ -103,7 +103,7 @@
         // What is left to the mark is what a parent looks for first: a soft plate in the band's own tint.
         '.note .left{display:inline-block;margin-top:3px;padding:2px 8px;border-radius:6px;background:var(--soft,#eef2f6);color:var(--ink,#16283b);font-weight:600;white-space:nowrap}' +
         '.aim{margin:14px 0 0;font-size:13.5px}.aim b{font-weight:600}.row+.row{margin-top:6px}' +
-        '.missed{display:flex;flex-wrap:wrap;gap:2px 18px;margin:6px 0 0;color:#3d4f61;font-size:13px}.missed b{margin-left:6px;color:#16283b;font-weight:600}' +
+        '.missed{display:flex;flex-wrap:wrap;gap:2px 18px;margin:6px 0 0;color:#3d4f61;font-size:13px}.missed b{margin-left:6px;color:#16283b;font-weight:600}.missed b.zero{color:inherit;font-weight:400}' +
         '.missed>span:first-child{color:#16283b;font-weight:500}.term{margin:0 0 4px;padding:10px 16px}.how+.term{margin-top:4px}.term+.course{padding-top:18px;border-top:0}' +
         '.none{margin:0;color:#5b6b7c}' +
         '.source{margin:18px 0 0;padding-top:12px;border-top:1px solid #e3e8ee;color:#5b6b7c;font-size:12px}' +
@@ -231,7 +231,11 @@
     // Absences as the journal shows them: «н» without a valid reason, and those with one.
     function missedLine(w, label, missed, excused) {
         var line = element('p', 'missed'); line.appendChild(element('span', '', label));
-        [[w.unexcused, missed], [w.excused, excused]].forEach(function (part) { var item = element('span', '', part[0]); item.appendChild(element('b', '', String(part[1] || 0))); line.appendChild(item); });
+        [[w.unexcused, missed], [w.excused, excused]].forEach(function (part) {
+            var item = element('span', '', part[0]), value = part[1] || 0;
+            item.appendChild(element('b', value ? '' : 'zero', String(value)));
+            line.appendChild(item);
+        });
         return line;
     }
     function render() {
@@ -241,12 +245,12 @@
         var first = page(true, w, when);
         // The term's absences over every course, under the legend.
         var missed = courses.reduce(function (n, c) { return n + (c.absences || 0); }, 0), excused = courses.reduce(function (n, c) { return n + (c.excused || 0); }, 0);
-        if (missed > 0 || excused > 0) { var term = missedLine(w, w.term, missed, excused); term.classList.add('term'); first.insertBefore(term, first.lastChild); }
+        var term = missedLine(w, w.term, missed, excused); term.classList.add('term'); first.insertBefore(term, first.lastChild);
         var blocks = courses.map(function (course) {
             var block = element('section', 'course'); block.appendChild(element('h3', '', course.name));
             if (course.periods.length) course.periods.forEach(function (period) { block.appendChild(row(period)); });
             else block.appendChild(element('p', 'none', course.note || w.none));
-            if (course.absences > 0 || course.excused > 0) block.appendChild(missedLine(w, w.absences, course.absences, course.excused));
+            block.appendChild(missedLine(w, w.absences, course.absences, course.excused));
             return block;
         });
         if (blocks.length) {

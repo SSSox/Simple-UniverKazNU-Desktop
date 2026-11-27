@@ -12,10 +12,10 @@
     var MESSAGE = '.message,.error,.warning,.alert,.attention,[style*="color"],font[color],p,li,div,span,td,b,strong';
     var SKIP = '#tools,#login_frm,#modal_auth_frm,#modal_agreement,#attentionSt,.news,.univer-app-news,.univer-app-menu,script,style,noscript,select,option,textarea';
     var MAX_LINKS = 120, MAX_SECTIONS = 4, MAX_LISTS = 3;
-    var SURVEYS = '/student/rating/', MAX_SURVEYS = 10, READ_TIMEOUT = 15000;
+    var SURVEYS = '/student/rating/', MAX_SURVEYS = 10, READ_TIMEOUT = 15000, SURVEY_FRESH = 3 * 60 * 1000;
     var ACCOUNT = 'univer.app.account.v1', SURVEY_COUNT = 'univer.desktop.survey-count.v1';
     var badges = new Map(), presenting = false, surveyResult = null, lastCheck = null;
-    var fetching = false;
+    var fetching = false, queuedRefresh = null;
 
     function clean(value) { return String(value || '').replace(/\s+/g, ' ').trim(); }
     function red(value) {
@@ -71,13 +71,27 @@
     }
     function owner() { try { return localStorage.getItem(ACCOUNT) || ''; } catch (_) { return ''; } }
     function cached(mark) {
-        if (!mark) return null;
+        if (!mark || window.__univerSurveyCountKeep === false) return null;
         try {
-            var value = JSON.parse(localStorage.getItem(SURVEY_COUNT));
+            var raw = localStorage.getItem(SURVEY_COUNT), value = raw && raw.length <= 10000 ? JSON.parse(raw) : null;
             if (value && value.owner === mark && Number.isInteger(value.count) && value.count > 0 && value.count <= 9999 &&
                 Number.isInteger(value.open) && value.open >= 0 && value.open <= MAX_SURVEYS) return value;
         } catch (_) { }
         return null;
+    }
+    function surveyFor(mark, count) {
+        var result = surveyResult?.owner === mark && surveyResult.count === count ? surveyResult : cached(mark);
+        return result?.count === count ? result : null;
+    }
+    function freshSurvey(mark, count) {
+        var result = surveyFor(mark, count);
+        if (!result || !Number.isFinite(result.at)) return null;
+        var age = Date.now() - result.at;
+        return age >= 0 && age < SURVEY_FRESH && Array.isArray(result.details) && result.details.length === result.open &&
+            result.details.every(function (detail) {
+                return detail && typeof detail.t === 'string' && detail.t.length > 0 && detail.t.length <= 100 &&
+                    typeof detail.e === 'string' && (detail.e === '' || /^\d{2}\.\d{2}\.\d{4}$/.test(detail.e));
+            }) ? result : null;
     }
     function restore(badge) {
         if (badge.text.data === badge.shown) badge.text.data = badge.source;
@@ -90,12 +104,11 @@
         if (!enabled) { badges.forEach(restore); return; }
         var current = menuBadges();
         if (!current.length && !badges.size) return;
-        var mark = owner(), saved = cached(mark);
+        var mark = owner();
         var live = new Set(current.map(function (badge) { return badge.node; }));
         badges.forEach(function (badge, node) { if (!live.has(node)) restore(badge); });
         current.forEach(function (badge) {
-            var result = surveyResult && surveyResult.owner === mark && surveyResult.count === badge.count ? surveyResult : saved;
-            var open = result && result.count === badge.count ? result.open : null;
+            var result = freshSurvey(mark, badge.count), open = result ? result.open : null;
             if (open === null || open === badge.count || badge.count === 0) {
                 if (badges.has(badge.node)) restore(badge);
                 return;
@@ -107,13 +120,20 @@
         });
     }
     function remember(mark, count, result) {
-        if (owner() !== mark) return;
-        surveyResult = {owner:mark, count:count, open:result ? result.o : null};
+        var checked = result ? {owner:mark, count:count, open:result.o, details:result.d, at:Date.now()} : null;
+        if (owner() !== mark) return checked;
+        surveyResult = checked;
         try {
-            if (mark && result) localStorage.setItem(SURVEY_COUNT, JSON.stringify(surveyResult));
+            if (mark && checked && window.__univerSurveyCountKeep !== false) localStorage.setItem(SURVEY_COUNT, JSON.stringify(checked));
             else if (cached(mark)?.count === count) localStorage.removeItem(SURVEY_COUNT);
         } catch (_) { }
         if (presenting) present(true);
+        return checked;
+    }
+    function forgetChangedCount(mark, count) {
+        if (surveyResult?.owner === mark && surveyResult.count !== count) surveyResult = null;
+        var saved = cached(mark);
+        if (saved && saved.count !== count) try { localStorage.removeItem(SURVEY_COUNT); } catch (_) { }
     }
     function links(doc, base) {
         var out = [];
@@ -270,20 +290,34 @@
     function send(result) {
         if (typeof __univerNative === 'function') __univerNative(PREFIX + JSON.stringify(result));
     }
-    // The extension host calls this during its layout tick. One check per page and account is enough there.
+    function finishRead() {
+        fetching = false;
+        var refresh = queuedRefresh; queuedRefresh = null;
+        if (refresh) refresh();
+    }
+    // The extension's layout ticks share one check, including a cooldown after an inconclusive read.
     function check() {
         if (!presenting || fetching) return;
-        var mark = owner(), count = Math.max(0, ...menuBadges().map(function (badge) { return badge.count; }));
-        if (!count || (lastCheck && lastCheck.owner === mark && lastCheck.count === count)) return;
-        lastCheck = {owner:mark, count:count};
+        var mark = owner(), count = Math.max(0, ...menuBadges().map(function (badge) { return badge.count; })), now = performance.now();
+        if (lastCheck && (lastCheck.owner !== mark || lastCheck.count !== count)) lastCheck = null;
+        forgetChangedCount(mark, count);
+        if (!count || freshSurvey(mark, count) || (lastCheck && now - lastCheck.at < SURVEY_FRESH)) return;
+        lastCheck = {owner:mark, count:count, at:now};
         fetching = true;
         look(location.pathname === SURVEYS ? document : null, load).catch(function () { return null; })
-            .then(function (result) { remember(mark, count, result); }).finally(function () { fetching = false; });
+            .then(function (result) { remember(mark, count, result); }).finally(finishRead);
+    }
+    function applySurvey(links, survey) {
+        links.forEach(function (link) {
+            delete link.c;
+            if (survey) link.o = survey.open;
+            link.d = survey ? survey.details : [];
+        });
     }
     // Each section, then the lists the counts point to that no read has described yet (at most three in all).
     // The last message says how many pages were read and how many failed.
-    async function background(current, sections, counted, generation) {
-        var lists = 0, seen = new Set(), done = 0, failed = 0, survey, mark = owner();
+    async function background(current, sections, counted, generation, refresh, survey) {
+        var lists = 0, seen = new Set(), done = 0, failed = 0, mark = owner();
         async function page(path, timeout) {
             var loaded = await load(path, timeout).catch(function () { return null; });
             if (loaded) done++; else failed++;
@@ -292,16 +326,15 @@
         async function verify(links, doc) {
             if (!links.length) return;
             if (survey === undefined) {
-                var failuresBefore = failed;
-                survey = await look(doc, page);
-                if (!survey && failed === failuresBefore) failed++;
-                remember(mark, Math.max(...links.map(function (link) { return link.n; })), survey);
+                var count = Math.max(...links.map(function (link) { return link.n; }));
+                survey = refresh ? null : freshSurvey(mark, count);
+                if (!survey) {
+                    var failuresBefore = failed, result = await look(doc, page);
+                    if (!result && failed === failuresBefore) failed++;
+                    survey = remember(mark, count, result);
+                }
             }
-            links.forEach(function (link) {
-                delete link.c;
-                if (survey) link.o = survey.o;
-                link.d = survey ? survey.d : [];
-            });
+            applySurvey(links, survey);
         }
         try {
             var surveys = current.links.filter(function (link) { return link.c; }).map(function (link) { return Object.assign({}, link); });
@@ -341,16 +374,29 @@
                     send(listing);
                 }
             }
-        } finally {
-            send({v:1, g:generation, kind:'done', page:location.pathname + location.search, read:done, failed:failed});
+        } catch (_) { failed++; }
+        finally {
+            var result = {v:1, g:generation, kind:'done', page:location.pathname + location.search, read:done, failed:failed};
+            if (refresh) result.refresh = refresh;
+            send(result);
         }
     }
-    function scan(fetchSections, generation) {
+    function scan(fetchSections, generation, refresh) {
         if (document.readyState === 'loading' || !document.body) return null;
         var page = location.pathname + location.search;
         var current = read(document, location.href, page, 'page', String(generation));
+        var mark = owner(), menu = current.links.filter(function (link) { return link.m && link.u === SURVEYS; });
+        if (menu.length) forgetChangedCount(mark, Math.max(...menu.map(function (link) { return link.n; })));
+        var surveys = current.links.filter(function (link) { return link.c; }), verified;
+        if (!refresh && surveys.length) {
+            verified = freshSurvey(mark, Math.max(...surveys.map(function (link) { return link.n; }))) || undefined;
+            if (verified) applySurvey(surveys, verified);
+        }
         current.fetching = false;
-        if (!fetching && typeof __univerNative === 'function') {
+        if (typeof __univerNative === 'function' && fetching && refresh) {
+            queuedRefresh = function () { if (owner() === mark) scan(fetchSections, generation, refresh); };
+            current.fetching = true;
+        } else if (!fetching && typeof __univerNative === 'function') {
             var sections = [];
             if (fetchSections) document.querySelectorAll('#l3 a[href],.univer-app-tabs a[href]').forEach(function (a) {
                 var path = sitePath(a.getAttribute('href'), location.href);
@@ -359,10 +405,10 @@
             var counted = fetchSections ? current.links.filter(function (link) { return link.n > 0 && !link.c && link.o === undefined && link.u !== page; })
                 .map(function (link) { return link.u; }).filter(function (path, index, all) { return all.indexOf(path) === index; })
                 : [];
-            current.fetching = sections.length > 0 || counted.length > 0 || current.links.some(function (link) { return link.c; });
+            current.fetching = !!refresh || sections.length > 0 || counted.length > 0 || (surveys.length > 0 && !verified);
             if (current.fetching) {
                 fetching = true;
-                background(current, sections, counted, String(generation)).catch(function () { }).finally(function () { fetching = false; });
+                background(current, sections, counted, String(generation), refresh, verified).catch(function () { }).finally(finishRead);
             }
         }
         return JSON.stringify(current);

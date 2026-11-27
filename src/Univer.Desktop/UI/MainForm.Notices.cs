@@ -19,12 +19,12 @@ namespace Univer.Desktop.UI
         private NoticesPanel noticesPanel;
         private List<SiteNotice> notices = new List<SiteNotice>();
         private readonly Stopwatch noticeClock = Stopwatch.StartNew();
-        // A requested check that never reports back counts as failed.
-        private readonly Timer noticeChecking = new Timer { Interval = 20000 };
+        // A refresh can wait for an in-flight check before starting its own read.
+        private readonly Timer noticeChecking = new Timer { Interval = 35000 };
         private long noticeFetchedAt = long.MinValue, noticeTriedAt = long.MinValue;
         private bool noticeScanDue = true, noticeBusy, noticeRefreshing, noticeRefreshQueued, noticeFailed, noticesSaving, noticesSaveQueued, noticesClearSaving;
         private string noticeHeading = "";
-        private int noticeCount;
+        private int noticeCount, noticeRefreshId;
         private int trayUnread = -1;
         private bool NoticesActive { get { return (credentials != null && !prefs.AutoLoginPaused && !guard.Stopped && !selfTest && !accountReview) || noticesQa; } }
         private bool NoticesShown { get { return noticesPanel != null && noticesPanel.Visible; } }
@@ -97,6 +97,7 @@ namespace Univer.Desktop.UI
         private void CheckNoticesNow()
         {
             if (!NoticesActive || noticeRefreshing) return;
+            noticeRefreshId++;
             noticeRefreshing = true; noticeFailed = false; noticeChecking.Stop(); noticeChecking.Start(); RenderNotices();
             QueueAsync(() => ScanNoticesAsync(true));
         }
@@ -127,13 +128,14 @@ namespace Univer.Desktop.UI
             { if (refresh && noticeRefreshing) EndNoticeCheck(true); return; }
             noticeBusy = true; noticeScanDue = false;
             var outcome = refresh ? "failed" : null;
+            var request = refresh ? noticeRefreshId : 0;
             try
             {
                 var now = noticeClock.ElapsedMilliseconds; noticeTriedAt = now;
                 var fetch = refresh || noticeFetchedAt == long.MinValue || now - noticeFetchedAt >= NoticeFetchInterval - 30000;
                 var generation = NoticeGeneration; var address = browser.Address;
                 string raw;
-                try { raw = await AutomationController.EvaluateAsync(browser, "window.__univerNoticesV1?window.__univerNoticesV1.scan(" + (fetch ? "true" : "false") + ",'" + generation + "'):null"); }
+                try { raw = await AutomationController.EvaluateAsync(browser, "window.__univerNoticesV1?window.__univerNoticesV1.scan(" + (fetch ? "true" : "false") + ",'" + generation + "'," + request + "):null"); }
                 catch (Exception) { return; } // A navigation can end the frame; the next page is read again.
                 if (closing || browser != main || browser.Address != address || generation != NoticeGeneration) return;
                 var scan = Notices.Parse(raw, false, generation);
@@ -147,8 +149,8 @@ namespace Univer.Desktop.UI
             finally
             {
                 noticeBusy = false;
-                if (outcome != null && outcome != "fetching" && noticeRefreshing) EndNoticeCheck(outcome == "failed");
-                if (noticeRefreshQueued) { noticeRefreshQueued = false; QueueAsync(() => ScanNoticesAsync(true)); }
+                if (outcome != null && outcome != "fetching" && noticeRefreshing && request == noticeRefreshId) EndNoticeCheck(outcome == "failed");
+                if (noticeRefreshQueued) { noticeRefreshQueued = false; if (noticeRefreshing) QueueAsync(() => ScanNoticesAsync(true)); }
             }
         }
         // A section or list read sent by the page while it fetched in the background.
@@ -158,10 +160,13 @@ namespace Univer.Desktop.UI
             var message = value.Substring(Notices.MessagePrefix.Length); var generation = NoticeGeneration;
             var scan = Notices.Parse(message, true, generation);
             if (scan != null) { QueueAsync(() => ApplyNoticeScanAsync(scan, generation)); return; }
-            int read, failed;
-            if (!Notices.ParseDone(message, generation, out read, out failed)) return;
-            // Any read of the sections, requested or periodic, says whether the list is current.
-            if (noticeRefreshing) EndNoticeCheck(failed > 0); else if (noticeFailed != failed > 0) { noticeFailed = failed > 0; RenderNotices(); }
+            int read, failed, refresh;
+            if (!Notices.ParseDone(message, generation, out read, out failed, out refresh)) return;
+            if (noticeRefreshing)
+            {
+                if (refresh == noticeRefreshId) EndNoticeCheck(failed > 0);
+            }
+            else if (refresh == 0 && noticeFailed != failed > 0) { noticeFailed = failed > 0; RenderNotices(); }
         }
         private async Task ApplyNoticeScanAsync(NoticeScan scan, string generation)
         {

@@ -54,6 +54,7 @@
     function absencePair(kind,label,value) {
         var pair=document.createElement('span'); pair.className='univer-app-absence'; pair.dataset.kind=kind;
         var name=document.createElement('span'); name.textContent=label; var number=document.createElement('b'); number.textContent=String(value);
+        if (!value) number.className='univer-app-absence-zero';
         pair.append(name,number); return pair;
     }
     // Every class counts, labs and practicals with no known type too; a type counts only its own.
@@ -349,17 +350,16 @@
         // than one type has them.
         var gone=types.map(type=>({type,count:missed(group,type)})).filter(item=>item.count>0);
         var away=selected==='all'?excused(group):types.reduce((n,type)=>n+excused(group,type),0);
-        if (gone.length||(selected==='all'&&missed(group))||away) {
-            var lost=document.createElement('p'), words=absenceText(), sum=selected==='all'?missed(group):gone.reduce((n,item)=>n+item.count,0); lost.className='univer-app-attendance-absences';
-            var lostLabel=document.createElement('span'); lostLabel.className='univer-app-attendance-absences-label'; lostLabel.textContent=words.label;
-            lost.append(lostLabel,absencePair('unexcused',words.unexcused,sum),absencePair('excused',words.excused,away));
-            // Classes of no known type (labs) are in the total; the breakdown names them too, so its parts add up.
-            var rest=sum-gone.reduce((n,item)=>n+item.count,0); if (rest>0&&gone.length) gone.push({type:'other',count:rest});
-            if (gone.length>1) { var parts=document.createElement('small'); parts.textContent=gone.map(item=>words[item.type]+' '+item.count).join(', '); lost.querySelector('[data-kind=unexcused]').appendChild(parts); }
-            box.appendChild(lost);
-        }
         if (!any) { var empty=document.createElement('p'); empty.className='univer-app-attendance-nothing'; empty.textContent=selected==='all'?courseText().empty:text().empty; box.appendChild(empty); }
-        // Nothing to total: one quiet line instead of an empty card.
+        var known=gone.reduce((n,item)=>n+item.count,0), sum=selected==='all'?missed(group):known;
+        var lost=document.createElement('p'), words=absenceText(); lost.className='univer-app-attendance-absences';
+        var lostLabel=document.createElement('span'); lostLabel.className='univer-app-attendance-absences-label'; lostLabel.textContent=words.label;
+        var unexcused=absencePair('unexcused',words.unexcused,sum);
+        lost.append(lostLabel,unexcused,absencePair('excused',words.excused,away));
+        // Classes of no known type (labs) are in the total; the breakdown names them too, so its parts add up.
+        if (sum>known&&gone.length) gone.push({type:'other',count:sum-known});
+        if (gone.length>1) { var parts=document.createElement('small'); parts.textContent=gone.map(item=>words[item.type]+' '+item.count).join(', '); unexcused.appendChild(parts); }
+        box.appendChild(lost);
         if (!any && !group.overall) box.classList.add('univer-app-attendance-summary-empty');
         if (group.heading && group.lessons.length && selected==='all') {
             var toggle=document.createElement('button'); toggle.type='button'; toggle.className='univer-app-attendance-details-toggle';

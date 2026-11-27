@@ -407,8 +407,16 @@ namespace Univer.Desktop.Core
             var path = Path.Combine(root, "notices.json");
             try
             {
-                var cache = File.Exists(path) ? json.Deserialize<NoticeCache>(ReadShared(path)) : null;
-                return cache != null && cache.Account == account ? Notices.Normalize(cache.Notices, Notices.Now()) : new List<SiteNotice>();
+                var saved = File.Exists(path) ? json.DeserializeObject(ReadShared(path)) as Dictionary<string, object> : null;
+                object owner, items;
+                if (saved == null || !saved.TryGetValue("Account", out owner) || (owner as string) != account ||
+                    !saved.TryGetValue("Notices", out items) || !(items is object[])) return new List<SiteNotice>();
+                foreach (var item in ((object[])items).OfType<Dictionary<string, object>>())
+                {
+                    object status;
+                    if (item.TryGetValue("SurveyStatus", out status)) item["SurveyStatus"] = (int)Notices.StoredSurveyStatus(status);
+                }
+                return Notices.Normalize(json.ConvertToType<NoticeCache>(saved).Notices, Notices.Now());
             }
             catch (Exception) { return new List<SiteNotice>(); }
         }

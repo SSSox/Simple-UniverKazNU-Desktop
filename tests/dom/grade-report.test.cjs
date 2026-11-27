@@ -51,6 +51,19 @@ test('the grades page offers the summary once a course has a grade, and the shee
  assert.equal(p.d.getElementById('univer-app-report'),null);assert.equal(p.d.documentElement.hasAttribute('data-univer-report'),false);assert.equal(p.d.getElementById('univer-app-report-page'),null);
  assert.equal(p.d.activeElement,button);p.close();
 });
+test('the grade summary prints both labelled zeroes for every course and the term', () => {
+    const p = page();
+    try {
+        p.w.__univerAttendanceV1.apply('en');
+        p.d.querySelector('.univer-app-attendance-report').click();
+        const root = sheet(p);
+        const pairs = line => Array.from(line.querySelectorAll('span > b'), count =>
+            [count.previousSibling.textContent, count.textContent]);
+        const zeroes = [['without a valid reason', '0'], ['with a valid reason', '0']];
+        assert.deepEqual(Array.from(root.querySelectorAll('.course .missed'), pairs), [zeroes, zeroes]);
+        assert.deepEqual(pairs(root.querySelector('.term')), zeroes);
+    } finally { p.close(); }
+});
 test('the sheet follows the language and new numbers, answers the app, lies flat for its picture and goes with Original',()=>{
  const p=page();p.d.querySelector('.univer-app-attendance-report').click();
  const api=p.w.__univerReportV1;assert.equal(api.shown(),true);

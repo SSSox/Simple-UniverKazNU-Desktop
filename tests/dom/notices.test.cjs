@@ -43,7 +43,7 @@ function page(html, url, { routes = {}, scripts = [read('notices.js')] } = {}) {
   return { w, d: w.document, requests, sent, errors };
 }
 const settle = async () => { for (let i = 0; i < 30; i++) await new Promise(resolve => setTimeout(resolve, 0)); };
-const scan = (p, fetch = false) => JSON.parse(p.w.__univerNoticesV1.scan(fetch, 'n1'));
+const scan = (p, fetch = false, refresh = 0) => JSON.parse(p.w.__univerNoticesV1.scan(fetch, 'n1', refresh));
 const rating = result => result.links.find(link => link.u === '/student/rating/');
 const messages = p => p.sent.map(value => { assert.ok(value.startsWith('univer-notices:')); return JSON.parse(value.slice('univer-notices:'.length)); });
 const checkedRating = p => messages(p).flatMap(message => message.links || []).find(link => link.u === '/student/rating/' && link.n > 0 && !link.c);
@@ -93,11 +93,13 @@ test('a questionnaire stays open if any of its detail rows is unanswered', async
   p.w.close();
 });
 
-test('the extension reuses a scoped count, checks it again, and restores the original badge', async () => {
+test('the extension removes old saved questionnaire counts, checks once on the page, and restores the original badge', async () => {
   const routes = routesFor('&nbsp;+&nbsp;');
   const p = page(shell('<p>Бакалавр</p>'), 'https://univer.kaznu.kz/student/bachelor/', { routes, scripts: bundle });
   delete p.w.__univerNative;
   const original = badge(p), originalText = original.firstChild, originalMarkup = original.outerHTML;
+  const key = 'univer.desktop.survey-count.v1';
+  p.w.localStorage.setItem(key, JSON.stringify({ owner: 'a1', count: 2, open: 1 }));
   p.w.localStorage.setItem('univer.app.account.v1', 'a1');
   let change;
   p.w.chrome = { storage: { local: { get: async () => ({}) }, onChanged: { addListener: listener => { change = listener; } } } };
@@ -106,32 +108,89 @@ test('the extension reuses a scoped count, checks it again, and restores the ori
   await settle();
   assert.equal(original.hidden, true);
   assert.deepEqual(p.sent, []);
-  const key = 'univer.desktop.survey-count.v1';
-  const cached = p.w.localStorage.getItem(key);
-  assert.ok(cached);
+  assert.equal(p.w.localStorage.getItem(key), null);
+  p.w.__univerNoticesV1.check();
+  assert.deepEqual(p.requests, ['/student/rating/', '/student/rating/208', '/student/rating/207']);
   change({ settings: { newValue: { readable: false } } }, 'local');
   assert.equal(badge(p), original);
   assert.equal(original.firstChild, originalText);
   assert.equal(original.outerHTML, originalMarkup);
+  p.w.close();
+});
 
-  const warm = page(shell(rows), 'https://univer.kaznu.kz/student/rating/', { routes: routesFor(''), scripts: bundle });
-  delete warm.w.__univerNative;
-  warm.w.localStorage.setItem(key, cached);
-  warm.w.localStorage.setItem('univer.app.account.v1', 'b2');
-  warm.w.__univerDesktop.apply(true, false, 'ru');
-  assert.equal(badge(warm).hidden, false, 'another account does not get the cached correction');
-  warm.w.localStorage.setItem('univer.app.account.v1', 'a1');
-  warm.w.__univerDesktop.apply(true, false, 'ru');
-  assert.equal(badge(warm).hidden, true, 'the same account gets the cached correction before the check');
-  warm.w.__univerNoticesV1.check();
-  warm.w.__univerNoticesV1.check();
-  await settle();
-  assert.equal(badge(warm).hidden, false);
-  assert.equal(badge(warm).textContent.trim(), '(1)');
-  assert.deepEqual(warm.requests, ['/student/rating/208', '/student/rating/207']);
-  warm.w.__univerDesktop.apply(false, false, 'ru');
-  assert.equal(badge(warm).textContent.trim(), '(2)');
-  p.w.close(); warm.w.close();
+test('a verified desktop result is reused across pages until the menu count changes, it expires, or refresh is requested', async () => {
+    const routes = routesFor(''), url = 'https://univer.kaznu.kz/student/rating/';
+    const p = page(shell(rows), url, { routes }), warm = page(shell(rows), url, { routes });
+    const key = 'univer.desktop.survey-count.v1', account = 'univer.app.account.v1';
+    const details = ['/student/rating/208', '/student/rating/207'];
+    try {
+        let now = 1000000;
+        p.w.Date.now = warm.w.Date.now = () => now;
+        p.w.localStorage.setItem(account, 'a1');
+        scan(p);
+        await settle();
+        assert.deepEqual(p.requests, details);
+        warm.w.localStorage.setItem(key, p.w.localStorage.getItem(key));
+        warm.w.localStorage.setItem(account, 'b2');
+        warm.w.__univerNoticesV1.present(true);
+        assert.equal(badge(warm).textContent.trim(), '(2)', 'the saved check belongs to its account');
+        warm.w.localStorage.setItem(account, 'a1');
+        const reused = rating(scan(warm));
+        assert.equal(reused.o, 1);
+        assert.deepEqual(reused.d, checkedRating(p).d);
+        assert.deepEqual(warm.requests, []);
+
+        badge(warm).firstChild.data = '(3)';
+        assert.equal(rating(scan(warm)).c, 1);
+        await settle();
+        assert.deepEqual(warm.requests.splice(0), details);
+        assert.equal(rating(scan(warm)).o, 1);
+
+        badge(warm).firstChild.data = '(0)';
+        assert.equal(rating(scan(warm)).n, 0);
+        assert.equal(warm.w.localStorage.getItem(key), null);
+        badge(warm).firstChild.data = '(3)';
+        assert.equal(rating(scan(warm)).c, 1, 'a count returning after zero needs another read');
+        await settle();
+        assert.deepEqual(warm.requests.splice(0), details);
+
+        now += 3 * 60 * 1000;
+        assert.equal(rating(scan(warm)).c, 1);
+        await settle();
+        assert.deepEqual(warm.requests.splice(0), details);
+        assert.equal(rating(scan(warm)).o, 1);
+        scan(warm, false, 1);
+        await settle();
+        assert.deepEqual(warm.requests, details);
+        assert.equal(messages(warm).at(-1).refresh, 1);
+    } finally { p.w.close(); warm.w.close(); }
+});
+
+test('a refresh queued during a survey check reads again and has its own completion', async () => {
+    const p = page(shell(rows), 'https://univer.kaznu.kz/student/rating/', { routes: routesFor('') });
+    try {
+        const fetch = p.w.fetch;
+        let releaseFirst, releaseRefresh, reads = 0;
+        const first = new Promise(resolve => { releaseFirst = resolve; });
+        const refresh = new Promise(resolve => { releaseRefresh = resolve; });
+        p.w.fetch = async (address, options) => {
+            const response = await fetch(address, options);
+            if (address.endsWith('/208')) await (++reads === 1 ? first : refresh);
+            return response;
+        };
+        assert.equal(scan(p).fetching, true);
+        assert.equal(scan(p, false, 7).fetching, true);
+        assert.deepEqual(p.requests, ['/student/rating/208']);
+        releaseFirst();
+        await settle();
+        assert.deepEqual(p.requests, ['/student/rating/208', '/student/rating/207', '/student/rating/208']);
+        assert.equal(messages(p).filter(message => message.kind === 'done').length, 1);
+        assert.equal(messages(p).some(message => message.kind === 'done' && message.refresh === 7), false);
+        releaseRefresh();
+        await settle();
+        const done = messages(p).at(-1);
+        assert.deepEqual([done.kind, done.refresh, done.read, done.failed], ['done', 7, 2, 0]);
+    } finally { p.w.close(); }
 });
 
 test('an unreadable questionnaire restores the site count and leaves the details unknown', async () => {
@@ -139,10 +198,10 @@ test('an unreadable questionnaire restores the site count and leaves the details
   delete routes['/student/rating/207'];
   const p = page(shell(rows), 'https://univer.kaznu.kz/student/rating/', { routes });
   p.w.localStorage.setItem('univer.app.account.v1', 'a1');
-  p.w.localStorage.setItem('univer.desktop.survey-count.v1', JSON.stringify({ owner: 'a1', count: 2, open: 0 }));
+  p.w.localStorage.setItem('univer.desktop.survey-count.v1', JSON.stringify({ owner: 'a1', count: 2, open: 0, details: [], at: p.w.Date.now() }));
   p.w.__univerNoticesV1.present(true);
   assert.equal(badge(p).hidden, true);
-  scan(p);
+  scan(p, false, 1);
   await settle();
   const checked = checkedRating(p);
   assert.equal(checked.n, 2);
@@ -150,6 +209,10 @@ test('an unreadable questionnaire restores the site count and leaves the details
   assert.deepEqual(checked.d, []);
   assert.equal(badge(p).hidden, false);
   assert.equal(badge(p).textContent.trim(), '(2)');
+  routes['/student/rating/207'] = answers('');
+  scan(p);
+  await settle();
+  assert.equal(messages(p).filter(message => message.kind === 'section').at(-1).links[0].o, 1, 'an inconclusive check is retried');
   p.w.close();
 });
 

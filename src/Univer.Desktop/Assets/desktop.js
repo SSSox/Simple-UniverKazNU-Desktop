@@ -896,10 +896,10 @@
  :root.univer-mobile .univer-app-cards>thead { display:table-header-group!important; }
  :root.univer-mobile .univer-app-cards>tfoot { display:table-footer-group!important; }
  :root.univer-mobile #l4 table.univer-app-sort-collapsed .univer-app-sort-head { display:table-row!important; }
- :root.univer-mobile #l4 .univer-app-cards :is(td,th) { overflow-wrap:normal!important; word-break:normal!important; }
+ :root.univer-mobile #l4 .univer-app-cards:not(.univer-app-split-cards) :is(td,th) { overflow-wrap:break-word!important; word-break:normal!important; }
  :root.univer-mobile #l4 .univer-app-cards .univer-app-data-field { min-width:8ch!important; }
  :root.univer-mobile .univer-app-cards .univer-app-card-row { box-shadow:none; }
- :root.univer-mobile .univer-app-cards td:has(>a.univer-app-action-link:only-child) { width:1%; white-space:nowrap; }
+ :root.univer-mobile .univer-app-cards:not(.univer-app-split-cards) td:has(>a.univer-app-action-link:only-child) { width:1%; white-space:nowrap; }
  :root.univer-mobile #l4 .univer-app-form-table>tbody>tr:has(>:nth-child(2)):not(:has(>:nth-child(5))):not(:has(>:first-child :is(input,select,textarea,img,table))):not(.univer-app-form-spacer) { display:grid!important; grid-template-columns:minmax(160px,260px) minmax(0,1fr); column-gap:20px; align-items:center; }
  :root.univer-mobile #l4 .univer-app-form-table>tbody>tr:has(>:nth-child(2)):not(:has(>:nth-child(5))):not(:has(>:first-child :is(input,select,textarea,img,table)))>:is(td,th) { width:auto!important; }
  :root.univer-mobile .univer-app-shell table.inner.univer-app-courses { table-layout:fixed!important; }
@@ -1302,6 +1302,7 @@
 :root:root:root:root:root.univer-mobile #l4 .univer-app-attendance-absences-label { flex:1 0 100%; color:var(--u-ink); font-size:13px; font-weight:600; }
 :root:root:root:root:root.univer-mobile #l4 .univer-app-absence { display:inline-grid; grid-template-columns:auto auto; align-items:baseline; justify-content:start; gap:0 6px; color:var(--u-muted); font-size:13px; }
 :root:root:root:root:root.univer-mobile #l4 .univer-app-absence>b { color:var(--u-ink); font-size:15px; font-weight:700; font-variant-numeric:tabular-nums; }
+:root:root:root:root:root.univer-mobile #l4 .univer-app-absence>b.univer-app-absence-zero { color:var(--u-muted); font-weight:500; }
 :root:root:root:root:root.univer-mobile #l4 .univer-app-absence>small { grid-column:1/-1; color:var(--u-muted); font-size:12px; }
 :root:root:root:root:root.univer-mobile #l4 p.univer-app-attendance-term { display:flex; flex-wrap:wrap; align-items:baseline; gap:6px 24px; margin:0 0 12px!important; padding:12px 16px!important; border:1px solid var(--u-line); border-radius:12px; background:var(--u-surface); color:var(--u-text); font-size:14px!important; line-height:1.4!important; text-align:start; }
 :root:root:root:root:root.univer-mobile #l4 p.univer-app-attendance-term[hidden] { display:none!important; }

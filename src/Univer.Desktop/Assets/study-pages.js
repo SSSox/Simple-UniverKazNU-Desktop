@@ -9,9 +9,9 @@
     // A course cell's own text, without the Open button the adapters add to it.
     function label(cell) { return Array.from(cell.childNodes).filter(function (n) { return !n.classList?.contains('univer-app-course-open') && !n.classList?.contains('univer-app-course-tasks'); }).map(function (n) { return n.textContent; }).join('').replace(/\s+/g, ' ').trim(); }
     function text() {
-        return language === 'en' ? {open:'Open', filter:'Find a course', none:'No courses match the search', openCourse:'Open course: ', more:'Show in full', less:'Collapse', outside:'Link to another site: ', save:'Download file', openLink:'Open link', all:'Download all', allLabel:'Download every file in this section', stop:'Stop', fresh:'New', freshHint:'Added since your last visit'} :
-            language === 'kz' ? {open:'Ашу', filter:'Пәнді іздеу', none:'Іздеуге сәйкес пән жоқ', openCourse:'Пәнді ашу: ', more:'Толығымен көрсету', less:'Жию', save:'Файлды жүктеп алу', openLink:'Сілтемені ашу', outside:'Басқа сайтқа сілтеме: ', all:'Барлығын жүктеу', allLabel:'Бөлімнің барлық файлын жүктеу', stop:'Тоқтату', fresh:'Жаңа', freshHint:'Соңғы кіруіңізден кейін қосылды'} :
-            {open:'Открыть', save:'Скачать файл', openLink:'Открыть ссылку', filter:'Найти дисциплину', none:'Дисциплины по запросу не найдены', openCourse:'Открыть дисциплину: ', more:'Показать полностью', less:'Свернуть', outside:'Ссылка на другой сайт: ', all:'Скачать все', allLabel:'Скачать все файлы раздела', stop:'Остановить', fresh:'Новый', freshHint:'Появился после вашего прошлого захода'};
+        return language === 'en' ? {copy:'Copy', copied:'Copied', noContacts:'Not specified', open:'Open', filter:'Find a course', none:'No courses match the search', openCourse:'Open course: ', more:'Show in full', less:'Collapse', outside:'Link to another site: ', save:'Download file', openLink:'Open link', all:'Download all', allLabel:'Download every file in this section', stop:'Stop', fresh:'New', freshHint:'Added since your last visit'} :
+            language === 'kz' ? {copy:'Көшіру', copied:'Көшірілді', noContacts:'Көрсетілмеген', open:'Ашу', filter:'Пәнді іздеу', none:'Іздеуге сәйкес пән жоқ', openCourse:'Пәнді ашу: ', more:'Толығымен көрсету', less:'Жию', save:'Файлды жүктеп алу', openLink:'Сілтемені ашу', outside:'Басқа сайтқа сілтеме: ', all:'Барлығын жүктеу', allLabel:'Бөлімнің барлық файлын жүктеу', stop:'Тоқтату', fresh:'Жаңа', freshHint:'Соңғы кіруіңізден кейін қосылды'} :
+            {copy:'Копировать', copied:'Скопировано', noContacts:'Не указаны', open:'Открыть', save:'Скачать файл', openLink:'Открыть ссылку', filter:'Найти дисциплину', none:'Дисциплины по запросу не найдены', openCourse:'Открыть дисциплину: ', more:'Показать полностью', less:'Свернуть', outside:'Ссылка на другой сайт: ', all:'Скачать все', allLabel:'Скачать все файлы раздела', stop:'Остановить', fresh:'Новый', freshHint:'Появился после вашего прошлого захода'};
     }
     function mark(node, name) { if (!node.classList.contains(name)) node.classList.add(name); marked.add(node); }
     function role(cell, value) { if (cell.dataset.univerRole !== value) cell.dataset.univerRole = value; roles.add(cell); }
@@ -350,20 +350,17 @@
         paintFold(record, false);
         allButton(record, files);
     }
-    // A block the site left empty says so in words (Силлабус without an interactive syllabus): it is not shown at all. A
-    // block with any link is always shown. Only a block that is its own <div> is hidden, as the site writes it.
+    // An empty syllabus has its own wrapper and the site's explicit placeholder.
+    var SYLLABUS = /^(силлабус|syllabus)$/i;
     var NOT_FILLED = /^(не\s+заполнен[оаы]?|толтырылма(ған|ды|й\s+қалған)|not\s+(filled|completed)(\s+in)?)$/i, blanks = new Set();
     function unfilled(head) {
-        var box = head.parentElement, words = '', node = head.nextSibling, links = false;
-        while (node && node.nodeName !== 'H4') {
-            if (node.nodeType === 1 && (node.matches('a[href]') || node.querySelector('a[href],img,iframe,video'))) links = true;
+        var box = head.parentElement, words = '', node = head.nextSibling;
+        if (!SYLLABUS.test(clean(head)) || box?.tagName !== 'DIV' || box.querySelector('a[href],img,iframe,video') ||
+            box.querySelectorAll('h4').length !== 1) return false;
+        while (node) {
             words += ' ' + (node.textContent || ''); node = node.nextSibling;
         }
-        var empty = !links && NOT_FILLED.test(words.replace(/[\s()[\].,:;!–—-]+/g, ' ').trim());
-        var single = empty && box?.tagName === 'DIV' && box.closest('#l4 td.tt') && Array.from(box.children).filter(function (n) { return n.tagName === 'H4'; }).length === 1;
-        if (single && !blanks.has(box)) { box.setAttribute('data-univer-empty-section', ''); blanks.add(box); }
-        if (!single && box && blanks.has(box)) { box.removeAttribute('data-univer-empty-section'); blanks.delete(box); }
-        return !!single;
+        return NOT_FILLED.test(words.replace(/[\s()[\].,:;!–—-]+/g, ' ').trim());
     }
     // The student's own syllabus in a block of printed syllabi: a tag in its link, and first in the block. It moves only
     // while nobody is using the block (folded, or neither pointed at nor focused); otherwise it is first on the next visit,
@@ -427,13 +424,21 @@
             });
             groups.forEach(function (group) { if (group.items.length && clean(group.head)) section(group.head, group.items, true); });
         });
+        var empty = new Set();
         document.querySelectorAll('#l4 td.tt h4').forEach(function (h4) {
             if (h4.closest('#tools')) return;
+            if (unfilled(h4)) {
+                var box = h4.parentElement;
+                empty.add(box);
+                if (!blanks.has(box)) box.setAttribute('data-univer-empty-section', '');
+                return;
+            }
             var items = [], node = h4.nextElementSibling;
             while (node && node.tagName !== 'H4') { items.push(node); node = node.nextElementSibling; }
-            if (unfilled(h4)) return;
             if (items.length && clean(h4)) { section(h4, items, false); ownSection(h4, items); }
         });
+        blanks.forEach(function (box) { if (!empty.has(box)) box.removeAttribute('data-univer-empty-section'); });
+        blanks = empty;
         // A file row says what its click does: it saves the file, or opens the teacher's link.
         document.querySelectorAll('#l4 table.univer-app-materials tr.file a.downLoad').forEach(function (a) {
             var hint = a.closest('tr').querySelector(':scope>td[data-univer-kind=link]') ? text().openLink : text().save;
@@ -508,6 +513,107 @@
             if (mark.title !== t.freshHint) mark.title = t.freshHint;
         });
     }
+    // The printed syllabus: a lecturer's or assistant's cell holds a row of bold headings (name, mobile phone, e-mail) and
+    // a row per person. A well-formed phone or address becomes a tel: or mailto: link, each value gets a copy button, and
+    // a person row with nothing in it is left out on screen; print shows the page as the site made it.
+    var contactCells = new Map(), contactStatus = null;
+    function contactKind(label) {
+        return /телефон|phone/i.test(label) ? 'phone' : /e-?mail|почта|пошта/i.test(label) ? 'email' : /^(ф\.?\s*и\.?\s*о\.?|фио|аты.?жөні|full name|name)$/i.test(label) ? 'name' : '';
+    }
+    function phoneHref(value) {
+        var digits = value.replace(/\D/g, '');
+        return /^\+?[\d\s()-]+$/.test(value) && digits.length >= 10 && digits.length <= 15 ? 'tel:' + (/^\s*\+/.test(value) ? '+' : '') + digits : '';
+    }
+    function mailHref(value) {
+        return value.length <= 254 && !/\.\./.test(value) && /^[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}$/.test(value) ? 'mailto:' + value : '';
+    }
+    // The one text node a field shows its value in, or null when the value is split or already wrapped.
+    function valueNode(field) {
+        var walker = document.createTreeWalker(field, 4), found = [], node;
+        while ((node = walker.nextNode())) if (node.data.trim() && !node.parentElement.closest('button')) found.push(node);
+        return found.length === 1 && !found[0].parentElement.closest('a') ? found[0] : null;
+    }
+    function copyText(value, done) {
+        var fallback = function () {
+            var area = document.createElement('textarea'), focused = document.activeElement; area.value = value; area.setAttribute('readonly', '');
+            area.style.cssText = 'position:fixed;opacity:0;left:-9999px;top:0'; document.body.appendChild(area); area.select();
+            try { if (document.execCommand('copy')) done(); } catch (_) { }
+            area.remove(); focused?.focus?.();
+        };
+        if (navigator.clipboard?.writeText) navigator.clipboard.writeText(value).then(done, fallback); else fallback();
+    }
+    function copyButton(record, field, kind) {
+        var button = document.createElement('button'); button.type = 'button'; button.className = 'univer-app-copy';
+        var label = document.createElement('span'); label.className = 'univer-app-copy-label'; button.appendChild(label);
+        var value = function () { return Array.from(field.childNodes).filter(function (n) { return n !== button; }).map(function (n) { return n.textContent; }).join('').replace(/\s+/g, ' ').trim(); };
+        button.__univerLabel = function () {
+            var name = text().copy + ': ' + value();
+            if (button.getAttribute('aria-label') !== name) { button.setAttribute('aria-label', name); button.title = name; }
+            var shown = button.classList.contains('univer-app-copied') ? text().copied : '';
+            if (label.textContent !== shown) label.textContent = shown;
+        };
+        button.addEventListener('click', function (event) {
+            event.preventDefault(); event.stopPropagation();
+            copyText(value(), function () {
+                if (!enabled) return;
+                button.classList.add('univer-app-copied'); button.__univerLabel();
+                if (contactStatus) { contactStatus.textContent = ''; contactStatus.textContent = text().copied; }
+                clearTimeout(button.__univerTimer);
+                button.__univerTimer = setTimeout(function () { button.classList.remove('univer-app-copied'); button.__univerLabel(); }, 1600);
+            });
+        });
+        button.dataset.univerKind = kind; field.appendChild(button); record.buttons.push(button); button.__univerLabel();
+    }
+    function contacts() {
+        if (!/^\/student\/interactive\/syllabus\/print\//i.test(location.pathname)) return;
+        document.querySelectorAll('td,th').forEach(function (cell) {
+            var record = contactCells.get(cell);
+            if (!record) {
+                var rows = Array.from(cell.children).filter(function (n) { return n.matches('div.input-row'); });
+                var head = rows[0], heads = head ? Array.from(head.children).filter(function (n) { return n.matches('.input-field'); }) : [];
+                if (rows.length < 2 || heads.length < 2 || !heads.every(function (f) { return f.querySelector('b,strong') && clean(f); })) return;
+                var kinds = heads.map(function (f) { return contactKind(clean(f)); });
+                if (kinds.indexOf('phone') < 0 && kinds.indexOf('email') < 0) return;
+                record = {head:head, rows:rows.slice(1), buttons:[], links:[], fields:[], note:null};
+                contactCells.set(cell, record); mark(cell, 'univer-app-contacts'); mark(head, 'univer-app-contact-head');
+                record.rows.forEach(function (row) {
+                    var fields = Array.from(row.children).filter(function (n) { return n.matches('.input-field'); });
+                    if (!fields.some(function (f) { return clean(f); })) { mark(row, 'univer-app-contact-empty'); return; }
+                    fields.forEach(function (field, i) {
+                        var kind = kinds[i] || '', value = clean(field);
+                        field.dataset.univerContactLabel = clean(heads[i] || ''); record.fields.push(field);
+                        if (!value) return;
+                        var node = valueNode(field), href = node && (kind === 'phone' ? phoneHref(value) : kind === 'email' ? mailHref(value) : '');
+                        if (href) {
+                            var link = document.createElement('a'); link.href = href; link.className = 'univer-app-contact-link';
+                            node.parentNode.insertBefore(link, node); link.appendChild(node); record.links.push(link);
+                        }
+                        // A dash or "не указан" is no number or address to copy.
+                        if (kind === 'phone' ? (value.match(/\d/g) || []).length >= 5 : kind === 'email' ? value.indexOf('@') > 0 : /\p{L}/u.test(value)) copyButton(record, field, kind || 'name');
+                    });
+                });
+                if (record.rows.every(function (row) { return row.classList.contains('univer-app-contact-empty'); })) {
+                    mark(head, 'univer-app-contact-empty');
+                    record.note = document.createElement('span'); record.note.className = 'univer-app-contact-none'; cell.appendChild(record.note);
+                }
+            }
+            record.buttons.forEach(function (button) { button.__univerLabel(); });
+            if (record.note && record.note.textContent !== text().noContacts) record.note.textContent = text().noContacts;
+        });
+        if (contactCells.size && (!contactStatus || !contactStatus.isConnected)) {
+            contactStatus = document.createElement('span'); contactStatus.className = 'univer-app-copy-status'; contactStatus.setAttribute('role', 'status');
+            document.body.appendChild(contactStatus);
+        }
+    }
+    function releaseContacts() {
+        contactCells.forEach(function (record) {
+            record.buttons.forEach(function (button) { clearTimeout(button.__univerTimer); button.remove(); });
+            record.links.forEach(function (link) { var parent = link.parentNode; if (parent) { link.replaceWith(...link.childNodes); parent.normalize(); } });
+            record.fields.forEach(function (field) { delete field.dataset.univerContactLabel; });
+            record.note?.remove();
+        });
+        contactCells.clear(); contactStatus?.remove(); contactStatus = null;
+    }
     // A course's UMKD page: a teacher's link to another site is marked as such, and an address
     // written out as plain text in a material's row becomes such a link. The app opens it only after finding the same
     // address in this page's materials.
@@ -558,6 +664,7 @@
         var save = icon("<path d='M12 4v11M7 10l5 5 5-5M5 20h14'/>");
         var halt = icon("<rect x='7' y='7' width='10' height='10' rx='1.5'/>");
         var leave = icon("<path d='M15 3h6v6M10 14 21 3M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6'/>");
+        var copy = icon("<rect x='9' y='9' width='11' height='11' rx='2'/><path d='M5 15V6a2 2 0 0 1 2-2h9'/>"), check = icon("<path d='M5 12.5l4.5 4.5L19 7.5'/>");
         return `
 /* Grade tables: numbers line up and the letter grade is a coloured badge. */
 :root.univer-mobile #l4 .univer-app-grades :is(td,th):is([data-univer-role=credit],[data-univer-role=score],[data-univer-role=gpa],[data-univer-role=mark],[data-univer-role=letter]) { font-variant-numeric:tabular-nums; }
@@ -689,6 +796,37 @@
 :root.univer-mobile #l4 .univer-app-list-empty { margin:10px 2px 0!important; color:var(--u-muted); font-size:var(--u-fs-meta); }
 /* A file added since the last visit: a quiet tag after its name, outside the link the app reads the file type from. */
 :root.univer-mobile #l4 .univer-app-file-new { display:inline-flex; align-items:center; height:20px; margin:0 0 0 8px; padding:0 8px; box-sizing:border-box; border-radius:6px; background:var(--u-brand-soft); color:var(--u-brand); font-size:12px; font-weight:600; line-height:1; vertical-align:middle; white-space:nowrap; }
+/* Printed syllabus contacts, on screen only: the site floats every block of its sheet (#content div), so a value row could
+   spill out of its cell, under the next row's hover colour and border. Here the rows are in flow and laid out as a grid. */
+@media screen {
+ :root.univer-mobile :is(td,th).univer-app-contacts>.input-row { display:grid!important; grid-template-columns:minmax(0,1.2fr) minmax(0,1fr) minmax(0,1.3fr); gap:4px 16px; position:static!important; float:none!important; width:auto!important; min-width:0; box-sizing:border-box; margin:0!important; padding:8px 0!important; border-top:1px solid var(--u-line,#dfe5ec); }
+ :root.univer-mobile :is(td,th).univer-app-contacts>.input-row.univer-app-contact-head { padding-top:0!important; border-top:0; }
+ :root.univer-mobile :is(td,th).univer-app-contacts>.input-row.univer-app-contact-head+.input-row { border-top:0; }
+ :root.univer-mobile :is(td,th).univer-app-contacts>.input-row.univer-app-contact-head :is(b,strong) { color:var(--u-muted,#5b6b7c); font-size:12px!important; font-weight:600; line-height:1.4!important; }
+ :root.univer-mobile :is(td,th).univer-app-contacts { max-width:none!important; }
+ :root.univer-mobile :is(td,th).univer-app-contacts>.input-row>.input-field { display:block!important; position:static!important; float:none!important; width:auto!important; min-width:0; margin:0!important; overflow-wrap:anywhere; user-select:text; }
+ :root.univer-mobile :is(td,th).univer-app-contacts>.input-row.univer-app-contact-empty { display:none!important; }
+ :root.univer-mobile :is(td,th).univer-app-contacts a.univer-app-contact-link { color:var(--u-brand,#1b5fa6)!important; text-decoration:underline; text-decoration-color:var(--u-brand-line,#bfd3ea); text-underline-offset:3px; }
+ :root.univer-mobile :is(td,th).univer-app-contacts a.univer-app-contact-link:hover { text-decoration-color:currentColor; }
+ :root.univer-mobile :is(td,th).univer-app-contacts a.univer-app-contact-link[href^="tel:"] { white-space:nowrap; }
+ :root.univer-mobile :is(td,th).univer-app-contacts .univer-app-contact-none { color:var(--u-muted,#5b6b7c); font-size:14px!important; }
+ :root.univer-mobile button.univer-app-copy { display:inline-flex; flex:none; align-items:center; gap:4px; box-sizing:border-box; min-width:28px; height:28px; min-height:0!important; margin:0 0 0 6px!important; padding:0 6px!important; vertical-align:middle; border:1px solid var(--u-line,#dfe5ec)!important; border-radius:6px!important; background:transparent!important; color:var(--u-muted,#5b6b7c)!important; font-family:inherit; font-size:12px!important; font-weight:500; line-height:1!important; cursor:pointer; user-select:none; transition:color .15s ease, border-color .15s ease, background-color .15s ease; }
+ :root.univer-mobile button.univer-app-copy::before { content:''; flex:none; width:15px; height:15px; background:currentColor; -webkit-mask:${copy} center/contain no-repeat; mask:${copy} center/contain no-repeat; }
+ :root.univer-mobile button.univer-app-copy:hover { border-color:var(--u-brand-line,#bfd3ea)!important; color:var(--u-brand,#1b5fa6)!important; }
+ :root.univer-mobile button.univer-app-copy:focus-visible { outline:2px solid var(--u-brand,#1b5fa6); outline-offset:2px; }
+ :root.univer-mobile button.univer-app-copy.univer-app-copied { border-color:var(--univer-band-good-line,#9fd3b4)!important; color:var(--univer-band-good-ink,#1d6b40)!important; }
+ :root.univer-mobile button.univer-app-copy.univer-app-copied::before { -webkit-mask-image:${check}; mask-image:${check}; }
+ :root.univer-mobile button.univer-app-copy .univer-app-copy-label { font-size:12px!important; line-height:1!important; }
+ :root.univer-mobile button.univer-app-copy .univer-app-copy-label:empty { display:none; }
+ :root.univer-mobile .univer-app-copy-status { position:fixed; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
+}
+@media screen and (max-width:599px) {
+ :root.univer-mobile :is(td,th).univer-app-contacts>.input-row { grid-template-columns:minmax(0,1fr); gap:6px; }
+ :root.univer-mobile :is(td,th).univer-app-contacts>.input-row.univer-app-contact-head { display:none!important; }
+ :root.univer-mobile :is(td,th).univer-app-contacts>.input-row>.input-field[data-univer-contact-label]::before { content:attr(data-univer-contact-label); display:block; color:var(--u-muted,#5b6b7c); font-size:12px; font-weight:600; line-height:1.4; }
+ :root.univer-mobile :is(td,th).univer-app-contacts>.input-row>.input-field:first-child { font-weight:600; }
+}
+@media print { .univer-app-copy, .univer-app-copy-status, .univer-app-contact-none { display:none!important; } a.univer-app-contact-link { color:inherit!important; text-decoration:none!important; } }
 `;
     }
     function apply(lang) {
@@ -696,7 +834,7 @@
         if (document.readyState === 'loading' || !/^\/(student|ssc|my)(\/|$)/i.test(location.pathname)) return;
         enabled = true;
         if (!style || !style.isConnected) { style = document.createElement('style'); style.id = 'univer-pages-style'; style.textContent = css(); (document.head || document.documentElement).appendChild(style); }
-        grades(); notes(); captions(); documents(); crumbs(); periods(); memos(); courses(); outside(); folds(); freshFiles();
+        grades(); notes(); captions(); documents(); crumbs(); periods(); memos(); courses(); outside(); folds(); freshFiles(); contacts();
         owns.forEach(function (record) { if (record.tag && record.tag.textContent !== ownText()) record.tag.textContent = ownText(); });
     }
     function release() {
@@ -716,6 +854,7 @@
         links.forEach(function (link) { var parent = link.parentNode; if (parent) { link.replaceWith(...link.childNodes); parent.normalize(); } }); links = [];
         hinted.forEach(function (link) { link.removeAttribute('title'); }); hinted.clear();
         freshMarks.forEach(function (mark) { mark.remove(); }); freshMarks = [];
+        releaseContacts();
         Array.from(slides.keys()).forEach(stopSlide);
         owns.forEach(unmarkOwn); owns.clear();
         blanks.forEach(function (box) { box.removeAttribute('data-univer-empty-section'); }); blanks.clear();
@@ -724,7 +863,7 @@
             ['role','tabindex','aria-expanded','data-univer-fold','data-univer-count'].forEach(function (name) { head.removeAttribute(name); });
             record.items.forEach(function (item) { item.removeAttribute('data-univer-folded-row'); });
         }); sections.clear();
-        var names = ['univer-app-outside-link','univer-app-grades','univer-app-callout','univer-app-table-caption','univer-app-doc-links','univer-app-doc-cell','univer-app-doc-link','univer-app-back-crumb','univer-app-back-link','univer-app-back-row','univer-app-period','univer-app-memo','univer-app-forum-courses'];
+        var names = ['univer-app-outside-link','univer-app-grades','univer-app-callout','univer-app-table-caption','univer-app-doc-links','univer-app-doc-cell','univer-app-doc-link','univer-app-back-crumb','univer-app-back-link','univer-app-back-row','univer-app-period','univer-app-memo','univer-app-forum-courses','univer-app-contacts','univer-app-contact-head','univer-app-contact-empty'];
         marked.forEach(function (node) { node.classList.remove(...names); if (!node.getAttribute('class')) node.removeAttribute('class'); }); marked.clear();
     }
     window.__univerPagesV1 = {apply:apply, release:release, downloading:downloading};

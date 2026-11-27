@@ -95,6 +95,22 @@ namespace Univer.Desktop.Tests
             Assert.Empty(Notices.Showing(list));
             Assert.Empty(Notices.Showing(Notices.Merge(list, Pending(3), 2)));
         }
+        [Theory]
+        [InlineData(false, -1, 1, 1)]
+        [InlineData(true, -1, 1, 1)]
+        [InlineData(false, 1, 2, 1)]
+        [InlineData(true, 1, 1, 0)]
+        public void ReadingTheSiteFallbackKeepsOnlyTheLastVerifiedCountRead(bool all, int previousOpen, int nextOpen, int unread)
+        {
+            var verified = previousOpen < 0 ? new List<SiteNotice>() : Notices.Merge(new SiteNotice[0], Scan("/student/rating/", 5, previousOpen), 1);
+            var fallback = Notices.Merge(verified, Scan("/student/rating/", 5), 2);
+            Assert.Equal(5, Notices.Shown(Notices.Showing(fallback).Single()));
+            var read = all ? Notices.MarkAllRead(fallback) : Notices.MarkRead(fallback, fallback.Single().Key);
+            Assert.Equal(0, Notices.Unread(read));
+            var next = Notices.Merge(read, Scan("/student/rating/", 5, nextOpen), 3);
+            Assert.Equal(unread, Notices.Unread(next));
+            Assert.Equal(unread, Notices.NewlyUnread(read, next).Count);
+        }
         [Fact]
         public void ReadNotice_StaysRead_WhenItDisappearsAndComesBack()
         {
@@ -166,12 +182,15 @@ namespace Univer.Desktop.Tests
         [Fact]
         public void ParseDone_ReadsOnlyTheLastMessageOfThisGeneration()
         {
-            int read, failed;
-            Assert.True(Notices.ParseDone("{\"v\":1,\"g\":\"n2\",\"kind\":\"done\",\"page\":\"/\",\"read\":2,\"failed\":1}", "n2", out read, out failed));
+            int read, failed, refresh;
+            Assert.True(Notices.ParseDone("{\"v\":1,\"g\":\"n2\",\"kind\":\"done\",\"page\":\"/\",\"read\":2,\"failed\":1,\"refresh\":7}", "n2", out read, out failed, out refresh));
             Assert.Equal(new[] { 2, 1 }, new[] { read, failed });
-            Assert.False(Notices.ParseDone("{\"v\":1,\"g\":\"n1\",\"kind\":\"done\",\"read\":2,\"failed\":0}", "n2", out read, out failed));
-            Assert.False(Notices.ParseDone("{\"v\":1,\"g\":\"n2\",\"kind\":\"section\",\"page\":\"/\"}", "n2", out read, out failed));
-            Assert.False(Notices.ParseDone("not json", "n2", out read, out failed));
+            Assert.Equal(7, refresh);
+            Assert.True(Notices.ParseDone("{\"v\":1,\"g\":\"n2\",\"kind\":\"done\"}", "n2", out read, out failed, out refresh));
+            Assert.Equal(0, refresh);
+            Assert.False(Notices.ParseDone("{\"v\":1,\"g\":\"n1\",\"kind\":\"done\",\"read\":2,\"failed\":0}", "n2", out read, out failed, out refresh));
+            Assert.False(Notices.ParseDone("{\"v\":1,\"g\":\"n2\",\"kind\":\"section\",\"page\":\"/\"}", "n2", out read, out failed, out refresh));
+            Assert.False(Notices.ParseDone("not json", "n2", out read, out failed, out refresh));
         }
         [Fact]
         public void Section_IsTheFirstPathSegment()
@@ -197,6 +216,23 @@ namespace Univer.Desktop.Tests
             Assert.Empty(storage.LoadNotices(account));
             await storage.SaveNoticesAsync(account, new List<SiteNotice>());
             Assert.False(File.Exists(Path.Combine(root, "notices.json")));
+        }
+        [Theory]
+        [InlineData("99")]
+        [InlineData("\"unknown\"")]
+        [InlineData("\"Verified, Fallback\"")]
+        public void Storage_TreatsAnUnknownSurveyStatusAsUnchecked(string status)
+        {
+            var storage = new Storage(root);
+            var account = ScheduleWeek.AccountMark("first student");
+            Directory.CreateDirectory(root);
+            File.WriteAllText(Path.Combine(root, "notices.json"), "{\"Account\":\"" + account + "\",\"Notices\":[{\"Key\":\"counter:" +
+                Rating + "\",\"Kind\":\"counter\",\"Url\":\"" + Rating + "\",\"Count\":2,\"Open\":1,\"SurveyStatus\":" + status + "}]}");
+            var loaded = storage.LoadNotices(account);
+            Assert.Equal(SurveyCheck.Pending, loaded.Single().SurveyStatus);
+            Assert.Empty(Notices.Showing(loaded));
+            var next = Notices.Merge(loaded, Scan("/student/rating/", 2, 1), Notices.Now());
+            Assert.Single(Notices.NewlyUnread(loaded, next));
         }
         [Fact]
         public async Task Storage_NoticesBelongOnlyToTheAccountThatSavedThem()

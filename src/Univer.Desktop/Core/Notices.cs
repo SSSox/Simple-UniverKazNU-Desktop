@@ -178,7 +178,8 @@ namespace Univer.Desktop.Core
                 .OrderBy(n => Visible(n) ? 0 : 1).ThenBy(n => n.Read).ThenByDescending(n => n.FirstSeen).ThenBy(n => n.Key, StringComparer.Ordinal)
                 .Take(Stored).ToList();
         }
-        private static int ReadNumber(SiteNotice notice) { return Survey(notice) ? Shown(notice) : notice.Count; }
+        // For a survey, a fallback badge does not tell us how many were open when the notice was marked read.
+        private static int ReadNumber(SiteNotice notice) { return Survey(notice) ? Math.Max(0, notice.Open) : notice.Count; }
         public static List<SiteNotice> MarkRead(IEnumerable<SiteNotice> current, string key)
         { return current.Select(n => { var copy = n.Copy(); if (copy.Key == key) { copy.Read = true; copy.ReadCount = ReadNumber(copy); } return copy; }).ToList(); }
         public static List<SiteNotice> MarkAllRead(IEnumerable<SiteNotice> current)
@@ -237,10 +238,10 @@ namespace Univer.Desktop.Core
             }
             return scan;
         }
-        // The background read's last message of this generation: pages read and pages that failed, or false for anything else.
-        public static bool ParseDone(string message, string generation, out int read, out int failed)
+        // The background read's last message of this generation, including the refresh request it belongs to.
+        public static bool ParseDone(string message, string generation, out int read, out int failed, out int refresh)
         {
-            read = failed = 0;
+            read = failed = refresh = 0;
             if (message == null || message.Length > 1024) return false;
             Dictionary<string, object> json;
             try { json = new JavaScriptSerializer().DeserializeObject(message) as Dictionary<string, object>; }
@@ -248,7 +249,15 @@ namespace Univer.Desktop.Core
             catch (InvalidOperationException) { return false; }
             if (json == null || Int(json, "v") != 1 || Str(json, "kind") != "done" || Str(json, "g") != generation) return false;
             read = Math.Max(0, Math.Min(99, Int(json, "read"))); failed = Math.Max(0, Math.Min(99, Int(json, "failed")));
+            refresh = Math.Max(0, Int(json, "refresh"));
             return true;
+        }
+        internal static SurveyCheck StoredSurveyStatus(object value)
+        {
+            SurveyCheck status;
+            if (value is int) status = (SurveyCheck)(int)value;
+            else if (!(value is string name) || name.IndexOf(',') >= 0 || !Enum.TryParse(name, true, out status)) return SurveyCheck.Pending;
+            return Enum.IsDefined(typeof(SurveyCheck), status) ? status : SurveyCheck.Pending;
         }
         // A list read back from disk: only well-formed items with trusted addresses, in display order.
         public static List<SiteNotice> Normalize(IEnumerable<SiteNotice> stored, long now)
@@ -259,6 +268,7 @@ namespace Univer.Desktop.Core
                 if (n == null || string.IsNullOrEmpty(n.Key) || !keys.Add(n.Key) || (n.Kind != SiteNotice.Counter && n.Kind != SiteNotice.Blocked)) continue;
                 if (!SitePolicy.Trusted(n.Url) || SitePolicy.DocumentDownload(n.Url) || SitePolicy.Logout(n.Url)) continue;
                 var copy = n.Copy();
+                copy.SurveyStatus = StoredSurveyStatus((int)copy.SurveyStatus);
                 copy.Title = Clip(copy.Title, TitleLength); copy.Text = Clip(copy.Text, TextLength); copy.Page = copy.Page ?? "";
                 copy.Count = Math.Max(0, Math.Min(9999, copy.Count)); copy.Open = Math.Max(-1, Math.Min(9999, copy.Open));
                 copy.Details = copy.Details.Where(d => d != null && !string.IsNullOrEmpty(d.Title)).Take(DetailLimit(copy.Url))
