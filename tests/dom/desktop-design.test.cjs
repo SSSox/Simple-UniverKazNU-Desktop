@@ -578,3 +578,26 @@ test('popup exit hoists CSS.supports, prunes non-visual nodes before copying, an
   assert.equal(p.d.querySelector('[data-univer-motion-ghost]'), null, 'Original removes lightweight ghost');
   p.close();
 });
+
+test('collapse folds a block before its change and runs the change at once without motion', () => {
+  const p = page('<table><tr id="l4"><td><div id="box">Текст</div></td></tr></table>', 'https://univer.kaznu.kz/student/attendance/full/');
+  apply(p);
+  const box = p.d.getElementById('box'), ui = p.w.__univerMotionUI; let done = 0;
+  box.getBoundingClientRect = () => ({ top: 0, height: 120, width: 300 });
+  p.w.__univerMotion = false; ui.collapse(box, () => done++); assert.equal(done, 1, 'motion off: the change is made at once');
+  p.w.__univerMotion = true; p.w.matchMedia = q => ({ matches: /reduce/.test(q), addEventListener() {}, removeEventListener() {} });
+  ui.collapse(box, () => done++); assert.equal(done, 2, 'reduced motion: at once too');
+  apply(p, false); p.close();
+});
+
+test('resize and collapse move max-height with height, so a row whose height a stylesheet holds at auto!important still grows and folds', () => {
+  const p = page('<table><tr id="l4"><td><div id="box">Текст</div></td></tr></table>', 'https://univer.kaznu.kz/student/attendance/full/');
+  apply(p);
+  const box = p.d.getElementById('box'), ui = p.w.__univerMotionUI, runs = [];
+  box.getBoundingClientRect = () => ({ top: 0, height: 120, width: 300 });
+  p.w.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {} });
+  box.animate = frames => { runs.push([...frames].map(f => [f.height, f.maxHeight])); return { cancel() {}, finish() {} }; };
+  ui.resize(box, 40); ui.collapse(box, () => {});
+  assert.deepEqual(runs, [[['40px', '40px'], ['120px', '120px']], [['120px', '120px'], ['0px', '0px']]]);
+  apply(p, false); p.close();
+});

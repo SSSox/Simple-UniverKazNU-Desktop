@@ -699,3 +699,76 @@ test('render batches rect and scrollHeight reads rather than interleaving reads 
   assert.ok(rectReads.every(i => i < taskWrites[0] || i > scrollReads[scrollReads.length - 1]), `rect reads interleaved with card writes: ${events.join(',')}`);
   apply(p, false); p.close();
 });
+
+test('own(): the student\'s own printed syllabus by programme code, then language division, then the newest year; read once, two at a time, kept', async () => {
+  const map = routes(); let active = 0, most = 0;
+  const p = page(site('<p>x</p>'), { routes: map });
+  const fetch = p.w.fetch; p.w.fetch = async (...args) => { active++; most = Math.max(most, active); await new Promise(r => setTimeout(r, 5)); try { return await fetch(...args); } finally { active--; } };
+  const print = id => 'https://univer.kaznu.kz/student/interactive/syllabus/print/' + id + '/2';
+  const own = p.w.__univerSyllabusV1.own;
+  // 9001 another programme, 9002 mine 2025 (Russian), 9003 mine 2026 (Kazakh), 9004 mine 2026 (Russian).
+  assert.equal(await own([print(9001), print(9002), print(9003), print(9004)]), print(9004));
+  assert.ok(most <= 2, 'at most two syllabi are read at once');
+  assert.equal(await own([print(9002), print(9003)]), print(9002), 'the same language division comes before a newer year');
+  assert.equal(await own([print(9001), print(9020)]), null, 'no syllabus of the programme marks nothing');
+  const reads = p.requests.filter(r => r.includes('/print/')).length;
+  assert.equal(await own([print(9004), print(9001)]), print(9004)); assert.equal(p.requests.filter(r => r.includes('/print/')).length, reads, 'a syllabus read once is not read again');
+  assert.equal(await own(['https://example.org/student/interactive/syllabus/print/1/2', '/student/umkd/1/']), null, 'only same-origin printed syllabi are read');
+  assert.ok(!p.requests.some(r => r.includes('example.org')));
+  p.close();
+});
+
+test('own(): with the programme unknown nothing is marked and no syllabus is read', async () => {
+  const map = routes(); map['/student/bachelor/'] = site('<p>Нет данных</p>');
+  const p = page(site('<p>x</p>'), { routes: map });
+  await assert.rejects(p.w.__univerSyllabusV1.own(['https://univer.kaznu.kz/student/interactive/syllabus/print/9004/2']));
+  assert.ok(!p.requests.some(r => r.includes('/print/')));
+  p.close();
+});
+
+// A printed syllabus that never answers until its request is aborted (or fails after `fails` ms).
+const hanging = (p, fails) => {
+  const started = [], fetch = p.w.fetch;
+  p.w.fetch = (address, options = {}) => {
+    if (!address.includes('/print/')) return fetch(address, options);
+    started.push(address);
+    return new Promise((_, reject) => { options.signal?.addEventListener('abort', () => reject(new Error('aborted'))); if (fails) setTimeout(reject, fails, new Error('failed')); });
+  };
+  return started;
+};
+const prints = ids => ids.map(id => 'https://univer.kaznu.kz/student/interactive/syllabus/print/' + id + '/2');
+
+test('own(): Original drops the queued syllabi and aborts the active ones; nothing is read after release', async () => {
+  const p = page(site('<p>x</p>'), { routes: routes() }), started = hanging(p);
+  const asked = p.w.__univerSyllabusV1.own(prints([9001, 9002, 9003, 9004]));
+  await until(() => started.length === 2);
+  p.w.__univerSyllabusV1.release();
+  await assert.rejects(asked, 'a released lookup fails, so a later visit may ask again');
+  await new Promise(r => setTimeout(r, 30));
+  assert.equal(started.length, 2, 'the two queued syllabi are never read');
+  p.close();
+});
+
+test('own(): a lookup released while the programme is read queues nothing', async () => {
+  const map = routes(), p = page(site('<p>x</p>'), { routes: map }), started = hanging(p), fetch = p.w.fetch;
+  let answer; p.w.fetch = (address, options) => address === '/student/bachelor/' ? new Promise(r => { answer = () => r(fetch(address, options)); }) : fetch(address, options);
+  const asked = p.w.__univerSyllabusV1.own(prints([9002, 9004]));
+  await until(() => !!answer);
+  p.w.__univerSyllabusV1.release(); answer();
+  await assert.rejects(asked);
+  await new Promise(r => setTimeout(r, 30));
+  assert.deepEqual(started, [], 'no syllabus is read after release');
+  assert.ok(!p.requests.includes('/student/educplan/'), 'the programme is not looked for elsewhere either');
+  p.close();
+});
+
+test('own(): queued syllabi whose caller stopped waiting are dropped before they start', async () => {
+  const p = page(site('<p>x</p>'), { routes: routes() }), started = hanging(p, 80);
+  p.w.__univerSyllabusV1.limits.ownWait = 40;
+  assert.equal(await p.w.__univerSyllabusV1.own(prints([9001, 9002, 9003, 9004])), null, 'the deadline answers nothing');
+  assert.equal(started.length, 2);
+  // The two active reads fail after the deadline; the expired queue does not start after them.
+  await new Promise(r => setTimeout(r, 120));
+  assert.equal(started.length, 2, 'the expired syllabi are never read');
+  p.close();
+});

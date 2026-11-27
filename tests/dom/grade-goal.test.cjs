@@ -73,12 +73,16 @@ test('absences are the journal\'s «н» marks, counted per course and by class 
  const line=id=>card(p,id).querySelector('.univer-app-attendance-absences');
  assert.equal(line('course-a').querySelector('b').textContent,'3');
  assert.equal(line('course-a').querySelector('small').textContent,'лекции 2, семинары 1');
- // «нб» and grades are not «н»: a course without one shows no line at all.
- assert.equal(line('course-b'),null);
+ // «нб» is never an unexcused «н»: it is counted apart, as an absence with a valid reason.
+ const pairs=id=>Array.from(line(id).querySelectorAll('.univer-app-absence'),n=>[n.dataset.kind,n.firstChild.textContent,n.querySelector('b').textContent]);
+ assert.deepEqual(pairs('course-a'),[['unexcused','Без уважительной причины','3'],['excused','По уважительной причине','0']]);
+ assert.deepEqual(pairs('course-b'),[['unexcused','Без уважительной причины','0'],['excused','По уважительной причине','1']]);
  p.d.querySelector('.univer-app-attendance-report').click();
  const root=p.d.getElementById('univer-app-report').shadowRoot;
  const courses=Array.from(root.querySelectorAll('.course'));
- assert.equal(courses[0].querySelector('.missed').textContent,'Пропуски3');assert.equal(courses[1].querySelector('.missed'),null);
+ assert.equal(courses[0].querySelector('.missed').textContent,'Пропускибез уважительной причины3по уважительной причине0');
+ assert.equal(courses[1].querySelector('.missed').textContent,'Пропускибез уважительной причины0по уважительной причине1');
+ assert.equal(root.querySelector('.missed.term').textContent,'Пропуски за семестрбез уважительной причины3по уважительной причине1');
  p.close();
 });
 
@@ -135,4 +139,74 @@ test('a class of no known type (a lab) still counts its absences in the course t
  assert.equal(card(p,'course-a').querySelector('.univer-app-attendance-absences b').textContent,'4');
  assert.equal(card(p,'course-a').querySelector('.univer-app-attendance-absences small').textContent,'лекции 2, семинары 1, другие 1','the parts add up');
  p.close();
+});
+
+test('absences with a valid reason («нб», «н/б», «ну», any case) are counted apart: per course, for the term, never in the 25-hour warning',()=>{
+ const marks=['нб','Н/Б','ну','НУ','н','нн','н б'];
+ const many=Array.from({length:26},()=>'нб');
+ const p=page(fixture().replace(`<tr><td class="ct" id="total-a">`,lesson('a3','семинар',marks,'5')+lesson('a4','семинар',many,'1')+`<tr><td class="ct" id="total-a">`));
+ const pairs=root=>Array.from(root.querySelectorAll('.univer-app-absence'),n=>n.dataset.kind+' '+n.querySelector('b').textContent);
+ assert.deepEqual(pairs(card(p,'course-a').querySelector('.univer-app-attendance-absences')),['unexcused 4','excused 30'],'only a lone «н» is unexcused; «нн» and «н б» are neither');
+ assert.equal(card(p,'course-a').querySelector('.univer-app-attendance-absences b').textContent,'4','«Пропуски» still counts «н» only');
+ const term=p.d.querySelector('.univer-app-attendance-term');
+ assert.equal(term.hidden,false);assert.equal(term.closest('.univer-app-attendance-tools')!==null,true,'the term total stands above the courses');
+ assert.equal(term.querySelector('.univer-app-attendance-term-title').textContent,'Пропуски за семестр');
+ assert.deepEqual(pairs(term),['unexcused 4','excused 31'],'over every course of the term');
+ assert.equal(p.d.querySelector('.univer-app-attendance-limit').hidden,true,'31 excused hours do not raise the 25-hour warning');
+ p.w.__univerAttendanceV1.apply('en');
+ assert.deepEqual(Array.from(term.querySelectorAll('.univer-app-absence>span:first-child'),n=>n.textContent),['Without a valid reason','With a valid reason']);
+ p.w.__univerAttendanceV1.apply('kz');
+ assert.deepEqual(Array.from(term.querySelectorAll('.univer-app-absence>span:first-child'),n=>n.textContent),['Дәлелсіз себеппен','Дәлелді себеппен']);
+ p.w.__univerAttendanceV1.release();assert.equal(p.d.querySelector('.univer-app-attendance-term'),null);
+ p.close();
+});
+
+test('a pointer opens a class log by growing its block rows (not the table) and closes it by folding them first; a key is immediate',async()=>{
+ const p=page(),calls=[];let finish=[];
+ p.w.__univerMotionUI={reveal(n){calls.push(['reveal',n]);},stop(n){calls.push(['stop',n]);},resize(n){calls.push(['resize',n]);},collapse(n,done){calls.push(['collapse',n]);finish.push(done);}};
+ const toggle=()=>card(p,'course-a').querySelector('.univer-app-attendance-details-toggle');
+ const log=()=>Array.from(p.d.querySelectorAll('[data-univer-journal]'),r=>r.getAttribute('data-univer-journal'));
+ toggle().dispatchEvent(new p.w.MouseEvent('click',{bubbles:true,detail:1}));
+ assert.deepEqual(log(),['top','head','body','head','body'],'the course row and its class rows are one card');
+ assert.ok(p.d.querySelector('[data-univer-journal-end]').contains(p.d.getElementById('a2')),'the last class closes the card');
+ await new Promise(r=>setTimeout(r,20));
+ assert.ok(calls.filter(c=>c[0]==='resize').length>0,'the rows grow from the next frame');
+ assert.ok(calls.filter(c=>c[0]==='resize').every(c=>c[1].tagName==='TR'&&c[1].hasAttribute('data-univer-journal')),'never a table');
+ assert.equal(p.d.getElementById('a1').closest('tr').hidden,false);
+ toggle().dispatchEvent(new p.w.MouseEvent('click',{bubbles:true,detail:1}));
+ assert.equal(toggle().getAttribute('aria-expanded'),'false');assert.equal(finish.length,4,'every shown row folds');
+ assert.equal(p.d.getElementById('a1').closest('tr').hidden,false,'still on screen while it folds');
+ finish.forEach(done=>done());
+ assert.equal(p.d.getElementById('a1').closest('tr').hidden,true);assert.deepEqual(log(),[]);
+ calls.length=0;toggle().click();assert.deepEqual(log(),['top','head','body','head','body']);assert.equal(calls.filter(c=>c[0]==='resize').length,0,'a key opens at once');
+ toggle().click();assert.equal(calls.filter(c=>c[0]==='collapse').length,0);assert.equal(p.d.getElementById('a1').closest('tr').hidden,true,'and closes at once');
+ p.w.__univerAttendanceV1.release();assert.equal(p.d.querySelector('[data-univer-journal]'),null);p.close();
+});
+
+test('the course grid slides with a class log on both opening and closing, and the card\'s room before the next course grows with it',async()=>{
+ const p=page(),calls=[],rooms=[];let finish=[];
+ const end=()=>p.d.querySelector('[data-univer-journal-end]');
+ p.w.HTMLElement.prototype.animate=function(frames){if(frames.some(f=>'marginBottom' in f))rooms.push([this,[...frames].map(f=>f.marginBottom)]);return {cancel(){}};};
+ const real=p.w.getComputedStyle;p.w.getComputedStyle=n=>n.hasAttribute?.('data-univer-journal-end')?{marginBottom:'24px'}:real(n);
+ p.w.__univerMotionUI={reduced:()=>false,reveal(){},stop(){},resize(){},collapse(n,done){finish.push(done);},
+  reflow(parent,mutate){calls.push(['reflow',parent,!!p.d.querySelector('[data-univer-journal]')]);mutate();calls.push(['after',!!p.d.querySelector('[data-univer-journal]')]);
+   shutWhileMeasured.push(...Array.from(p.d.querySelectorAll('[data-univer-journal=head],[data-univer-journal=body]'),r=>r.style.maxHeight));}};
+ const shutWhileMeasured=[];
+ const toggle=()=>card(p,'course-a').querySelector('.univer-app-attendance-details-toggle'),grid=toggle().closest('tbody');
+ toggle().dispatchEvent(new p.w.MouseEvent('click',{bubbles:true,detail:1}));
+ assert.deepEqual(calls,[['reflow',grid,false],['after',true]],'the grid slides as the course widens');
+ assert.deepEqual(shutWhileMeasured,['1px','1px','1px','1px'],'the class rows are shut while the grid measures, so the courses below move once');
+ await new Promise(r=>setTimeout(r,20));
+ assert.ok(Array.from(p.d.querySelectorAll('[data-univer-journal]')).every(r=>!r.hasAttribute('style')),'then they grow, their own style as it was');
+ assert.deepEqual(rooms,[[end(),['0px','24px']]],'the room before the next course grows from nothing');
+ calls.length=0;toggle().dispatchEvent(new p.w.MouseEvent('click',{bubbles:true,detail:1}));
+ assert.deepEqual(calls,[],'the grid waits for the fold');
+ finish.forEach(done=>done());
+ assert.deepEqual(calls,[['reflow',grid,true],['after',false]],'then slides the course back into its column');
+ // Reduced motion and a key: no slide and no growing room.
+ p.w.__univerMotionUI.reduced=()=>true;calls.length=0;rooms.length=0;finish=[];
+ toggle().dispatchEvent(new p.w.MouseEvent('click',{bubbles:true,detail:1}));
+ assert.deepEqual(calls,[]);assert.deepEqual(rooms,[]);
+ toggle().click();toggle().click();assert.deepEqual(calls,[]);assert.deepEqual(rooms,[]);
+ p.w.__univerAttendanceV1.release();p.close();
 });

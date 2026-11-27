@@ -15,7 +15,7 @@ namespace Univer.Desktop.UI
     {
         // Lets the self-test read notifications without a saved sign-in; nothing else turns it on.
         private bool noticesQa;
-        // The menu as observed on 2 November 2026: the count in a red <b> after the link, the list in table.inner rows.
+        // The red count stays on the menu. Answer marks are on the questionnaire detail pages.
         private const string NoticeQaCount = "<b style='color:Red; font-size:10px;'>&nbsp;(2)</b>";
         private static string NoticeQaPage(string content, string count)
         {
@@ -25,30 +25,31 @@ namespace Univer.Desktop.UI
                 "<li><a href='/student/rating/'>Анкетирование студентов</a>" + count + "</li><li><a href='/student/umkd/'>УМКД</a></li></ul></td></tr></table></td></tr></table>" +
                 content + "</td></tr></table>";
         }
-        private static string NoticeQaList(string first, string second)
-        {
-            return "<table class='inner'><tr><th>Название</th><th>Тип</th><th>Начало</th><th>Окончание</th><th>Статус</th></tr>" +
-                "<tr class='link' id='208'><td>Удовлетворенность обучающихся качеством преподавания</td><td>Анкетирование</td><td>30.10.2026</td><td>30.11.2026</td><td>" + first + "</td></tr>" +
-                "<tr class='link' id='207'><td>Восприятие коррупции - 2026, осенний сем.</td><td>Анкетирование</td><td>29.10.2026</td><td>11.11.2026</td><td>" + second + "</td></tr></table>";
-        }
+        private const string NoticeQaList = "<table class='inner'><tr><th>Название</th><th>Тип</th><th>Начало</th><th>Окончание</th></tr>" +
+            "<tr class='link' id='208'><td>Удовлетворенность обучающихся качеством преподавания</td><td>Анкетирование</td><td>30.10.2026</td><td>30.11.2026</td></tr>" +
+            "<tr class='link' id='207'><td>Восприятие коррупции - 2026, осенний сем.</td><td>Анкетирование</td><td>29.10.2026</td><td>11.11.2026</td></tr></table>";
+        private const string NoticeQaAnswered = "<table class='inner'><tr class='link done'><td>Дисциплина</td><td>Преподаватель</td><td>+</td><td>20.11.2026</td></tr></table>";
         // Native checks: real script and message channel, answered questionnaires hidden, badge, toast, panel and its buttons,
         // a failed check, read marks that survive, the dark theme at the smallest window, three languages and the saved list.
         private async Task NoticesQaAsync(string qa, List<string> results)
         {
             ResourceRequestHandlerFactory factory = null;
-            var routes = new[] { "/ssc/", "/student/rating/" };
+            var routes = new[] { "/student/bachelor/", "/ssc/", "/student/rating/", "/student/rating/208", "/student/rating/207" };
             noticesQa = true; await ClearNoticesAsync();
             try
             {
                 // LoadHtml creates the browser's handler factory; the background reads below are served by it, never by the site.
-                main.LoadHtml(NoticeQaPage("<p>Бакалавр</p>", NoticeQaCount), SitePolicy.Origin + "/student/bachelor/"); await WaitQaPresentationAsync();
+                noticeFetchedAt = noticeClock.ElapsedMilliseconds;
+                main.LoadHtml(NoticeQaPage("<p>Бакалавр</p>", ""), SitePolicy.Origin + "/student/bachelor/"); await WaitQaPresentationAsync();
                 factory = main.ResourceRequestHandlerFactory as ResourceRequestHandlerFactory;
                 if (factory == null) throw new InvalidOperationException("QA pages cannot be served");
                 Action<string, string> page = (route, html) => factory.RegisterHandler(SitePolicy.Origin + route, ResourceHandler.GetByteArray("<!doctype html><meta charset='utf-8'>" + html, Encoding.UTF8), "text/html", false);
                 page("/ssc/", NoticeQaPage("<p>Е-услуги</p>", ""));
-                page("/student/rating/", NoticeQaPage(NoticeQaList("+", "+"), NoticeQaCount));
-                // The page alone first: only the menu count is known.
-                noticeFetchedAt = noticeClock.ElapsedMilliseconds;
+                page("/student/rating/", NoticeQaPage(NoticeQaList, NoticeQaCount));
+                page("/student/rating/208", NoticeQaPage(NoticeQaAnswered, NoticeQaCount));
+                page("/student/rating/207", NoticeQaPage(NoticeQaAnswered, NoticeQaCount));
+                page("/student/bachelor/", NoticeQaPage("<p>Бакалавр</p>", NoticeQaCount));
+                main.Reload(); await WaitQaPresentationAsync();
                 // A scan of the previous fixture can still own the one-flight gate after navigation. ScanNoticesAsync
                 // deliberately returns immediately while it is busy; wait for that read before requesting this page.
                 var settledUntil = DateTime.UtcNow.AddSeconds(10);
@@ -57,16 +58,13 @@ namespace Univer.Desktop.UI
                 await ScanNoticesAsync(false);
                 QaTrace("notices-qa-menu count=" + Notices.Showing(notices).Count + " unread=" + Notices.Unread(notices) + " badge=" + noticesButton.Badge +
                     " busy=" + noticeBusy + " bell/find=" + noticesButton.Right + "/" + find.Left + " title/bell=" + pageTitle.Right + "/" + noticesButton.Left);
-                Check(Notices.Showing(notices).Count == 1 && Notices.Unread(notices) == 1 && noticesButton.Badge == "1" &&
-                    noticesButton.Right <= find.Left && pageTitle.Right <= noticesButton.Left, "the menu count is read from the page and shown on the bell, beside find and the title", results);
-                await ScanNoticesAsync(true);
+                Check(Notices.Showing(notices).Count == 0 && noticesButton.Badge == "" && !messages.Shows("noticesNew") &&
+                    noticesButton.Right <= find.Left && pageTitle.Right <= noticesButton.Left, "the questionnaire count stays off the bell until checked", results);
                 var until = DateTime.UtcNow.AddSeconds(10);
-                while (Notices.Showing(notices).Count > 0 && DateTime.UtcNow < until) await Task.Delay(100);
+                while (!notices.Any(n => n.Open == 0 && n.Count == 2) && DateTime.UtcNow < until) await Task.Delay(100);
                 Check(Notices.Showing(notices).Count == 0 && noticesButton.Badge == "" && notices.Any(n => n.Open == 0 && n.Count == 2),
-                    "the background read of the questionnaire list sees both rows answered with + and hides the site's (2)", results);
-                messages.ClearNotices(); RenderFeedback();
-                await ScanNoticesAsync(false);
-                Check(Notices.Showing(notices).Count == 0 && !messages.Shows("noticesNew"), "a later page with the same (2) keeps the answered questionnaires hidden and silent", results);
+                    "both detail pages are answered, so the questionnaire notice stays hidden", results);
+                Check(!messages.Shows("noticesNew"), "the completed check has no questionnaire toast", results);
                 var scan = new NoticeScan { Page = "/student/bachelor/", Menu = true };
                 scan.Links.Add(new NoticeLink { Url = SitePolicy.Origin + "/student/rating/", Title = "Анкетирование студентов", Count = 3, Open = 1, Menu = true,
                     Details = new List<NoticeDetail> { new NoticeDetail { Title = "Новая синтетическая анкета", Until = "20.11.2026" } } });

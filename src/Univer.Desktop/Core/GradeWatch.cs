@@ -7,6 +7,7 @@ using System.Linq;
 using System.Net;
 using System.Text;
 using System.Text.RegularExpressions;
+using System.Threading.Tasks;
 using System.Web.Script.Serialization;
 using Univer.Desktop.UI;
 
@@ -59,7 +60,12 @@ namespace Univer.Desktop.Core
         // Scores are the control columns, the exam and the total; credits, GPA, the letter and its word follow from them.
         // The names cover the ones study-pages.js knows in the three languages of the site; a total may have a second word
         // («Жалпы балл», «Total score»).
-        private static readonly Regex ScoreHeading = new Regex(@"^(?:(?:РК|RK|РА|RA|АБ|МБ|БК|ПА|PA|ИК|IC|MT|RC|FC|Mid(?:term)?|Экз(?:амен)?|Емт(?:ихан)?|Exam)\.?\s*\d?\s*\*?|(?:Сумма|Sum|Total|Score|Балл|Жалпы|Жиыны|Барлығы|Қорытынды|Итог)[\p{L} .]*\*?)$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+        private static readonly Regex ScoreHeading = new Regex(
+            @"^(?:(?:РК|RK|РА|RA|АБ|МБ|БК|MT|RC|Mid(?:term)?)\.?\s*\d?\s*\*?|" +
+            @"(?<final>(?:ПА|PA|ИК|IC|FC|Экз(?:амен)?|Емт(?:ихан)?|Exam)\.?\s*\d?\s*\*?|" +
+            @"(?:Сумма|Sum|Total|Score|Балл|Жалпы|Жиыны|Барлығы|Қорытынды|Итог)[\p{L} .]*\*?))$",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+        private static readonly Regex ZeroScore = new Regex(@"^0+(?:[.,]0+)?\*?$");
         internal static bool Score(string heading) { return ScoreHeading.IsMatch(heading ?? ""); }
         internal static string Fold(string text)
         {
@@ -67,35 +73,62 @@ namespace Univer.Desktop.Core
             return folded.Length > MaxText ? folded.Substring(0, MaxText) : folded;
         }
 
-        // What is new since the last reading: changed score cells of the same courses under the same headings. A first
-        // reading, other courses (a new semester, the site's language) or other headings say nothing: the new reading is
-        // then the baseline. A cell that became empty is not news.
+        // The discipline heading and overlap in at least half the previous uniquely named courses establish continuity.
         internal static List<GradeChange> Changes(GradeSheet before, GradeSheet now)
         {
             var changes = new List<GradeChange>();
-            if (before == null || now == null || !Same(before, now)) return changes;
-            for (var r = 0; r < now.Rows.Count; r++)
+            if (before == null || now == null || before.Account != now.Account ||
+                before.Headings[0] != now.Headings[0]) return changes;
+            var beforeRows = before.Rows.ToLookup(r => r.Course);
+            var nowRows = now.Rows.ToLookup(r => r.Course);
+            var previousCourses = beforeRows.Where(group => group.Count() == 1);
+            var sharedCourses = previousCourses.Count(group => nowRows[group.Key].Count() == 1);
+            if (sharedCourses == 0 || sharedCourses * 2 < previousCourses.Count()) return changes;
+            // Two or more published scores back at zero or empty is a new term that kept some course names, not news.
+            if (Resets(before, now, nowRows) >= 2) return changes;
+            var nowColumns = now.Headings.Skip(1).ToLookup(heading => heading);
+            var beforeIndexes = before.Headings.Skip(1).Select((heading, index) => new { heading, index })
+                .ToLookup(column => column.heading, column => column.index);
+            foreach (var row in now.Rows)
             {
-                var was = before.Rows[r]; var row = now.Rows[r];
+                var matches = beforeRows[row.Course];
+                if (nowRows[row.Course].Count() > 1 || matches.Count() > 1) continue;
+                var was = matches.SingleOrDefault();
                 var cells = new List<string>();
                 for (var c = 0; c < row.Values.Count && c + 1 < now.Headings.Count; c++)
                 {
                     var heading = now.Headings[c + 1];
-                    if (!Score(heading)) continue;
+                    var score = ScoreHeading.Match(heading);
+                    var indexes = beforeIndexes[heading];
+                    if (!score.Success || nowColumns[heading].Count() > 1 || indexes.Count() > 1) continue;
                     var value = row.Values[c];
-                    if (value.Length == 0 || value == was.Values[c]) continue;
+                    var previous = was != null && indexes.Any() ? was.Values[indexes.Single()] : "";
+                    if (value.Length == 0 || value == previous) continue;
+                    if (ZeroScore.IsMatch(value) && (was == null ||
+                        (score.Groups["final"].Success && (previous.Length == 0 || ZeroScore.IsMatch(previous))))) continue;
                     cells.Add(heading.TrimEnd('*') + " " + value);
                 }
                 if (cells.Count > 0) changes.Add(new GradeChange { Course = row.Course, Cells = cells });
             }
             return changes;
         }
-        private static bool Same(GradeSheet a, GradeSheet b)
+        private static int Resets(GradeSheet before, GradeSheet now, ILookup<string, GradeRow> nowRows)
         {
-            return a.Account == b.Account && a.Headings.SequenceEqual(b.Headings) && a.Rows.Count == b.Rows.Count &&
-                a.Rows.Zip(b.Rows, (x, y) => x.Course == y.Course && x.Values.Count == y.Values.Count).All(same => same);
+            var count = 0;
+            foreach (var was in before.Rows)
+            {
+                var row = nowRows[was.Course].FirstOrDefault();
+                if (row == null) continue;
+                for (var c = 0; c < was.Values.Count && c + 1 < before.Headings.Count; c++)
+                {
+                    var at = now.Headings.IndexOf(before.Headings[c + 1]) - 1;
+                    if (at < 0 || at >= row.Values.Count || !Score(before.Headings[c + 1])) continue;
+                    var value = was.Values[c];
+                    if (value.Length > 0 && !ZeroScore.IsMatch(value) && (row.Values[at].Length == 0 || ZeroScore.IsMatch(row.Values[at]))) count++;
+                }
+            }
+            return count;
         }
-
         internal string Serialize()
         {
             var rows = Rows.Select(r => new Dictionary<string, object> { { "course", r.Course }, { "values", r.Values.Cast<object>().ToList() } }).ToList();
@@ -142,6 +175,51 @@ namespace Univer.Desktop.Core
     {
         public string Course = "";
         public List<string> Cells = new List<string>();
+    }
+    internal sealed class GradeWatch
+    {
+        private int failures;
+        private GradeSheet pending;
+        private string loadedAccount;
+        internal GradeSheet Baseline { get; private set; }
+        internal bool HasPending { get { return pending != null; } }
+        internal bool HasUnannouncedReading { get { return HasPending && pending != Baseline; } }
+
+        internal void LoadBaseline(string account, Func<string, GradeSheet> load)
+        {
+            if (string.IsNullOrEmpty(account) || loadedAccount == account) return;
+            Baseline = load(account);
+            loadedAccount = account;
+            pending = null;
+            failures = 0;
+        }
+
+        internal long NextDelay(int interval, bool completed)
+        {
+            if (completed) failures = 0;
+            else if (failures < 3) failures++;
+            if (failures == 1) return 60000;
+            if (failures == 2) return 300000;
+            return GradeNotice.Interval(interval) * 60000L;
+        }
+
+        internal async Task<bool> RecordAsync(GradeSheet sheet, Func<List<GradeChange>, bool> announce, Func<GradeSheet, Task> save)
+        {
+            var next = HasUnannouncedReading ? pending : sheet ?? pending;
+            if (next == null) return false;
+            pending = next;
+            if (HasUnannouncedReading)
+            {
+                var changes = GradeSheet.Changes(Baseline, next);
+                if (changes.Count > 0 && !announce(changes)) return false;
+            }
+            // Keep the sent reading for a save retry without showing the balloon again.
+            Baseline = next;
+            try { await save(next); }
+            catch (Exception) { return false; }
+            pending = null;
+            return true;
+        }
     }
     // The balloon's words: at most three courses, the rest counted; behind a PIN only that something is new.
     internal static class GradeNotice

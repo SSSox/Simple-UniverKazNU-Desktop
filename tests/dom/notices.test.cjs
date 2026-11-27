@@ -5,8 +5,7 @@ const { JSDOM, VirtualConsole } = require('jsdom');
 const read = name => fs.readFileSync('src/Univer.Desktop/Assets/' + name, 'utf8');
 const bundle = ['page-common.js', 'univer-automation.js', 'news.js', 'study-links.js', 'study-pages.js', 'course-tasks.js', 'attendance.js', 'overview.js', 'shortcuts.js', 'notices.js', 'univer-layout.js', 'desktop.js'].map(read);
 
-// Markup as observed live on 2 November 2026 (Android QA): the count in a red <b> beside the link, the list as tr.link
-// rows, an answered row with a "+" cell. Names, ids and dates are synthetic.
+// The menu count stays red. Answer marks are on detail pages, with one row per teacher or topic.
 const menu = (count = '<b style="color:Red; font-size:10px;">&nbsp;(2)</b>') => '<table id="tools"><tr><td class="center"><table class="tool"><tr><td><ul>' +
   `<li><a href="/student/rating/">Анкетирование студентов</a>${count}</li>` +
   '<li><a href="/student/contract/" style="color:red">Договоры</a></li><li><a href="/student/group/">Группа (2)</a></li>' +
@@ -14,9 +13,13 @@ const menu = (count = '<b style="color:Red; font-size:10px;">&nbsp;(2)</b>') => 
 const tabs = '<tr id="l3"><td class="center"><a href="/student/bachelor/"><span class="center">Бакалавр</span></a><a href="/ssc/"><span class="center">Е-услуги</span></a><a href="/">Главная</a></td></tr>';
 const shell = (content, count) => '<table class="wrappertable"><tr id="l1"><td class="header">КазНУ</td></tr><tr id="l2"><td></td></tr>' + tabs +
   `<tr id="l4"><td class="center">${menu(count)}${content}</td></tr></table>`;
-const rows = marks => '<table class="inner"><tr><th>Название</th><th>Тип</th><th>Начало</th><th>Окончание</th><th>Статус</th></tr>' +
-  '<tr class="link" id="208"><td>Удовлетворенность обучающихся качеством преподавания</td><td>Анкетирование преподавателя <p style="color:red;">Обязательная</p></td><td>30.10.2026</td><td>30.11.2026</td>' + `<td>${marks[0]}</td></tr>` +
-  '<tr class="link" id="207"><td>Восприятие коррупции - 2026, осенний сем.</td><td>Анкетирование <p style="color:red;">Обязательная</p></td><td>29.10.2026</td><td>11.11.2026</td>' + `<td>${marks[1]}</td></tr></table>`;
+const rows = '<table class="inner"><tr><th>Название</th><th>Тип</th><th>Начало</th><th>Окончание</th></tr>' +
+  '<tr class="link" id="208"><td>Удовлетворенность обучающихся качеством преподавания</td><td>Анкетирование преподавателя</td><td>30.10.2026</td><td>30.11.2026</td></tr>' +
+  '<tr class="link" id="207"><td>Восприятие коррупции - 2026, осенний сем.</td><td>Анкетирование</td><td>29.10.2026</td><td>11.11.2026</td></tr></table>';
+const answers = (...marks) => shell('<table class="inner">' + marks.map(mark =>
+  `<tr class="link${mark === 'done' ? ' done' : ''}"><td>Дисциплина</td><td>Преподаватель</td><td>${mark === 'done' ? '' : mark}</td><td></td></tr>`).join('') + '</table>');
+const routesFor = (...marks) => ({ '/student/rating/': shell(rows), '/student/rating/208': answers('done', '<img src="/content/icons/add.png" alt=" [+] ">'),
+  '/student/rating/207': answers(...marks) });
 const blocked = '<table class="mt"><tr class="mid"><td class="ct"><span style="color:red">Для просмотра успеваемости необходимо пройти <a href="/student/rating/">анкетирование</a>.</span></td></tr></table>';
 
 function page(html, url, { routes = {}, scripts = [read('notices.js')] } = {}) {
@@ -42,6 +45,9 @@ function page(html, url, { routes = {}, scripts = [read('notices.js')] } = {}) {
 const settle = async () => { for (let i = 0; i < 30; i++) await new Promise(resolve => setTimeout(resolve, 0)); };
 const scan = (p, fetch = false) => JSON.parse(p.w.__univerNoticesV1.scan(fetch, 'n1'));
 const rating = result => result.links.find(link => link.u === '/student/rating/');
+const messages = p => p.sent.map(value => { assert.ok(value.startsWith('univer-notices:')); return JSON.parse(value.slice('univer-notices:'.length)); });
+const checkedRating = p => messages(p).flatMap(message => message.links || []).find(link => link.u === '/student/rating/' && link.n > 0 && !link.c);
+const badge = p => p.d.querySelector('#tools li > b');
 
 test('the red count next to a menu link is a notification; a red link or an unmarked number is not', () => {
   const p = page(shell('<p>Бакалавр</p>'), 'https://univer.kaznu.kz/student/bachelor/');
@@ -57,16 +63,139 @@ test('the red count next to a menu link is a notification; a red link or an unma
   assert.equal(p.d.body.innerHTML, before, 'reading never changes the page');
 });
 
-test('a questionnaire list counts only the rows without the "+" of an answer', () => {
-  const answered = scan(page(shell(rows(['+', '+'])), 'https://univer.kaznu.kz/student/rating/'));
-  assert.equal(rating(answered).n, 2, 'the site keeps its count after the answers');
-  assert.equal(rating(answered).o, 0);
-  assert.deepEqual(rating(answered).d, []);
-  const half = scan(page(shell(rows(['&nbsp;+&nbsp;', ''])), 'https://univer.kaznu.kz/student/rating/'));
-  assert.equal(rating(half).o, 1);
-  assert.deepEqual(rating(half).d, [{ t: 'Восприятие коррупции - 2026, осенний сем.', e: '11.11.2026' }]);
-  const open = scan(page(shell(rows(['', ''])), 'https://univer.kaznu.kz/student/rating/'));
-  assert.equal(rating(open).o, 2, 'the header row is not a questionnaire');
+test('a questionnaire stays open if any of its detail rows is unanswered', async () => {
+  const p = page(shell(rows), 'https://univer.kaznu.kz/student/rating/', { routes: routesFor('done', '') });
+  const fetch = p.w.fetch;
+  let release;
+  const firstDetail = new Promise(resolve => { release = resolve; });
+  p.w.fetch = async (address, options) => {
+    assert.equal(options.method || 'GET', 'GET');
+    assert.equal(options.mode, 'same-origin');
+    const response = await fetch(address);
+    if (address.endsWith('/208')) await firstDetail;
+    return response;
+  };
+  p.w.__univerNoticesV1.present(true);
+  const initial = rating(scan(p));
+  assert.equal(initial.n, 2, 'the site keeps its count after the answers');
+  assert.equal(initial.c, 1);
+  assert.equal(initial.o, undefined);
+  await settle();
+  assert.deepEqual(p.requests, ['/student/rating/208']);
+  assert.deepEqual(p.sent, [], 'no count is sent while a detail page is still pending');
+  release();
+  await settle();
+  assert.deepEqual(p.requests, ['/student/rating/208', '/student/rating/207'], 'the open list is reused');
+  const checked = checkedRating(p);
+  assert.equal(checked.o, 1);
+  assert.deepEqual(checked.d, [{ t: 'Восприятие коррупции - 2026, осенний сем.', e: '11.11.2026' }]);
+  assert.equal(badge(p).textContent.trim(), '(1)');
+  p.w.close();
+});
+
+test('the extension reuses a scoped count, checks it again, and restores the original badge', async () => {
+  const routes = routesFor('&nbsp;+&nbsp;');
+  const p = page(shell('<p>Бакалавр</p>'), 'https://univer.kaznu.kz/student/bachelor/', { routes, scripts: bundle });
+  delete p.w.__univerNative;
+  const original = badge(p), originalText = original.firstChild, originalMarkup = original.outerHTML;
+  p.w.localStorage.setItem('univer.app.account.v1', 'a1');
+  let change;
+  p.w.chrome = { storage: { local: { get: async () => ({}) }, onChanged: { addListener: listener => { change = listener; } } } };
+  p.w.matchMedia = () => ({ matches: false, addEventListener() {} });
+  for (const script of ['prelude.js', 'host.js']) p.w.eval(fs.readFileSync('src/Univer.Extension/scripts/' + script, 'utf8'));
+  await settle();
+  assert.equal(original.hidden, true);
+  assert.deepEqual(p.sent, []);
+  const key = 'univer.desktop.survey-count.v1';
+  const cached = p.w.localStorage.getItem(key);
+  assert.ok(cached);
+  change({ settings: { newValue: { readable: false } } }, 'local');
+  assert.equal(badge(p), original);
+  assert.equal(original.firstChild, originalText);
+  assert.equal(original.outerHTML, originalMarkup);
+
+  const warm = page(shell(rows), 'https://univer.kaznu.kz/student/rating/', { routes: routesFor(''), scripts: bundle });
+  delete warm.w.__univerNative;
+  warm.w.localStorage.setItem(key, cached);
+  warm.w.localStorage.setItem('univer.app.account.v1', 'b2');
+  warm.w.__univerDesktop.apply(true, false, 'ru');
+  assert.equal(badge(warm).hidden, false, 'another account does not get the cached correction');
+  warm.w.localStorage.setItem('univer.app.account.v1', 'a1');
+  warm.w.__univerDesktop.apply(true, false, 'ru');
+  assert.equal(badge(warm).hidden, true, 'the same account gets the cached correction before the check');
+  warm.w.__univerNoticesV1.check();
+  warm.w.__univerNoticesV1.check();
+  await settle();
+  assert.equal(badge(warm).hidden, false);
+  assert.equal(badge(warm).textContent.trim(), '(1)');
+  assert.deepEqual(warm.requests, ['/student/rating/208', '/student/rating/207']);
+  warm.w.__univerDesktop.apply(false, false, 'ru');
+  assert.equal(badge(warm).textContent.trim(), '(2)');
+  p.w.close(); warm.w.close();
+});
+
+test('an unreadable questionnaire restores the site count and leaves the details unknown', async () => {
+  const routes = routesFor('done');
+  delete routes['/student/rating/207'];
+  const p = page(shell(rows), 'https://univer.kaznu.kz/student/rating/', { routes });
+  p.w.localStorage.setItem('univer.app.account.v1', 'a1');
+  p.w.localStorage.setItem('univer.desktop.survey-count.v1', JSON.stringify({ owner: 'a1', count: 2, open: 0 }));
+  p.w.__univerNoticesV1.present(true);
+  assert.equal(badge(p).hidden, true);
+  scan(p);
+  await settle();
+  const checked = checkedRating(p);
+  assert.equal(checked.n, 2);
+  assert.equal(checked.o, undefined);
+  assert.deepEqual(checked.d, []);
+  assert.equal(badge(p).hidden, false);
+  assert.equal(badge(p).textContent.trim(), '(2)');
+  p.w.close();
+});
+
+test('a slow survey check uses one read deadline for the whole list', async () => {
+  const p = page(shell(rows), 'https://univer.kaznu.kz/student/rating/', { routes: routesFor('') });
+  const fetch = p.w.fetch;
+  let time = 0;
+  p.w.performance.now = () => time;
+  p.w.fetch = address => { time = 15001; return fetch(address); };
+  scan(p);
+  await settle();
+  assert.deepEqual(p.requests, ['/student/rating/208']);
+  assert.equal(checkedRating(p).o, undefined);
+  assert.equal(checkedRating(p).n, 2);
+  p.w.close();
+});
+
+test('a questionnaire row without an id makes the check inconclusive', async () => {
+  const p = page(shell(rows.replace(' id="207"', '')), 'https://univer.kaznu.kz/student/rating/', { routes: routesFor('done') });
+  scan(p);
+  await settle();
+  assert.deepEqual(p.requests, []);
+  assert.equal(checkedRating(p).n, 2);
+  assert.equal(checkedRating(p).o, undefined);
+  p.w.close();
+});
+
+test('ten questionnaires are checked in full, and a longer list falls back without a partial count', async () => {
+  const list = count => '<table>' + Array.from({ length: count }, (_, i) => `<tr class="link" id="${i + 1}"><td>Анкета ${i + 1}</td><td>Тип</td></tr>`).join('') + '</table>';
+  const routes = Object.fromEntries(Array.from({ length: 10 }, (_, i) => [`/student/rating/${i + 1}`, answers('')]));
+  const exact = page(shell(list(10)), 'https://univer.kaznu.kz/student/rating/', { routes });
+  exact.w.__univerNoticesV1.present(true);
+  scan(exact);
+  await settle();
+  assert.equal(exact.requests.length, 10);
+  assert.equal(checkedRating(exact).o, 10);
+  assert.equal(checkedRating(exact).d.length, 10);
+  assert.equal(badge(exact).textContent.trim(), '(10)');
+  exact.w.close();
+  const p = page(shell(list(11)), 'https://univer.kaznu.kz/student/rating/');
+  scan(p);
+  await settle();
+  assert.deepEqual(p.requests, []);
+  assert.equal(checkedRating(p).o, undefined);
+  assert.equal(checkedRating(p).n, 2);
+  p.w.close();
 });
 
 test('a page message asking for a questionnaire first is reported with its link', () => {
@@ -79,29 +208,29 @@ test('a page message asking for a questionnaire first is reported with its link'
 test('the background read covers the sections and the counted list, never the site root, and runs once at a time', async () => {
   const routes = {
     '/ssc/': shell('<p>Е-услуги</p>', ''),
-    '/student/rating/': shell(rows(['+', '+']))
+    ...routesFor('done')
   };
   const p = page(shell('<p>Бакалавр</p>'), 'https://univer.kaznu.kz/student/bachelor/', { routes });
   const first = scan(p, true);
   assert.equal(first.fetching, true);
   assert.equal(scan(p, true).fetching, false, 'a second request waits for the running one');
   await settle();
-  assert.deepEqual(p.requests, ['/ssc/', '/student/rating/']);
-  const messages = p.sent.map(value => { assert.ok(value.startsWith('univer-notices:')); return JSON.parse(value.slice('univer-notices:'.length)); });
-  assert.deepEqual(messages.map(m => [m.kind, m.page, m.g]), [['section', '/ssc/', 'n1'], ['section', '/student/rating/', 'n1'], ['done', '/student/bachelor/', 'n1']]);
-  assert.equal(rating(messages[0]).n, 0, 'the other section lists the link without a count');
-  assert.equal(rating(messages[1]).o, 0, 'the list read finds both questionnaires answered');
-  assert.deepEqual([messages[2].read, messages[2].failed], [2, 0]);
+  assert.deepEqual(p.requests, ['/student/rating/', '/student/rating/208', '/student/rating/207', '/ssc/']);
+  const results = messages(p);
+  assert.deepEqual(results.map(m => [m.kind, m.page, m.g]), [['section', '/student/bachelor/', 'n1'], ['section', '/ssc/', 'n1'], ['done', '/student/bachelor/', 'n1']]);
+  assert.equal(rating(results[1]).n, 0, 'the other section lists the link without a count');
+  assert.equal(checkedRating(p).o, 0, 'the detail reads find both questionnaires answered');
+  assert.deepEqual([results[2].read, results[2].failed], [4, 0]);
 });
 
 test('a page that fails to load is counted in the last message, and the other pages are still read', async () => {
-  const p = page(shell('<p>Бакалавр</p>'), 'https://univer.kaznu.kz/student/bachelor/', { routes: { '/student/rating/': shell(rows(['+', ''])) } });
+  const p = page(shell('<p>Бакалавр</p>'), 'https://univer.kaznu.kz/student/bachelor/', { routes: routesFor('') });
   scan(p, true);
   await settle();
   const messages = p.sent.map(value => JSON.parse(value.slice('univer-notices:'.length)));
-  assert.equal(rating(messages.find(m => m.page === '/student/rating/')).o, 1);
+  assert.equal(checkedRating(p).o, 1);
   const done = messages[messages.length - 1];
-  assert.deepEqual([done.kind, done.read, done.failed], ['done', 1, 1], '/ssc/ answered 404');
+  assert.deepEqual([done.kind, done.read, done.failed], ['done', 3, 1], '/ssc/ answered 404');
 });
 
 test('the reading layout keeps the menu count and the section tabs readable', () => {

@@ -13,7 +13,7 @@ namespace Univer.Desktop.UI
     internal sealed partial class MainForm
     {
         // New grades: the settings row in each language, Save keeps the choice and turning it off removes the kept reading;
-        // the first reading and another set of courses are silent, a changed score comes as one balloon that opens the
+        // the first reading and a removed course are silent, a changed score comes as one balloon that opens the
         // attestation page, a failed reading or a reading from an ended session changes nothing. Fixture pages instead of
         // the network, an isolated hidden tray icon and a synthetic login mark.
         private async Task GradesQaAsync(string qa, List<string> results)
@@ -39,7 +39,7 @@ namespace Univer.Desktop.UI
                 }
             }
             var file = Path.Combine(storage.Root, GradeFile.Name);
-            var previousTray = trayIcon; var previousOpens = balloonOpens; var previousSheet = gradeSheet;
+            var previousTray = trayIcon; var previousOpens = balloonOpens; var previousWatch = gradeWatch;
             var page = AttestationFixture(false);
             string answer = page; var reads = 0;
             var markBefore = await KeepMarkForQaAsync();
@@ -67,33 +67,34 @@ namespace Univer.Desktop.UI
                     await ReadGradesAsync();
                     Check(gradeTitleShown == null, "the same scores again say nothing", results);
                     // Психология: РК2 0 → 71, the total 18 → 38.
-                    answer = page.Replace("<td>60</td><td>0</td><td>0</td><td>18</td>", "<td>60</td><td>71</td><td>0</td><td>38</td>");
+                    var updated = page.Replace("<td>60</td><td>0</td><td>0</td><td>18</td>", "<td>60</td><td>71</td><td>0</td><td>38</td>");
+                    answer = updated;
                     await ReadGradesAsync();
                     QaTrace("grades-balloon " + gradeTitleShown + " | " + gradeBodyShown);
                     Check(gradeTitleShown == Strings.Get("gradesNew", prefs.Language) && gradeBodyShown == "Психология: РК2 71 · Сумма 38" && balloonOpens == "grades",
                         "a changed score comes as one balloon naming the course and its new scores, and its click opens the attestation page", results);
                     // A failed reading (a sign-in page, an error): nothing changes.
-                    var before = File.GetLastWriteTimeUtc(file); var sheetBefore = gradeSheet; gradeTitleShown = null;
+                    var before = File.GetLastWriteTimeUtc(file); var sheetBefore = gradeWatch.Baseline; gradeTitleShown = null;
                     answer = null; await ReadGradesAsync();
-                    Check(gradeSheet == sheetBefore && File.GetLastWriteTimeUtc(file) == before && gradeTitleShown == null, "a failed reading leaves the baseline as it was and says nothing", results);
+                    Check(gradeWatch.Baseline == sheetBefore && File.GetLastWriteTimeUtc(file) == before && gradeTitleShown == null, "a failed reading leaves the baseline as it was and says nothing", results);
                     // The session ends while the page answers: the reading is dropped. The epoch goes back at once, since the
                     // browser's own callbacks are bound to it and later steps need them.
                     answer = page; var epochWas = sessionEpoch;
                     gradeReadForQa = (url, token) => { reads++; sessionEpoch++; return Task.FromResult(answer); };
                     try { await ReadGradesAsync(); } finally { sessionEpoch = epochWas; }
-                    Check(gradeSheet == sheetBefore && File.GetLastWriteTimeUtc(file) == before && gradeTitleShown == null, "a reading from a session that ended meanwhile is dropped", results);
+                    Check(gradeWatch.Baseline == sheetBefore && File.GetLastWriteTimeUtc(file) == before && gradeTitleShown == null, "a reading from a session that ended meanwhile is dropped", results);
                     gradeReadForQa = (url, token) => { reads++; return Task.FromResult(answer); };
-                    // Another set of courses (a new semester, another language of the site): a new quiet baseline.
-                    answer = page.Replace("<tr><td>Физическая культура</td><td>2</td><td>70</td><td>64</td><td>65</td><td>66</td><td>1.67</td><td>C-</td><td>удовл.</td></tr>", "");
+                    // Removing a course with all remaining scores intact is quiet.
+                    answer = updated.Replace("<tr><td>Физическая культура</td><td>2</td><td>70</td><td>64</td><td>65</td><td>66</td><td>1.67</td><td>C-</td><td>удовл.</td></tr>", "");
                     await ReadGradesAsync();
-                    Check(gradeTitleShown == null && gradeSheet != null && gradeSheet.Rows.Count == 4, "another set of courses becomes the new baseline without a balloon", results);
+                    Check(gradeTitleShown == null && gradeWatch.Baseline?.Rows.Count == 4, "removing a course alone updates the baseline without a balloon", results);
                     // The page shown belongs to another account (the student who signed in by hand after the site's own logout): no
                     // request is made and nothing is kept or announced; the saved login's own page brings the check back.
                     await showMark(PageAccount.Mark("qa-other"));
-                    var sheetKept = gradeSheet; var countOther = reads; gradeTitleShown = null; answer = page.Replace("<td>60</td><td>0</td><td>0</td><td>18</td>", "<td>60</td><td>71</td><td>0</td><td>38</td>");
+                    var sheetKept = gradeWatch.Baseline; var countOther = reads; gradeTitleShown = null; answer = updated;
                     gradesDueAt = scheduleClock.ElapsedMilliseconds + 120 * 60000L;
                     await ReadGradesAsync();
-                    Check(reads == countOther && gradeSheet == sheetKept && gradeTitleShown == null, "a page of another account than the saved login gets no grade check and nothing is announced", results);
+                    Check(reads == countOther && gradeWatch.Baseline == sheetKept && gradeTitleShown == null, "a page of another account than the saved login gets no grade check and nothing is announced", results);
                     Check(gradesDueAt - scheduleClock.ElapsedMilliseconds <= GradeRetryMs, "a page not allowed yet is asked again in a minute, not after the whole interval", results);
                     await showMark(PageAccount.Mark("qa-grades")); answer = page;
                     // Behind a PIN the balloon names nothing.
@@ -106,7 +107,7 @@ namespace Univer.Desktop.UI
                     // Turned off in Settings: the kept reading goes, and nothing more is read.
                     Check(await ApplySettingsAsync(SettingsAction.Save, null, prefs.Language, prefs.Readable, grades: false, gradeInterval: 60) && !prefs.Grades && prefs.GradeInterval == 60 &&
                         !storage.LoadPreferences().Grades && storage.LoadPreferences().GradeInterval == 60, "Save keeps new grades off and the interval chosen", results);
-                    var removed = await UntilForQa(() => !File.Exists(file) && gradeSheet == null, 3000);
+                    var removed = await UntilForQa(() => !File.Exists(file) && gradeWatch.Baseline == null, 3000);
                     count = reads; GradeContent(); await Task.Delay(50);
                     Check(removed && reads == count, "turned off, the kept reading is removed and nothing is read", results);
                     Check(await ApplySettingsAsync(SettingsAction.Save, null, prefs.Language, prefs.Readable, grades: true, gradeInterval: GradeNotice.DefaultInterval) && prefs.Grades && prefs.GradeInterval == 30,
@@ -115,11 +116,11 @@ namespace Univer.Desktop.UI
                     // The session's end takes the reading with it.
                     await ReadGradesAsync(); var present = File.Exists(file);
                     await ClearGradesAsync();
-                    Check(present && !File.Exists(file) && gradeSheet == null, "clearing the session's reading removes the file", results);
+                    Check(present && !File.Exists(file) && gradeWatch.Baseline == null, "clearing the session's reading removes the file", results);
                 }
                 finally
                 {
-                    trayIcon = previousTray; balloonOpens = previousOpens; gradeSheet = previousSheet;
+                    trayIcon = previousTray; balloonOpens = previousOpens; gradeWatch = previousWatch;
                     gradeAccountForQa = null; gateLoginForQa = null; gradeReadForQa = null;
                     await RestoreMarkForQaAsync(markBefore); gradeTitleShown = gradeBodyShown = null; gradesDueAt = long.MinValue;
                     prefs.Grades = true; prefs.GradeInterval = GradeNotice.DefaultInterval;

@@ -458,3 +458,72 @@ test('UMKD: new-file marks belong to the account and course page; without a mark
   const empty = courseVisit([]); apply(empty); const none = empty.w.localStorage.getItem(SEEN); empty.close();
   const added = courseVisit([9001], none); apply(added); assert.deepEqual(fresh(added), ['9001']); added.close();
 });
+
+const umkdSyllabus = body => shell(panel(row('<td class="ct"><a href="/student/umkd/0/2026/1">УМКД</a> \ <a href="/student/umkd/321/2026/1">Социология</a></td>', 'top') +
+  row('<td class="tt"><div class="inner"><div id="syllabus"><h4>Силлабус</h4>' + body + '</div>' +
+    '<table class="inner"><tr><th></th><th>Название файла</th></tr><tr><th colspan="7" id="lectures">Конспекты лекций</th></tr>' + fileRow(9102, 'Лекция 1.pdf', '') + '</table></div></td>')));
+
+test('UMKD: a «Силлабус» block the site left «Не заполнено» is not shown; a block with a link always is', () => {
+  for (const words of ['Не заполнено', ' (Не заполнено) ', 'Толтырылмаған', 'Not filled']) {
+    const p = page(umkdSyllabus(words), 'https://univer.kaznu.kz/student/umkd/321/2026/1');
+    apply(p); const box = p.d.getElementById('syllabus');
+    assert.ok(box.hasAttribute('data-univer-empty-section'), words + ' hides the block');
+    assert.equal(box.querySelector('h4').hasAttribute('data-univer-count'), false, 'no «Силлабус 1» fold');
+    apply(p, false); assert.equal(box.hasAttribute('data-univer-empty-section'), false, 'Original shows it again'); p.close();
+  }
+  const p = page(umkdSyllabus('Не заполнено <a href="/student/interactive/syllabus/print/22/2">Социология</a>'), 'https://univer.kaznu.kz/student/umkd/321/2026/1');
+  apply(p); assert.equal(p.d.getElementById('syllabus').hasAttribute('data-univer-empty-section'), false, 'a real link keeps the block'); p.close();
+});
+
+test('UMKD: an own syllabus found while a link has focus moves first once the focus leaves the block', async () => {
+  const body = '<a id="s1" href="/student/interactive/syllabus/print/22/1">Социология (эк.)</a><a id="s2" href="/student/interactive/syllabus/print/22/2">Социология</a>';
+  const p = page(umkdSyllabus(body), 'https://univer.kaznu.kz/student/umkd/321/2026/1');
+  let answer; p.w.__univerSyllabusV1 = { apply() {}, release() {}, state: () => ({}), own: () => new Promise(r => { answer = r; }) };
+  apply(p);
+  const box = p.d.getElementById('syllabus'), own = p.d.getElementById('s2'), order = () => Array.from(box.querySelectorAll('a'), a => a.id);
+  p.d.getElementById('s1').focus(); assert.equal(p.d.activeElement.id, 's1');
+  answer('https://univer.kaznu.kz/student/interactive/syllabus/print/22/2'); await new Promise(r => setTimeout(r, 20));
+  assert.ok(own.querySelector('.univer-app-own-tag'), 'tagged at once');
+  assert.deepEqual(order(), ['s1', 's2'], 'no jump while the list is in use');
+  apply(p); await new Promise(r => setTimeout(r, 20));
+  assert.deepEqual(order(), ['s1', 's2'], 'a later pass still waits while a link has focus');
+  p.d.getElementById('s1').blur(); await new Promise(r => setTimeout(r, 20));
+  assert.equal(box.querySelector('h4').nextElementSibling, own, 'leaving the block moves it first');
+  apply(p, false); assert.deepEqual(order(), ['s1', 's2'], 'Original puts it back');
+  p.close();
+});
+
+test('UMKD: an own syllabus found while the block is in use moves first when the block is folded', async () => {
+  const body = '<a id="s1" href="/student/interactive/syllabus/print/22/1">Социология (эк.)</a><a id="s2" href="/student/interactive/syllabus/print/22/2">Социология</a>';
+  const p = page(umkdSyllabus(body), 'https://univer.kaznu.kz/student/umkd/321/2026/1');
+  let answer; p.w.__univerSyllabusV1 = { apply() {}, release() {}, state: () => ({}), own: () => new Promise(r => { answer = r; }) };
+  apply(p);
+  const box = p.d.getElementById('syllabus'), head = box.querySelector('h4');
+  head.focus();
+  answer('https://univer.kaznu.kz/student/interactive/syllabus/print/22/2'); await new Promise(r => setTimeout(r, 20));
+  assert.notEqual(head.nextElementSibling.id, 's2', 'waits while the heading has focus');
+  head.dispatchEvent(new p.w.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+  assert.equal(head.getAttribute('aria-expanded'), 'false');
+  assert.equal(head.nextElementSibling.id, 's2', 'folding moves it first');
+  p.close();
+});
+
+test('UMKD: the student\'s own syllabus gets a «Ваша специальность» tag and moves first; Original puts it back', async () => {
+  const body = '<a id="s1" href="/student/interactive/syllabus/print/22/1">Социология (эк.)</a><a id="s2" href="/student/interactive/syllabus/print/22/2">Социология</a>';
+  const p = page(umkdSyllabus(body), 'https://univer.kaznu.kz/student/umkd/321/2026/1');
+  const asked = []; p.w.__univerSyllabusV1 = { apply() {}, release() {}, state: () => ({}), own: async list => { asked.push([...list]); return 'https://univer.kaznu.kz/student/interactive/syllabus/print/22/2'; } };
+  apply(p); await new Promise(r => setTimeout(r, 20));
+  const box = p.d.getElementById('syllabus'), own = p.d.getElementById('s2');
+  assert.deepEqual(asked, [['https://univer.kaznu.kz/student/interactive/syllabus/print/22/1', 'https://univer.kaznu.kz/student/interactive/syllabus/print/22/2']]);
+  assert.equal(box.querySelector('h4').nextElementSibling, own, 'it stands first');
+  assert.ok(own.classList.contains('univer-app-syllabus-own'));
+  assert.equal(own.querySelector('.univer-app-own-tag').textContent, 'Ваша специальность', 'the tag is part of the link\'s name');
+  assert.ok(!p.d.getElementById('s1').querySelector('.univer-app-own-tag'));
+  apply(p); await new Promise(r => setTimeout(r, 20)); assert.equal(asked.length, 1, 'asked once');
+  apply(p, true, 'en'); await new Promise(r => setTimeout(r, 20)); assert.equal(own.querySelector('.univer-app-own-tag').textContent, 'Your programme');
+  apply(p, true, 'kz'); await new Promise(r => setTimeout(r, 20)); assert.equal(own.querySelector('.univer-app-own-tag').textContent, 'Сіздің мамандығыңыз');
+  apply(p, false);
+  assert.deepEqual(Array.from(box.querySelectorAll('a'), a => a.id), ['s1', 's2'], 'the site\'s order is back');
+  assert.equal(own.textContent, 'Социология'); assert.equal(own.hasAttribute('class'), false);
+  p.close();
+});

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
@@ -102,16 +103,228 @@ namespace Univer.Desktop.Tests
         }
 
         [Fact]
-        public void TheFirstReadingAnotherCourseListOrOtherHeadingsSayNothing()
+        public void TheFirstReadingAnotherSemesterLanguageOrAccountSayNothing()
         {
             var before = Sheet(Page());
             Assert.Empty(GradeSheet.Changes(null, before));
-            var fewer = Sheet(Page(Row("Алгоритмы", "5", "98", "100", "92", "95", "4", "A", "отл.")));
-            Assert.Empty(GradeSheet.Changes(before, fewer));
+            var differentSemester = Sheet(Page(Row("Calculus", "5", "98", "100", "92", "95", "4", "A", "отл.")));
+            Assert.Empty(GradeSheet.Changes(before, differentSemester));
             var english = Sheet(Page(head: "<tr><th>Discipline</th><th>Cred.</th><th>RK1</th><th>RK2</th><th>PA*</th><th>Sum</th><th>GPA</th><th>Letter</th><th>Meaning</th></tr>"));
             Assert.Empty(GradeSheet.Changes(before, english));
             var other = GradeSheet.Parse(Page(), "fedcba9876543210", At);
             Assert.Empty(GradeSheet.Changes(before, other));
+        }
+
+        private const string SimpleHead = "<tr><th>Discipline</th><th>Credits</th><th>MT1</th><th>Exam</th><th>Total</th></tr>";
+
+        [Fact]
+        public void ANewSemesterWithOneSharedCourseNameIsQuiet()
+        {
+            var before = Sheet(Page(Row("Physics", "5", "90", "", "32") + Row("History", "5", "82", "", "28") +
+                Row("Literature", "5", "70", "", "25"), SimpleHead));
+            var now = Sheet(Page(Row("Physics", "5", "0", "0", "0") + Row("Calculus", "5", "85", "0", "29") +
+                Row("Geography", "5", "0", "0", "0"), SimpleHead));
+            Assert.Empty(GradeSheet.Changes(before, now));
+        }
+
+        [Theory]
+        [InlineData("0")]
+        [InlineData("0,00")]
+        [InlineData("0.0")]
+        public void PlaceholderZerosOnNewCoursesAreQuiet(string zero)
+        {
+            var physics = Row("Physics", "5", "90", "", "32");
+            var before = Sheet(Page(physics, SimpleHead));
+            var now = Sheet(Page(physics + Row("History", "5", zero, zero, zero) +
+                Row("Art", "5", zero, "85", zero), SimpleHead));
+            var change = Assert.Single(GradeSheet.Changes(before, now));
+            Assert.Equal("Art", change.Course);
+            Assert.Equal(new[] { "Exam 85" }, change.Cells);
+        }
+
+        [Fact]
+        public void ChangedScoresSurviveCoursesAndColumnsMovingAppearingOrDisappearing()
+        {
+            var before = Sheet(Page(Row("Math", "5", "70", "", "25") + Row("History", "5", "82", "", "28") +
+                Row("Physics", "5", "90", "", "32"), SimpleHead));
+            var revisedHead = "<tr><th>Discipline</th><th>Total</th><th>MT2</th><th>Credits</th><th>MT1</th></tr>";
+            var now = Sheet(Page(Row("Physics", "32", "", "5", "90") + Row("Art", "0", "80", "4", "") +
+                Row("Math", "25", "75", "5", "72"), revisedHead));
+            var changes = GradeSheet.Changes(before, now);
+            Assert.Equal(new[] { "Art", "Math" }, changes.Select(c => c.Course));
+            Assert.Equal(new[] { "MT2 80" }, changes[0].Cells);
+            Assert.Equal(new[] { "MT2 75", "MT1 72" }, changes[1].Cells);
+        }
+
+        [Fact]
+        public void AmbiguousRepeatedNamesDoNotHideChangesInUnambiguousCourses()
+        {
+            var before = Sheet(Page(Row("Math", "5", "60", "", "") + Row("Math", "3", "70", "", "") +
+                Row("History", "5", "80", "", ""), SimpleHead));
+            var now = Sheet(Page(Row("Math", "3", "70", "", "") + Row("History", "5", "81", "", "") +
+                Row("Math", "5", "60", "", ""), SimpleHead));
+            var change = Assert.Single(GradeSheet.Changes(before, now));
+            Assert.Equal("History", change.Course);
+            Assert.Equal(new[] { "MT1 81" }, change.Cells);
+        }
+
+        [Fact]
+        public void ARepeatedScoreHeadingDoesNotHideOtherColumnsOrInventChanges()
+        {
+            var head = SimpleHead.Replace("<th>Total", "<th>MT1</th><th>Total");
+            var before = Sheet(Page(Row("Math", "5", "70", "", "72", "25"), head));
+            var now = Sheet(Page(Row("Math", "5", "72", "80", "70", "25"), head));
+            Assert.Equal(new[] { "Exam 80" }, Assert.Single(GradeSheet.Changes(before, now)).Cells);
+        }
+
+        [Theory]
+        [InlineData("Exam", "Total")]
+        [InlineData("ПА*", "Сумма")]
+        [InlineData("Емт*", "Жалпы балл")]
+        public void InitialFinalZerosAreQuietButControlZerosAndCorrectionsCount(string exam, string total)
+        {
+            var head = SimpleHead.Replace(">Exam<", ">" + exam + "<").Replace(">Total<", ">" + total + "<");
+            var before = Sheet(Page(Row("Math", "5", "", "", "") + Row("History", "5", "80", "70", "60"), head));
+            var now = Sheet(Page(Row("Math", "5", "0", "0,00", "0.0") + Row("History", "5", "80", "0", "60"), head));
+            var changes = GradeSheet.Changes(before, now);
+            Assert.Equal(new[] { "MT1 0" }, changes[0].Cells);
+            Assert.Equal(new[] { exam.TrimEnd('*') + " 0" }, changes[1].Cells);
+        }
+
+        [Theory]
+        [InlineData("<tr><td>Math</td><td colspan='2'>5</td><td>70</td><td>65</td></tr>")]
+        [InlineData("<tr><td>Math</td><td>5</td><td>70</td><td>65</td></tr>")]
+        [InlineData("<tr><th>GPA(2026-2027)- 0</th><th colspan='4'>Credits - 0</th></tr>")]
+        public void ARowThatIsNotACourseDoesNotStopTheReading(string irregular)
+        {
+            // The live page ends with a total row made of heading cells: it must never turn the reading off.
+            var history = Row("History", "5", "80", "", "");
+            Assert.Equal("History", Assert.Single(Sheet(Page(history + irregular, SimpleHead)).Rows).Course);
+        }
+
+        [Fact]
+        public void ATermThatKeepsEveryCourseNameButResetsTheScoresIsQuiet()
+        {
+            var before = Sheet(Page(Row("Language", "5", "90", "80", "85") + Row("Sport", "2", "70", "", "28"), SimpleHead));
+            var now = Sheet(Page(Row("Language", "5", "0", "0", "0") + Row("Sport", "2", "0", "0", "0"), SimpleHead));
+            Assert.Empty(GradeSheet.Changes(before, now));
+        }
+
+        [Fact]
+        public void AFailedReadingRetriesInOneThenFiveMinutesBeforeReturningToTheInterval()
+        {
+            var watch = new GradeWatch();
+            Assert.Equal(60000L, watch.NextDelay(15, false));
+            Assert.Equal(300000L, watch.NextDelay(15, false));
+            for (var i = 0; i < 5; i++) Assert.Equal(900000L, watch.NextDelay(15, false));
+            Assert.Equal(900000L, watch.NextDelay(15, true));
+            Assert.Equal(60000L, watch.NextDelay(15, false));
+        }
+
+        [Fact]
+        public async Task ALoginMarkRecoveredAfterStartupLoadsItsKeptReadingBeforeComparing()
+        {
+            var before = Sheet(Page(Row("Math", "5", "70", "", "25"), SimpleHead));
+            var after = Sheet(Page(Row("Math", "5", "80", "", "25"), SimpleHead));
+            var watch = new GradeWatch();
+            var raw = before.Serialize();
+            var requested = new List<string>();
+            Func<string, GradeSheet> load = account => { requested.Add(account); return GradeSheet.Load(raw, account); };
+            watch.LoadBaseline("", load);
+            watch.LoadBaseline(Account, load);
+            var announced = new List<GradeChange>();
+            Assert.True(await watch.RecordAsync(after, changes => { announced.AddRange(changes); return true; }, sheet => Task.CompletedTask));
+            Assert.Equal(new[] { "MT1 80" }, Assert.Single(announced).Cells);
+            watch.LoadBaseline(Account, load);
+            Assert.Equal(Account, Assert.Single(requested));
+            Assert.Same(after, watch.Baseline);
+        }
+
+        [Fact]
+        public async Task LoadingADifferentAccountDiscardsThePreviousAccountsPendingReading()
+        {
+            const string otherAccount = "fedcba9876543210";
+            var before = Sheet(Page(Row("Math", "5", "70", "", "25"), SimpleHead));
+            var after = Sheet(Page(Row("Math", "5", "80", "", "25"), SimpleHead));
+            var other = GradeSheet.Parse(Page(Row("Math", "5", "95", "", ""), SimpleHead), otherAccount, At);
+            var watch = new GradeWatch();
+            watch.LoadBaseline(Account, account => before);
+            Assert.False(await watch.RecordAsync(after, changes => false, sheet => Task.CompletedTask));
+            watch.LoadBaseline(otherAccount, account => other);
+            Assert.Same(other, watch.Baseline);
+            Assert.False(watch.HasPending);
+        }
+
+        [Fact]
+        public async Task WithoutAnAvailableBalloonTheReadingWaitsToBeAnnouncedAndSaved()
+        {
+            var before = Sheet(Page(Row("Math", "5", "70", "", "25"), SimpleHead));
+            var after = Sheet(Page(Row("Math", "5", "80", "", "25"), SimpleHead));
+            var watch = new GradeWatch();
+            watch.LoadBaseline(Account, account => before);
+            var saved = new List<GradeSheet>();
+            Func<GradeSheet, Task> save = sheet => { saved.Add(sheet); return Task.CompletedTask; };
+
+            Assert.False(await watch.RecordAsync(after, changes => false, save));
+            Assert.Same(before, watch.Baseline);
+            Assert.Empty(saved);
+
+            Assert.True(await watch.RecordAsync(null, changes =>
+            {
+                Assert.Equal(new[] { "MT1 80" }, Assert.Single(changes).Cells);
+                return true;
+            }, save));
+            Assert.Same(after, Assert.Single(saved));
+            Assert.Same(after, watch.Baseline);
+        }
+
+        [Fact]
+        public async Task ASaveFailureRetriesTheSameReadingWithoutAnnouncingTwice()
+        {
+            var before = Sheet(Page(Row("Math", "5", "70", "", "25"), SimpleHead));
+            var after = Sheet(Page(Row("Math", "5", "80", "", "25"), SimpleHead));
+            var watch = new GradeWatch();
+            watch.LoadBaseline(Account, account => before);
+            var announcements = 0;
+            Func<List<GradeChange>, bool> announce = changes => { announcements++; return true; };
+
+            Assert.False(await watch.RecordAsync(after, announce, sheet => Task.FromException(new IOException())));
+            Assert.Equal(1, announcements);
+            Assert.Same(after, watch.Baseline);
+
+            Assert.True(await watch.RecordAsync(null, announce, sheet =>
+            {
+                Assert.Same(after, sheet);
+                return Task.CompletedTask;
+            }));
+            Assert.Equal(1, announcements);
+        }
+
+        [Fact]
+        public async Task MoreGradesCanBeAnnouncedWhileSavingIsUnavailable()
+        {
+            var before = Sheet(Page(Row("Math", "5", "70", "", "25"), SimpleHead));
+            var first = Sheet(Page(Row("Math", "5", "80", "", "25"), SimpleHead));
+            var second = Sheet(Page(Row("Math", "5", "90", "", "25"), SimpleHead));
+            var watch = new GradeWatch();
+            watch.LoadBaseline(Account, account => before);
+            var announced = new List<string>();
+            Func<List<GradeChange>, bool> announce = changes =>
+            {
+                announced.Add(Assert.Single(Assert.Single(changes).Cells));
+                return true;
+            };
+            Func<GradeSheet, Task> fail = sheet => Task.FromException(new IOException());
+
+            Assert.False(await watch.RecordAsync(first, announce, fail));
+            Assert.False(await watch.RecordAsync(second, announce, fail));
+            Assert.Equal(new[] { "MT1 80", "MT1 90" }, announced);
+            Assert.True(await watch.RecordAsync(null, announce, sheet =>
+            {
+                Assert.Same(second, sheet);
+                return Task.CompletedTask;
+            }));
+            Assert.Equal(2, announced.Count);
         }
 
         [Fact]

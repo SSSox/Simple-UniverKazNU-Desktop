@@ -15,7 +15,7 @@
     var WORDS = {
         ru: { dialog: 'Сводка успеваемости', title: 'Успеваемость', asOf: 'Данные на {0}', locale: 'ru-RU',
             how: 'РК — рубежный контроль, за каждый можно получить до 100 баллов. Цвет показывает уровень, полоса — сколько баллов набрано, отметки на ней — 50, 70 и 90.',
-            goal: 'Цель: {0} — от {1} баллов. У каждой оценки показано, сколько баллов осталось до цели.', absences: 'Пропуски',
+            goal: 'Цель: {0} — от {1} баллов. У каждой оценки показано, сколько баллов осталось до цели.', absences: 'Пропуски', unexcused: 'без уважительной причины', excused: 'по уважительной причине', term: 'Пропуски за семестр',
             print: 'Печать', pdf: 'Сохранить PDF', png: 'Сохранить PNG', copy: 'Копировать картинку', close: 'Закрыть', outOf: 'из', none: 'Оценки пока не выставлены',
             working: 'Готовим файл…', saved: 'Сохранено в «Загрузки»: {0}', copied: 'Картинка скопирована — вставьте её в сообщение (Ctrl+V)', failed: 'Не удалось сохранить. Попробуйте ещё раз.', copyFailed: 'Не удалось скопировать картинку. Попробуйте ещё раз.',
             reveal: 'Показать в папке', source: 'Источник: журнал посещений и успеваемости, univer.kaznu.kz',
@@ -23,7 +23,7 @@
             pictures: function (n) { var t = n % 10, h = n % 100; return n + ' ' + (t === 1 && h !== 11 ? 'картинка' : t >= 2 && t <= 4 && (h < 12 || h > 14) ? 'картинки' : 'картинок'); } },
         kz: { dialog: 'Үлгерім қорытындысы', title: 'Үлгерім', asOf: '{0} күнгі деректер', locale: 'kk-KZ',
             how: 'РК — аралық бақылау, әрқайсысы үшін 100 балға дейін алуға болады. Түс деңгейді көрсетеді, жолақ — жиналған балл, ондағы белгілер — 50, 70 және 90.',
-            goal: 'Мақсат: {0} — {1} балдан бастап. Әр бағаның жанында мақсатқа дейін қанша балл қалғаны көрсетілген.', absences: 'Қатыспаған сабақтар',
+            goal: 'Мақсат: {0} — {1} балдан бастап. Әр бағаның жанында мақсатқа дейін қанша балл қалғаны көрсетілген.', absences: 'Қатыспаған сабақтар', unexcused: 'дәлелсіз себеппен', excused: 'дәлелді себеппен', term: 'Семестрдегі қатыспаған сабақтар',
             print: 'Басып шығару', pdf: 'PDF сақтау', png: 'PNG сақтау', copy: 'Суретті көшіру', close: 'Жабу', outOf: '/', none: 'Бағалар әлі қойылмаған',
             working: 'Файл дайындалуда…', saved: '«Жүктеулер» бумасына сақталды: {0}', copied: 'Сурет көшірілді — оны хабарламаға қойыңыз (Ctrl+V)', failed: 'Сақтау мүмкін болмады. Қайталап көріңіз.', copyFailed: 'Суретті көшіру мүмкін болмады. Қайталап көріңіз.',
             reveal: 'Қалтада көрсету', source: 'Дереккөз: сабаққа қатысу және үлгерім журналы, univer.kaznu.kz',
@@ -31,7 +31,7 @@
             pictures: function (n) { return n + ' сурет'; } },
         en: { dialog: 'Grade summary', title: 'Grades', asOf: 'As of {0}', locale: 'en-GB',
             how: 'RK is a midterm checkpoint, each worth up to 100 points. The colour shows the level, the bar how many points are earned, and its marks are 50, 70 and 90.',
-            goal: 'Goal: {0}, from {1} points. Each grade shows how many points are left to the goal.', absences: 'Absences',
+            goal: 'Goal: {0}, from {1} points. Each grade shows how many points are left to the goal.', absences: 'Absences', unexcused: 'without a valid reason', excused: 'with a valid reason', term: 'Absences this term',
             print: 'Print', pdf: 'Save PDF', png: 'Save PNG', copy: 'Copy picture', close: 'Close', outOf: 'of', none: 'No grades yet',
             working: 'Preparing the file…', saved: 'Saved to Downloads: {0}', copied: 'Picture copied — paste it into a message (Ctrl+V)', failed: 'Could not save. Try again.', copyFailed: 'Could not copy the picture. Try again.',
             reveal: 'Show in folder', source: 'Source: attendance and grades journal, univer.kaznu.kz',
@@ -103,7 +103,8 @@
         // What is left to the mark is what a parent looks for first: a soft plate in the band's own tint.
         '.note .left{display:inline-block;margin-top:3px;padding:2px 8px;border-radius:6px;background:var(--soft,#eef2f6);color:var(--ink,#16283b);font-weight:600;white-space:nowrap}' +
         '.aim{margin:14px 0 0;font-size:13.5px}.aim b{font-weight:600}.row+.row{margin-top:6px}' +
-        '.missed{margin:6px 0 0;color:#3d4f61;font-size:13px}.missed b{margin-left:6px;color:#16283b;font-weight:600}' +
+        '.missed{display:flex;flex-wrap:wrap;gap:2px 18px;margin:6px 0 0;color:#3d4f61;font-size:13px}.missed b{margin-left:6px;color:#16283b;font-weight:600}' +
+        '.missed>span:first-child{color:#16283b;font-weight:500}.term{margin:0 0 4px;padding:10px 16px}.how+.term{margin-top:4px}.term+.course{padding-top:18px;border-top:0}' +
         '.none{margin:0;color:#5b6b7c}' +
         '.source{margin:18px 0 0;padding-top:12px;border-top:1px solid #e3e8ee;color:#5b6b7c;font-size:12px}' +
         // The picture: the sheet alone, flat on the page, at its own width.
@@ -227,16 +228,25 @@
     // Courses go on a page until it grows past PAGE; the course that crosses it starts the next page (a course is never cut,
     // and one taller than a page has a page of its own). The sheet has its own width and no zoom yet, so the cut is the same
     // in any window and at any zoom. All courses are inserted once, measured in one batch, then partitioned into pages.
+    // Absences as the journal shows them: «н» without a valid reason, and those with one.
+    function missedLine(w, label, missed, excused) {
+        var line = element('p', 'missed'); line.appendChild(element('span', '', label));
+        [[w.unexcused, missed], [w.excused, excused]].forEach(function (part) { var item = element('span', '', part[0]); item.appendChild(element('b', '', String(part[1] || 0))); line.appendChild(item); });
+        return line;
+    }
     function render() {
         var w = words(); scroller.replaceChildren(); sheets = [];
         Object.keys(buttons).forEach(function (key) { if (key.indexOf('copy:') === 0) delete buttons[key]; });
         var when = made.toLocaleString(w.locale, { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' });
         var first = page(true, w, when);
+        // The term's absences over every course, under the legend.
+        var missed = courses.reduce(function (n, c) { return n + (c.absences || 0); }, 0), excused = courses.reduce(function (n, c) { return n + (c.excused || 0); }, 0);
+        if (missed > 0 || excused > 0) { var term = missedLine(w, w.term, missed, excused); term.classList.add('term'); first.insertBefore(term, first.lastChild); }
         var blocks = courses.map(function (course) {
             var block = element('section', 'course'); block.appendChild(element('h3', '', course.name));
             if (course.periods.length) course.periods.forEach(function (period) { block.appendChild(row(period)); });
             else block.appendChild(element('p', 'none', course.note || w.none));
-            if (course.absences > 0) { var missed = element('p', 'missed', w.absences); missed.appendChild(element('b', '', String(course.absences))); block.appendChild(missed); }
+            if (course.absences > 0 || course.excused > 0) block.appendChild(missedLine(w, w.absences, course.absences, course.excused));
             return block;
         });
         if (blocks.length) {

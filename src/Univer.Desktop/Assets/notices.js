@@ -1,5 +1,4 @@
-/* Read-only reader of the site's notification marks: a red count in brackets next to a menu link, and a page message
-   asking for a questionnaire first. The site keeps its count after answering; a list row with "+" counts as answered. */
+/* Reads the site's notification marks and corrects the questionnaire badge in the reading layout. */
 (function () {
     'use strict';
     if (location.origin !== 'https://univer.kaznu.kz' || window.__univerNoticesV1) return;
@@ -13,6 +12,9 @@
     var MESSAGE = '.message,.error,.warning,.alert,.attention,[style*="color"],font[color],p,li,div,span,td,b,strong';
     var SKIP = '#tools,#login_frm,#modal_auth_frm,#modal_agreement,#attentionSt,.news,.univer-app-news,.univer-app-menu,script,style,noscript,select,option,textarea';
     var MAX_LINKS = 120, MAX_SECTIONS = 4, MAX_LISTS = 3;
+    var SURVEYS = '/student/rating/', MAX_SURVEYS = 10, READ_TIMEOUT = 15000;
+    var ACCOUNT = 'univer.app.account.v1', SURVEY_COUNT = 'univer.desktop.survey-count.v1';
+    var badges = new Map(), presenting = false, surveyResult = null, lastCheck = null;
     var fetching = false;
 
     function clean(value) { return String(value || '').replace(/\s+/g, ' ').trim(); }
@@ -49,15 +51,81 @@
         var text = clean(a.textContent), next = a.nextElementSibling;
         return next && /^(B|SPAN|FONT|SUP|STRONG)$/.test(next.tagName) ? {text:clean(text + ' ' + next.textContent), node:next, link:a} : {text:text, node:a};
     }
+    function surveyBadge(a) {
+        var node = (a.closest('.univer-app-pin-row') || a).nextElementSibling;
+        if (!node || node.tagName !== 'B' || !marked(node)) return null;
+        var previous = badges.get(node);
+        if (previous) {
+            if (node.firstChild === previous.text && previous.text.data === previous.shown) return previous;
+            restore(previous);
+        }
+        var text = node.firstChild;
+        if (!text || text.nodeType !== 3 || text !== node.lastChild) return null;
+        var count = clean(text.data).match(COUNT);
+        return count ? {node:node, text:text, source:text.data, count:+count[1], hidden:node.getAttribute('hidden')} : null;
+    }
+    function menuBadges() {
+        return Array.from(document.querySelectorAll('#tools a[href*="/student/rating"]')).filter(function (a) {
+            return sitePath(a.getAttribute('href'), location.href) === SURVEYS;
+        }).map(surveyBadge).filter(Boolean);
+    }
+    function owner() { try { return localStorage.getItem(ACCOUNT) || ''; } catch (_) { return ''; } }
+    function cached(mark) {
+        if (!mark) return null;
+        try {
+            var value = JSON.parse(localStorage.getItem(SURVEY_COUNT));
+            if (value && value.owner === mark && Number.isInteger(value.count) && value.count > 0 && value.count <= 9999 &&
+                Number.isInteger(value.open) && value.open >= 0 && value.open <= MAX_SURVEYS) return value;
+        } catch (_) { }
+        return null;
+    }
+    function restore(badge) {
+        if (badge.text.data === badge.shown) badge.text.data = badge.source;
+        if (badge.hidden === null) badge.node.removeAttribute('hidden');
+        else badge.node.setAttribute('hidden', badge.hidden);
+        badges.delete(badge.node);
+    }
+    function present(enabled) {
+        presenting = enabled;
+        if (!enabled) { badges.forEach(restore); return; }
+        var current = menuBadges();
+        if (!current.length && !badges.size) return;
+        var mark = owner(), saved = cached(mark);
+        var live = new Set(current.map(function (badge) { return badge.node; }));
+        badges.forEach(function (badge, node) { if (!live.has(node)) restore(badge); });
+        current.forEach(function (badge) {
+            var result = surveyResult && surveyResult.owner === mark && surveyResult.count === badge.count ? surveyResult : saved;
+            var open = result && result.count === badge.count ? result.open : null;
+            if (open === null || open === badge.count || badge.count === 0) {
+                if (badges.has(badge.node)) restore(badge);
+                return;
+            }
+            badges.set(badge.node, badge);
+            badge.shown = open === 0 ? badge.source : badge.source.replace(/\d{1,4}(?=\s*[)\]]\s*$)/, String(open));
+            if (badge.text.data !== badge.shown) badge.text.data = badge.shown;
+            if (badge.node.hidden !== (open === 0 || badge.hidden !== null)) badge.node.hidden = open === 0 || badge.hidden !== null;
+        });
+    }
+    function remember(mark, count, result) {
+        if (owner() !== mark) return;
+        surveyResult = {owner:mark, count:count, open:result ? result.o : null};
+        try {
+            if (mark && result) localStorage.setItem(SURVEY_COUNT, JSON.stringify(surveyResult));
+            else if (cached(mark)?.count === count) localStorage.removeItem(SURVEY_COUNT);
+        } catch (_) { }
+        if (presenting) present(true);
+    }
     function links(doc, base) {
         var out = [];
         doc.querySelectorAll('#tools a[href],#l3 a[href],#l2 a[href],.univer-app-tabs a[href]').forEach(function (a) {
             if (out.length >= MAX_LINKS) return;
-            var path = sitePath(a.getAttribute('href'), base), entry = item(a), text = entry.text;
+            var path = sitePath(a.getAttribute('href'), base), badge = path === SURVEYS ? surveyBadge(a) : null;
+            var entry = badge ? {text:clean(a.textContent + ' ' + badge.source), node:badge.node} : item(a), text = entry.text;
             if (!path || !text || text.length > 200) return;
             var count = text.match(COUNT), title = clean(text.replace(COUNT, '')).slice(0, 100);
             if (count && !marked(entry.node) && !(entry.link && marked(entry.link))) count = null;
             var link = {u:path, t:count ? title || text.slice(0, 100) : text.slice(0, 100), n:count ? Math.min(+count[1], 9999) : 0};
+            if (path === SURVEYS && link.n > 0) link.c = 1;
             if (a.closest('#tools')) link.m = 1;
             out.push(link);
         });
@@ -115,9 +183,46 @@
         // A page without rows says nothing about the count.
         if (list.r > 0) link.o = list.o;
     }
+    function surveyRows(doc) {
+        var root = doc.getElementById('l4') || doc.body;
+        return Array.from(root.querySelectorAll('tr.link:not(#tools tr)'));
+    }
+    async function look(doc, page) {
+        var deadline = performance.now() + READ_TIMEOUT;
+        function withinDeadline(path) {
+            var remaining = deadline - performance.now();
+            return remaining > 0 ? page(path, remaining) : null;
+        }
+        if (!doc) {
+            var list = await withinDeadline(SURVEYS);
+            if (!list) return null;
+            doc = list.doc;
+        }
+        var rows = surveyRows(doc);
+        if (!rows.length || rows.length > MAX_SURVEYS || rows.some(function (row) {
+            return !/^\d{1,9}$/.test(row.id) || row.cells.length < 2 || !clean(row.cells[0].textContent);
+        })) return null;
+        var open = [], ids = new Set();
+        for (var i = 0; i < rows.length; i++) {
+            var row = rows[i];
+            if (ids.has(row.id)) return null;
+            ids.add(row.id);
+            var detail = await withinDeadline(SURVEYS + row.id);
+            if (!detail) return null;
+            var lines = surveyRows(detail.doc);
+            if (!lines.length || lines.some(function (line) { return line.cells.length < 3; })) return null;
+            if (lines.every(function (line) {
+                var cell = line.cells[2];
+                return line.classList.contains('done') || !!cell.querySelector('img[alt*="[+]"]') || DONE.test(clean(cell.textContent));
+            })) continue;
+            var dates = Array.from(row.cells).map(function (cell) { return clean(cell.textContent); }).join(' ').match(DATE);
+            open.push({t:clean(row.cells[0].textContent).slice(0, 100), e:dates ? dates[dates.length - 1] : ''});
+        }
+        return {o:open.length, d:open};
+    }
     function read(doc, base, page, kind, generation) {
         var result = {v:1, g:generation, kind:kind, page:page, links:links(doc, base), blocks:blocks(doc, base, page)};
-        result.links.forEach(function (link) { if (link.n > 0 && link.u === page) describe(link, doc); });
+        result.links.forEach(function (link) { if (link.n > 0 && !link.c && link.u === page) describe(link, doc); });
         // The whole main menu was read (not cut by the cap): a menu item it no longer lists is gone.
         result.menu = !!doc.getElementById('tools') && result.links.length < MAX_LINKS && result.links.some(function (link) { return link.m; });
         return result;
@@ -147,12 +252,14 @@
         if (bytes.byteLength > limit) throw new Error('Oversized response');
         return decoder.decode(bytes);
     }
-    async function load(path) {
-        var abort = new AbortController(), timer = setTimeout(function () { abort.abort(); }, 15000);
+    async function load(path, timeout) {
+        var abort = new AbortController(), timer = setTimeout(function () { abort.abort(); }, timeout || READ_TIMEOUT);
         try {
-            var response = await fetch(path, {credentials:'same-origin', redirect:'follow', cache:'no-store', signal:abort.signal});
+            var response = await fetch(path, {mode:'same-origin', credentials:'same-origin', redirect:'follow', cache:'no-store', signal:abort.signal});
             var type = response.headers.get('content-type') || '';
-            if (!response.ok || new URL(response.url).pathname !== new URL(path, location.href).pathname || !/text\/html/i.test(type)) return null;
+            if (!response.ok || !/text\/html/i.test(type)) return null;
+            var final = new URL(response.url);
+            if (final.origin !== location.origin || final.pathname !== new URL(path, location.href).pathname) return null;
             var charset = (type.match(/charset=([\w-]+)/i) || [0, 'utf-8'])[1];
             var html = await readText(response, 3000000, charset);
             var doc = new DOMParser().parseFromString(html, 'text/html');
@@ -163,22 +270,54 @@
     function send(result) {
         if (typeof __univerNative === 'function') __univerNative(PREFIX + JSON.stringify(result));
     }
+    // The extension host calls this during its layout tick. One check per page and account is enough there.
+    function check() {
+        if (!presenting || fetching) return;
+        var mark = owner(), count = Math.max(0, ...menuBadges().map(function (badge) { return badge.count; }));
+        if (!count || (lastCheck && lastCheck.owner === mark && lastCheck.count === count)) return;
+        lastCheck = {owner:mark, count:count};
+        fetching = true;
+        look(location.pathname === SURVEYS ? document : null, load).catch(function () { return null; })
+            .then(function (result) { remember(mark, count, result); }).finally(function () { fetching = false; });
+    }
     // Each section, then the lists the counts point to that no read has described yet (at most three in all).
     // The last message says how many pages were read and how many failed.
-    async function background(sections, counted, generation) {
-        var lists = 0, seen = new Set(), done = 0, failed = 0;
-        async function page(path) {
-            var loaded = await load(path).catch(function () { return null; });
+    async function background(current, sections, counted, generation) {
+        var lists = 0, seen = new Set(), done = 0, failed = 0, survey, mark = owner();
+        async function page(path, timeout) {
+            var loaded = await load(path, timeout).catch(function () { return null; });
             if (loaded) done++; else failed++;
             return loaded;
         }
+        async function verify(links, doc) {
+            if (!links.length) return;
+            if (survey === undefined) {
+                var failuresBefore = failed;
+                survey = await look(doc, page);
+                if (!survey && failed === failuresBefore) failed++;
+                remember(mark, Math.max(...links.map(function (link) { return link.n; })), survey);
+            }
+            links.forEach(function (link) {
+                delete link.c;
+                if (survey) link.o = survey.o;
+                link.d = survey ? survey.d : [];
+            });
+        }
         try {
+            var surveys = current.links.filter(function (link) { return link.c; }).map(function (link) { return Object.assign({}, link); });
+            if (surveys.length) {
+                await verify(surveys, location.pathname === SURVEYS ? document : null);
+                if (owner() !== mark) return;
+                send({v:1, g:generation, kind:'section', page:current.page, links:surveys});
+            }
             for (var i = 0; i < sections.length; i++) {
                 // A section that fails to load (a network error, a timeout) does not end the others; a sign-in page does.
                 var section = await page(sections[i]);
                 if (section === false) return;
                 if (!section) continue;
                 var result = read(section.doc, section.url, sections[i], 'section', generation);
+                await verify(result.links.filter(function (link) { return link.c; }), sections[i] === SURVEYS ? section.doc : null);
+                if (owner() !== mark) return;
                 for (var j = 0; j < result.links.length; j++) {
                     var link = result.links[j];
                     if (link.n <= 0 || link.d || lists >= MAX_LISTS || seen.has(link.u)) continue;
@@ -195,7 +334,12 @@
                 lists++; seen.add(counted[k]);
                 var list = await page(counted[k]);
                 if (list === false) return;
-                if (list) send(read(list.doc, list.url, counted[k], 'section', generation));
+                if (list) {
+                    var listing = read(list.doc, list.url, counted[k], 'section', generation);
+                    await verify(listing.links.filter(function (link) { return link.c; }), null);
+                    if (owner() !== mark) return;
+                    send(listing);
+                }
             }
         } finally {
             send({v:1, g:generation, kind:'done', page:location.pathname + location.search, read:done, failed:failed});
@@ -206,21 +350,22 @@
         var page = location.pathname + location.search;
         var current = read(document, location.href, page, 'page', String(generation));
         current.fetching = false;
-        if (fetchSections && !fetching && typeof __univerNative === 'function') {
+        if (!fetching && typeof __univerNative === 'function') {
             var sections = [];
-            document.querySelectorAll('#l3 a[href],.univer-app-tabs a[href]').forEach(function (a) {
+            if (fetchSections) document.querySelectorAll('#l3 a[href],.univer-app-tabs a[href]').forEach(function (a) {
                 var path = sitePath(a.getAttribute('href'), location.href);
                 if (path && path !== '/' && path !== page && sections.indexOf(path) < 0 && sections.length < MAX_SECTIONS && /^\/[a-z]+\/[a-z]*\/?$|^\/[a-z]+\/?$/i.test(path)) sections.push(path);
             });
-            var counted = current.links.filter(function (link) { return link.n > 0 && link.o === undefined && link.u !== page; })
-                .map(function (link) { return link.u; }).filter(function (path, index, all) { return all.indexOf(path) === index; });
-            current.fetching = sections.length > 0 || counted.length > 0;
+            var counted = fetchSections ? current.links.filter(function (link) { return link.n > 0 && !link.c && link.o === undefined && link.u !== page; })
+                .map(function (link) { return link.u; }).filter(function (path, index, all) { return all.indexOf(path) === index; })
+                : [];
+            current.fetching = sections.length > 0 || counted.length > 0 || current.links.some(function (link) { return link.c; });
             if (current.fetching) {
                 fetching = true;
-                background(sections, counted, String(generation)).catch(function () { }).finally(function () { fetching = false; });
+                background(current, sections, counted, String(generation)).catch(function () { }).finally(function () { fetching = false; });
             }
         }
         return JSON.stringify(current);
     }
-    window.__univerNoticesV1 = {scan:scan};
+    window.__univerNoticesV1 = {scan:scan, present:present, check:check};
 })();

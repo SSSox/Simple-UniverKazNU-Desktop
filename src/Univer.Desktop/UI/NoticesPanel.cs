@@ -197,7 +197,8 @@ namespace Univer.Desktop.UI
         private int TextWidth(int width) { return Math.Max(D(60), width - TextLeft - D(notice.Read ? 14 : 48)); }
         public int HeightFor(int width)
         {
-            var text = body.Length == 0 ? 0 : Math.Min(D(120), TextRenderer.MeasureText(body, bodyFont, new Size(TextWidth(width), int.MaxValue), TextFormatFlags.WordBreak | TextFormatFlags.NoPrefix).Height);
+            var text = body.Length == 0 ? 0 : TextRenderer.MeasureText(body, bodyFont, new Size(TextWidth(width), int.MaxValue), TextFormatFlags.WordBreak | TextFormatFlags.NoPrefix).Height;
+            if (!Notices.Survey(notice)) text = Math.Min(D(120), text);
             return Math.Max(D(58), D(12) + D(22) + (text > 0 ? D(2) + text : 0) + D(12));
         }
         protected override void OnResize(EventArgs e) { base.OnResize(e); read.SetBounds(Width - D(42), D(10), D(32), D(32)); }

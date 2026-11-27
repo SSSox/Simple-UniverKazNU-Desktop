@@ -91,13 +91,65 @@
     }
     function headingFor(button) { return Array.from(headings.values()).find(record=>record.button===button); }
     function anchor(href,title) { var a=document.createElement('a'); a.href=href; a.textContent=title; return a; }
+    function ownText() { return language==='en'?'Your programme':language==='kz'?'Сіздің мамандығыңыз':'Ваша специальность'; }
+    // The syllabus written for the student's programme (syllabus-tasks.js reads the printed ones) is tagged once the list
+    // is on screen. It moves to the top only while nobody is using the list: at once when the answer was kept, otherwise
+    // on the next opening.
+    function markOwn(record,epoch) {
+        var prints=record.items.filter(item=>item.print), own=window.__univerSyllabusV1?.own;
+        if (!prints.length || typeof own!=='function') return;
+        own(prints.map(item=>item.href)).then(href=>{
+            var item=href && record.items?.find(i=>i.href===href);
+            if (!enabled || generation!==epoch || !item?.li?.isConnected) return;
+            // The tag stands beside the link (out of its underline), and the link names it to a screen reader.
+            var tag=document.createElement('span'); tag.className='univer-app-own-tag'; tag.textContent=ownText(); tag.id=record.panel.id+'-own';
+            item.li.classList.add('univer-app-syllabus-own'); item.link.after(tag); item.link.setAttribute('aria-describedby',tag.id); record.own=href; record.tag=tag;
+            placeOwn(record);
+        },()=>{ if (generation===epoch) record.ownFailed=true; });
+    }
+    function busy(node) {
+        try { if (node.matches(':hover')) return true; } catch (_) {}
+        return node.contains(document.activeElement);
+    }
+    function placeOwn(record) {
+        var item=record.own && record.items?.find(i=>i.href===record.own), list=record.list;
+        if (!item || !list || list.firstElementChild===item.li) return;
+        var move=()=>list.prepend(item.li);
+        if (record.panel.hidden) move();
+        else if (!busy(list)) { if (window.__univerMotionUI) window.__univerMotionUI.reflow(list,move); else move(); }
+    }
+    // An open list makes its card taller; the cards beside it in the same grid row keep their own height instead of
+    // stretching into an empty box. Cards of other rows still line up.
+    var kept=new Set();
+    function ownHeight() {
+        var open=new Set(), want=new Set(), card=tr=>tr.tagName==='TR' && !!tr.querySelector(':scope>td.ct>.univer-app-attendance-summary[data-open=false]');
+        panels.forEach(record=>{ var tr=record.panel.hidden?null:record.panel.closest('tr'); if (tr && card(tr)) open.add(tr); });
+        open.forEach(tr=>{
+            var top=tr.getBoundingClientRect().top;
+            Array.from(tr.parentElement?.children||[]).forEach(other=>{ if (!open.has(other) && card(other) && Math.abs(other.getBoundingClientRect().top-top)<1) want.add(other); });
+        });
+        kept.forEach(tr=>{ if (!want.has(tr)) { tr.removeAttribute('data-univer-own-height'); kept.delete(tr); } });
+        want.forEach(tr=>{ if (!kept.has(tr)) { tr.setAttribute('data-univer-own-height',''); kept.add(tr); } });
+    }
     async function show(link, force, event) {
         var record=panels.get(link);
         var animate=event?.detail>0;
+        var motion=window.__univerMotionUI;
         if (record && !force) {
-            if (!record.panel.hidden && animate) window.__univerMotionUI?.exit(record.panel); else window.__univerMotionUI?.stop(record.panel);
-            record.panel.hidden=!record.panel.hidden; link.setAttribute('aria-expanded',String(!record.panel.hidden));
-            if (!record.panel.hidden && animate) { window.__univerMotionUI?.resize(record.panel,1,220); window.__univerMotionUI?.reveal(record.panel,'content'); }
+            var opening=record.panel.hidden || record.closing;
+            link.setAttribute('aria-expanded',String(opening));
+            motion?.stop(record.panel);
+            if (!opening) {
+                // The list folds shut before it is hidden, so the card closes up instead of jumping.
+                var hide=()=>{ record.closing=false; record.panel.hidden=true; ownHeight(); };
+                record.closing=true;
+                if (animate && motion?.collapse) motion.collapse(record.panel,hide,180); else hide();
+                return;
+            }
+            // A lookup that failed is asked again when the list opens again.
+            if (record.ownFailed) { record.ownFailed=false; markOwn(record,generation); }
+            placeOwn(record); record.panel.hidden=false; ownHeight();
+            if (animate) { motion?.resize(record.panel,1,220); motion?.reveal(record.panel,'content'); }
             return;
         }
         if (!record) {
@@ -105,9 +157,10 @@
             (headingFor(link)?.header || link.closest('.ts') || link).after(panel); record={panel,items:null}; panels.set(link,record);
             remember(link); link.setAttribute('aria-controls',panel.id);
         }
-        var epoch=generation, panel=record.panel; panel.hidden=false; panel.textContent=''; link.setAttribute('aria-expanded','true');
+        var epoch=generation, panel=record.panel; motion?.stop(panel); record.closing=false; panel.hidden=false; panel.textContent=''; link.setAttribute('aria-expanded','true');
         var status=document.createElement('p'); status.setAttribute('role','status'); status.className='univer-app-pending'; status.textContent=text().loading; panel.appendChild(status);
-        if (animate) window.__univerMotionUI?.reveal(panel,'content');
+        ownHeight();
+        if (animate) { motion?.resize(panel,1,220); motion?.reveal(panel,'content'); }
         try {
             await loadCourses(); if (!enabled || generation!==epoch) return;
             var course=courseFor(link); if (!course) throw new Error('Course not found');
@@ -122,12 +175,13 @@
                 seen.add(url.href); items.push({href:url.href,name:name||course.name,print});
             });
             var before=panel.getBoundingClientRect().height; window.__univerMotionUI?.stop(panel);
-            record.items=items; panel.replaceChildren();
+            record.items=items; record.list=null; record.own=null; panel.replaceChildren();
             if (!items.length) { status.className=''; status.textContent=text().empty; panel.appendChild(status); }
             else {
                 var list=document.createElement('ul');
-                items.forEach(item=>{ var li=document.createElement('li'), type=document.createElement('span'); type.textContent=item.print?text().printType:text().file; li.append(anchor(item.href,item.name),type); list.appendChild(li); });
-                panel.appendChild(list);
+                items.forEach(item=>{ var li=document.createElement('li'), type=document.createElement('span'); type.className='univer-app-syllabus-type'; type.textContent=item.print?text().printType:text().file; item.link=anchor(item.href,item.name); item.li=li; li.append(item.link,type); list.appendChild(li); });
+                panel.appendChild(list); record.list=list;
+                markOwn(record,epoch);
             }
             panel.appendChild(anchor(course.href,text().umkd));
             if (animate && !panel.hidden) { window.__univerMotionUI?.resize(panel,before); window.__univerMotionUI?.reveal(panel,'content'); }
@@ -155,10 +209,13 @@
         enabled=true;
         if (!courses && !pending && !attempted) loadCourses().catch(()=>{});
         connectCourses();
+        panels.forEach(record=>{ if (record.tag && record.tag.textContent!==ownText()) record.tag.textContent=ownText(); });
+        if (kept.size || Array.from(panels.values()).some(record=>!record.panel.hidden)) ownHeight();
     }
     function release() {
         enabled=false; generation++; controller?.abort(); courses=pending=null; attempted=false;
         panels.forEach(record=>{window.__univerMotionUI?.stop(record.panel);record.panel.remove();}); panels.clear();
+        kept.forEach(tr=>tr.removeAttribute('data-univer-own-height')); kept.clear();
         headings.forEach(record=>{record.header.remove();record.original.replaceWith(...record.original.childNodes);});headings.clear();
         changed.forEach((attrs,link)=>attrs.forEach(a=>{ if (a[1]===null) link.removeAttribute(a[0]); else link.setAttribute(a[0],a[1]); })); changed.clear();
     }

@@ -22,19 +22,25 @@ namespace Univer.Desktop.Tests
             return scan;
         }
         private static NoticeDetail Detail(string title, string until) { return new NoticeDetail { Title = title, Until = until }; }
+        private static NoticeScan Pending(int count)
+        {
+            return Notices.Parse("{\"v\":1,\"g\":\"n1\",\"kind\":\"page\",\"page\":\"/student/bachelor/\",\"links\":[" +
+                "{\"u\":\"/student/rating/\",\"n\":" + count + ",\"m\":1,\"c\":1}]}", false, "n1");
+        }
         [Fact]
         public void AnsweredQuestionnaires_AreNotShown_ThoughTheSiteKeepsItsCount()
         {
-            var list = Notices.Merge(new List<SiteNotice>(), Scan("/student/bachelor/", 2), 1);
-            Assert.Equal(1, Notices.Unread(list));
-            // The list page is read: both rows carry "+", so nothing is open.
+            var list = Notices.Merge(new List<SiteNotice>(), Pending(2), 1);
+            Assert.Empty(Notices.Showing(list));
+            Assert.Empty(Notices.NewlyUnread(new SiteNotice[0], list));
+            // Both questionnaire detail pages are fully answered, so nothing is open.
             list = Notices.Merge(list, Scan("/student/rating/", 2, open: 0), 2);
             Assert.Empty(Notices.Showing(list));
             Assert.Equal(0, Notices.Unread(list));
             // Every later page still shows "(2)" in the menu, without the list: the answer stays known.
-            list = Notices.Merge(list, Scan("/student/attendance/full/", 2), 3);
+            list = Notices.Merge(list, Pending(2), 3);
             Assert.Empty(Notices.Showing(list));
-            Assert.Empty(Notices.NewlyUnread(list, Notices.Merge(list, Scan("/student/umkd/", 2), 4)));
+            Assert.Empty(Notices.NewlyUnread(list, Notices.Merge(list, Pending(2), 4)));
         }
         [Fact]
         public void PartlyAnsweredList_ShowsOnlyTheOpenQuestionnaires()
@@ -43,33 +49,66 @@ namespace Univer.Desktop.Tests
             var notice = Notices.Showing(list).Single();
             Assert.Equal(1, Notices.Shown(notice));
             Assert.Equal("Восприятие коррупции - 2026, осенний сем.", notice.Details.Single().Title);
-            // A list without answer marks never raises the number above the site's own count.
+            // A complete check supplies the count even if the site's number is smaller.
             list = Notices.Merge(list, Scan("/student/rating/", 2, 7), 2);
-            Assert.Equal(2, Notices.Shown(Notices.Showing(list).Single()));
+            Assert.Equal(7, Notices.Shown(Notices.Showing(list).Single()));
         }
         [Fact]
         public void NewQuestionnaire_AfterAnsweredOnes_IsShownAndAnnounced()
         {
             var list = Notices.Merge(new List<SiteNotice>(), Scan("/student/rating/", 2, 0), 1);
-            var next = Notices.Merge(list, Scan("/student/bachelor/", 3), 2);
-            // The list said nothing about the third one yet: the site's number counts until it is read again.
-            Assert.Equal(3, Notices.Shown(Notices.Showing(next).Single()));
-            Assert.Single(Notices.NewlyUnread(list, next));
+            var pending = Notices.Merge(list, Pending(2), 2);
+            Assert.Empty(Notices.Showing(pending));
+            Assert.Empty(Notices.NewlyUnread(list, pending));
+            var next = Notices.Merge(pending, Scan("/student/rating/", 2, 1), 3);
+            Assert.Equal(1, Notices.Shown(Notices.Showing(next).Single()));
+            Assert.Single(Notices.NewlyUnread(pending, next));
+        }
+        [Fact]
+        public void IncompleteCheck_ReplacesAnEarlierResultWithTheSiteCount()
+        {
+            var list = Notices.Merge(new SiteNotice[0], Scan("/student/rating/", 2, 1, true, Detail("Анкета", "30.11.2026")), 1);
+            var next = Notices.Merge(list, Scan("/student/bachelor/", 2), 2);
+            var notice = Notices.Showing(next).Single();
+            Assert.Equal(2, Notices.Shown(notice));
+            Assert.Empty(notice.Details);
+            Assert.Empty(Notices.NewlyUnread(list, next));
+            Assert.Empty(Notices.NewlyUnread(next, Notices.Merge(next, Scan("/student/rating/", 2, 1), 3)));
+        }
+        [Fact]
+        public void ChangedSiteCount_WaitsForVerificationAndAnnouncesOnlyAGrowingOpenCount()
+        {
+            var list = Notices.Merge(new SiteNotice[0], Scan("/student/rating/", 2, 1), 1);
+            Assert.Single(Notices.Showing(Notices.Merge(list, Pending(2), 2)));
+            var pending = Notices.Merge(list, Pending(3), 2);
+            Assert.Empty(Notices.Showing(pending));
+            Assert.Empty(Notices.NewlyUnread(list, pending));
+            var same = Notices.Merge(pending, Scan("/student/rating/", 3, 1), 3);
+            Assert.Single(Notices.Showing(same));
+            Assert.Empty(Notices.NewlyUnread(pending, same));
+        }
+        [Fact]
+        public void StoredSurveyFromBeforeDetailChecks_WaitsForVerification()
+        {
+            var old = new SiteNotice { Key = "counter:" + Rating, Url = Rating, Count = 3, Open = 3 };
+            var list = Notices.Normalize(new[] { old }, 1);
+            Assert.Empty(Notices.Showing(list));
+            Assert.Empty(Notices.Showing(Notices.Merge(list, Pending(3), 2)));
         }
         [Fact]
         public void ReadNotice_StaysRead_WhenItDisappearsAndComesBack()
         {
-            var list = Notices.Merge(new List<SiteNotice>(), Scan("/student/bachelor/", 2), 1);
+            var list = Notices.Merge(new List<SiteNotice>(), Scan("/student/bachelor/", 2, 2), 1);
             list = Notices.MarkRead(list, list.Single(n => n.Kind == SiteNotice.Counter).Key);
             Assert.Equal(0, Notices.Unread(list));
             // The same section shows the link without a count, then with it again.
             var gone = Notices.Merge(list, Scan("/student/attendance/full/", 0), 2);
             Assert.Empty(Notices.Showing(gone));
-            var back = Notices.Merge(gone, Scan("/student/bachelor/", 2), 3);
+            var back = Notices.Merge(gone, Scan("/student/bachelor/", 2, 2), 3);
             Assert.True(Notices.Showing(back).Single().Read);
             Assert.Empty(Notices.NewlyUnread(gone, back));
-            // Only a larger number makes it unread again.
-            var grown = Notices.Merge(back, Scan("/student/bachelor/", 3), 4);
+            // Only a larger confirmed number makes it unread again, even if the site's count stays the same.
+            var grown = Notices.Merge(back, Scan("/student/bachelor/", 2, 3), 4);
             Assert.False(Notices.Showing(grown).Single().Read);
             Assert.Single(Notices.NewlyUnread(back, grown));
         }

@@ -193,12 +193,16 @@ const courseList='<table><tr id="l4"><td><table class="inner"><tr class="link" i
 
 test('pointer syllabus panels move in and out while keyboard toggles and Original stay immediate',async()=>{
   const p=context(attendance,'/student/attendance/full/',study),motions=[];
-  p.w.__univerMotionUI={reveal(n){motions.push(['reveal',n]);},exit(n){motions.push(['exit',n]);},stop(n){motions.push(['stop',n]);},resize(n){motions.push(['resize',n]);}};
+  // A pointer close folds the list shut and hides it when the fold ends (collapse calls done), instead of a fading copy.
+  let finish=null;
+  p.w.__univerMotionUI={reveal(n){motions.push(['reveal',n]);},exit(n){motions.push(['exit',n]);},stop(n){motions.push(['stop',n]);},resize(n){motions.push(['resize',n]);},collapse(n,done){motions.push(['collapse',n]);finish=done;}};
   p.w.fetch=async path=>response(path,path.includes('/0/')?courseList:'<div id="l4"><a href="/student/interactive/syllabus/print/22/2">История</a></div>');
   p.w.__univerStudyV1.apply('ru');await wait(20);const button=p.d.querySelector('.univer-app-course-syllabus');
   button.dispatchEvent(new p.w.MouseEvent('click',{bubbles:true,detail:1}));await wait(20);
   const panel=p.d.querySelector('.univer-app-syllabi');assert.ok(motions.some(m=>m[0]==='reveal'&&m[1]===panel));
-  button.dispatchEvent(new p.w.MouseEvent('click',{bubbles:true,detail:1}));assert.equal(panel.hidden,true);assert.equal(motions.at(-1)[0],'exit');
+  button.dispatchEvent(new p.w.MouseEvent('click',{bubbles:true,detail:1}));assert.deepEqual(motions.at(-1),['collapse',panel]);
+  assert.equal(panel.hidden,false,'on screen while it folds');assert.equal(button.getAttribute('aria-expanded'),'false','but already said to be closed');
+  finish();assert.equal(panel.hidden,true);assert.ok(!motions.some(m=>m[0]==='exit'));
   const before=motions.filter(m=>m[0]==='reveal').length;button.click();assert.equal(panel.hidden,false);assert.equal(motions.filter(m=>m[0]==='reveal').length,before);
   p.w.__univerStudyV1.release();assert.equal(motions.at(-1)[0],'stop');assert.equal(panel.isConnected,false);p.close();
 });
@@ -358,4 +362,54 @@ test('news page cache never evicts pages with active-filter matches when more th
   await wait(270);
   assert.ok(fetched.includes(2), 'evicted non-matching page 2 is fetched again after cache shrinks back to 60');
   assert.deepEqual(results(p), ['Общая новость #2']);
+});
+test('the student\'s own syllabus in a card\'s list: tagged once the list is shown, then first; the tag is spoken with the link',async()=>{
+  const p=context(attendance,'/student/attendance/full/',study);let answer;
+  p.w.__univerSyllabusV1={own:list=>{p.asked=[...list];return new Promise(r=>answer=r);}};
+  p.w.fetch=async path=>response(path,path.includes('/0/')?courseList:'<div id="l4"><a href="/student/interactive/syllabus/print/22/1">История (каз.)</a><a href="/student/interactive/syllabus/print/22/2">История</a></div>');
+  p.w.__univerStudyV1.apply('ru');await wait(20);p.d.querySelector('.univer-app-course-syllabus').click();await wait(20);
+  const panel=p.d.querySelector('.univer-app-syllabi'),names=()=>Array.from(panel.querySelectorAll('li>a'),a=>a.textContent);
+  assert.deepEqual(names(),['История (каз.)','История'],'the list is shown at once, before the answer');
+  assert.deepEqual(p.asked,['https://univer.kaznu.kz/student/interactive/syllabus/print/22/1','https://univer.kaznu.kz/student/interactive/syllabus/print/22/2']);
+  answer('https://univer.kaznu.kz/student/interactive/syllabus/print/22/2');await wait(10);
+  const li=panel.querySelector('li.univer-app-syllabus-own'),tag=li.querySelector('.univer-app-own-tag');
+  assert.equal(tag.textContent,'Ваша специальность');assert.equal(li.querySelector('a').getAttribute('aria-describedby'),tag.id);
+  assert.deepEqual(names(),['История','История (каз.)'],'first in the list');
+  p.w.__univerStudyV1.apply('en');assert.equal(tag.textContent,'Your programme');
+  p.w.__univerStudyV1.release();assert.equal(p.d.querySelector('.univer-app-own-tag'),null);p.close();
+});
+test('a list in use is not reordered under the pointer; it is first when the list opens again',async()=>{
+  const p=context(attendance,'/student/attendance/full/',study);let answer;
+  p.w.__univerSyllabusV1={own:()=>new Promise(r=>answer=r)};
+  p.w.fetch=async path=>response(path,path.includes('/0/')?courseList:'<div id="l4"><a href="/student/interactive/syllabus/print/22/1">А</a><a href="/student/interactive/syllabus/print/22/2">Б</a></div>');
+  p.w.__univerStudyV1.apply('ru');await wait(20);const button=p.d.querySelector('.univer-app-course-syllabus');button.click();await wait(20);
+  const panel=p.d.querySelector('.univer-app-syllabi'),names=()=>Array.from(panel.querySelectorAll('li>a'),a=>a.textContent);
+  panel.querySelector('li>a').focus();answer('https://univer.kaznu.kz/student/interactive/syllabus/print/22/2');await wait(10);
+  assert.ok(panel.querySelector('.univer-app-own-tag'),'tagged at once');assert.deepEqual(names(),['А','Б'],'but not moved while in use');
+  button.click();button.click();assert.deepEqual(names(),['Б','А']);p.close();
+});
+const twoCards=(()=>{
+  const course=(id,name)=>`<tr><td class="ct" id="${id}">${name} ([РК1 + РК2 + Экз] (100)) 01.09.2026 - 12.12.2026</td></tr><tr><td class="ts"><a class="rt syllabus-info" href="#">Интерактивный силлабус</a></td></tr>`+
+    `<tr><td class="ts"><a class="lt" href="/student/attendance/show/1/2026/1">лекция - Преподаватель</a></td></tr><tr><td><div class="inner"><table class="inner"><tr><th rowspan="2">РК1 (100)</th><th>01.10</th><th>Сумма</th></tr><tr><td>5</td><td>5</td></tr></table></div></td></tr>`+
+    `<tr><td class="ct"><b>РК1 (100): </b>50 <b>РК2 (100): </b></td></tr>`;
+  return `<table><tr id="l4"><td><table class="mt">${course('course-a','История Казахстана')}${course('course-b','Философия')}${course('course-c','Политология')}</table></td></tr></table>`;
+})();
+test('an open syllabus list leaves the card beside it at its own height; cards of other grid rows are not touched',async()=>{
+  const p=context(twoCards,'/student/attendance/full/',common+'\n'+fs.readFileSync('src/Univer.Desktop/Assets/attendance.js','utf8')+'\n'+fs.readFileSync('src/Univer.Desktop/Assets/study-links.js','utf8'));
+  // Two cards a grid row: a and b side by side, c below.
+  const rect=p.w.HTMLElement.prototype.getBoundingClientRect;
+  p.w.HTMLElement.prototype.getBoundingClientRect=function(){ const id=this.tagName==='TR'&&this.querySelector(':scope>td.ct')?.id; return id?{top:id==='course-c'?300:0,height:200,width:400}:rect.call(this); };
+  p.w.fetch=async path=>response(path,path.includes('/0/')?'<table><tr id="l4"><td><table class="inner"><tr class="link" id="321"><td>1</td><td>История Казахстана</td><td>Обязательная</td></tr></table></td></tr></table>':'<div id="l4"><a href="/student/interactive/syllabus/print/22/2">История</a></div>');
+  p.w.__univerStudyV1.apply('ru');p.w.__univerAttendanceV1.apply('ru');await wait(20);
+  const row=id=>p.d.getElementById(id).closest('tr'),kept=()=>['course-a','course-b','course-c'].filter(id=>row(id).hasAttribute('data-univer-own-height'));
+  const button=row('course-a').querySelector('.univer-app-course-syllabus');assert.ok(button,'the card has its syllabus button');
+  button.click();await wait(20);
+  assert.deepEqual(kept(),['course-b'],'only the neighbour in the same row');
+  button.click();assert.deepEqual(kept(),[],'closing lets the row line up again');
+  button.click();assert.deepEqual(kept(),['course-b']);
+  p.w.__univerStudyV1.release();assert.deepEqual(kept(),[]);p.close();
+});
+test('the neighbour card keeps its height through its own grid item rule',()=>{
+  const css=fs.readFileSync('src/Univer.Desktop/Assets/desktop.js','utf8');
+  assert.match(css,/tbody:has\(>tr>td\.ct>\.univer-app-attendance-summary\)>tr\[data-univer-own-height\] \{ align-self:start; \}/);
 });

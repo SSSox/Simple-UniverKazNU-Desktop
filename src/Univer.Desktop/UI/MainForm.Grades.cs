@@ -10,14 +10,14 @@ using Univer.Desktop.Web;
 namespace Univer.Desktop.UI
 {
     // New grades (Core/GradeWatch.cs): while a signed-in page of the site is shown (SignedInWork), every prefs.GradeInterval
-    // minutes the attestation page is read by a plain GET with the profile's cookies (Web/GradeFetch.cs): not a page load,
+    // minutes the attestation page is read by a plain GET with the profile's cookies (Core/GradeFetch.cs): not a page load,
     // so no automation tick and no sign-in follow it, and a sign-in page or an error is simply no reading. Its table is
-    // compared with the kept reading of this login; changed scores of the same courses come as one tray balloon (behind a
+    // compared with the kept reading of this login; changed scores come as one tray balloon (behind a
     // PIN without the scores), and the reading becomes the new baseline. Only with a saved login (its mark) and a tray
     // icon; the kept reading goes with the session and when the option is turned off.
     internal sealed partial class MainForm
     {
-        private GradeSheet gradeSheet;
+        private GradeWatch gradeWatch = new GradeWatch();
         private bool gradesBusy, gradesClearPending, gradesClearInFlight;
         private long gradesDueAt = long.MinValue;
         private const long GradeRetryMs = 60000;
@@ -28,7 +28,7 @@ namespace Univer.Desktop.UI
         private string gradeAccountForQa;
         private Func<string, CancellationToken, Task<string>> gradeReadForQa;
         private string GradeAccount { get { return gradeAccountForQa ?? ScheduleAccount; } }
-        private void LoadGradeSheet() { gradeSheet = storageFailed || !prefs.Grades ? null : storage.LoadGrades(GradeAccount); }
+        private void LoadGradeSheet() { if (!storageFailed && prefs.Grades) gradeWatch.LoadBaseline(GradeAccount, storage.LoadGrades); }
         // A signed-in page: a reading is due once the interval has passed since the last one (the first, a minute after start).
         private void GradeContent()
         {
@@ -48,39 +48,53 @@ namespace Univer.Desktop.UI
         private async Task ReadGradesAsync()
         {
             if (!prefs.Grades || gradesClearPending || gradesBusy || closing || rotating || main == null || main.IsDisposed || context == null) return;
+            var epoch = sessionEpoch; var account = GradeAccount; var source = context; var watch = gradeWatch;
+            if (account.Length == 0) return;
+            var started = scheduleClock.ElapsedMilliseconds;
+            var pageBlocked = false;
+            var completed = false;
             gradesBusy = true;
             try
             {
-                var epoch = sessionEpoch; var account = GradeAccount; var source = context;
-                if (account.Length == 0) return;
                 if (gradeAgent == null && gradeReadForQa == null)
                 {
-                    gradeAgent = await AutomationController.EvaluateAsync(main, "navigator.userAgent");
-                    if (closing || rotating || epoch != sessionEpoch) return;
+                    var agent = await AutomationController.EvaluateAsync(main, "navigator.userAgent");
+                    if (!Current(epoch, account, source)) return;
+                    gradeAgent = agent;
                 }
                 // The shown page must be the saved login's (ReadingAllowed), before the request and again before anything is kept:
                 // a student who signed in by hand after the site's own logout gets no check under the saved login.
-                // Not allowed yet (the mark could not be read while a page was being replaced, or another account's page is
-                // shown): asked again in a minute, not after the whole interval. That ask is a local read of the page only; the
-                // site is requested only once the page is allowed.
-                if (!await PageAllowedAsync(epoch, account, source))
+                pageBlocked = !await PageAllowedAsync(epoch, account, source);
+                if (pageBlocked || watch != gradeWatch) return;
+                // A PIN unlock can recover a saved login after the startup load.
+                if (!storageFailed) watch.LoadBaseline(account, storage.LoadGrades);
+                if (watch.HasPending)
                 {
-                    if (Current(epoch, account, source)) gradesDueAt = Math.Min(gradesDueAt, scheduleClock.ElapsedMilliseconds + GradeRetryMs);
-                    return;
+                    var wasWaitingForTray = watch.HasUnannouncedReading;
+                    completed = await watch.RecordAsync(null, AnnounceGrades, storage.SaveGradesAsync);
+                    if (completed || wasWaitingForTray || watch != gradeWatch || !Current(epoch, account, source)) return;
+                    // The save still failed. Keep checking for grades while the file is unavailable.
+                    pageBlocked = !await PageAllowedAsync(epoch, account, source);
+                    if (pageBlocked || watch != gradeWatch) return;
                 }
                 var html = await (gradeReadForQa ?? ((url, token) => ReadAttestationAsync(source, url, token)))(SitePolicy.Origin + GradeFetch.Path, stopping);
-                // The session ended, the account changed or the app is closing while the page answered: the reading is dropped.
                 if (html == null || !Current(epoch, account, source) || !await PageAllowedAsync(epoch, account, source)) return;
                 var at = DateTime.Now;
                 var sheet = await Task.Run(() => GradeSheet.Parse(html, account, at));
-                if (sheet == null || !Current(epoch, account, source)) return;
-                var changes = GradeSheet.Changes(gradeSheet, sheet);
-                gradeSheet = sheet;
-                try { await storage.SaveGradesAsync(sheet); } catch (Exception) { /* The reading in memory still serves this run. */ }
-                if (changes.Count > 0 && Current(epoch, account, source)) AnnounceGrades(changes);
+                if (sheet == null || watch != gradeWatch || !Current(epoch, account, source)) return;
+                completed = await watch.RecordAsync(sheet, AnnounceGrades, storage.SaveGradesAsync);
             }
             catch (Exception) { /* No reading this time. */ }
-            finally { gradesBusy = false; }
+            finally
+            {
+                gradesBusy = false;
+                if (watch == gradeWatch && Current(epoch, account, source))
+                {
+                    var now = scheduleClock.ElapsedMilliseconds;
+                    gradesDueAt = pageBlocked ? Math.Min(gradesDueAt, now + GradeRetryMs) :
+                        (completed ? started : now) + watch.NextDelay(prefs.GradeInterval, completed);
+                }
+            }
         }
         private async Task<bool> PageAllowedAsync(long epoch, string account, IRequestContext source)
         {
@@ -101,13 +115,15 @@ namespace Univer.Desktop.UI
                 return await GradeFetch.ReadAsync(http.GetAsync, url, deadline.Token);
             }
         }
-        private void AnnounceGrades(List<GradeChange> changes)
+        private bool AnnounceGrades(List<GradeChange> changes)
         {
-            if (trayIcon == null) return;
+            if (trayIcon == null) return false;
             var lang = prefs.Language;
-            gradeTitleShown = GradeNotice.Title(changes, lang); gradeBodyShown = GradeNotice.Body(changes, lang, LockArmed);
+            var title = GradeNotice.Title(changes, lang); var body = GradeNotice.Body(changes, lang, LockArmed);
+            trayIcon.ShowBalloonTip(10000, title, body, ToolTipIcon.Info);
+            gradeTitleShown = title; gradeBodyShown = body;
             balloonOpens = "grades";
-            trayIcon.ShowBalloonTip(10000, gradeTitleShown, gradeBodyShown, ToolTipIcon.Info);
+            return true;
         }
         // Settings saved: turned off, the kept reading goes (turned on again, the first reading is silent); a shorter
         // interval brings the next reading closer.
@@ -129,7 +145,7 @@ namespace Univer.Desktop.UI
         private async Task ClearGradesAsync()
         {
             gradesClearPending = true;
-            gradeSheet = null; gradesDueAt = long.MinValue; gradeAgent = null;
+            gradeWatch = new GradeWatch(); gradesDueAt = long.MinValue; gradeAgent = null;
             try { await storage.RemoveGradesAsync(); gradesClearPending = false; }
             catch (Exception) { gradesClearPending = true; }
         }

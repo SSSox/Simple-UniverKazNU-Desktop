@@ -14,6 +14,7 @@ namespace Univer.Desktop.Core
         public string Title { get; set; } = "";
         public string Until { get; set; } = "";
     }
+    internal enum SurveyCheck { Pending, Verified, Fallback, Rechecking }
     // A site notification: a menu count (Counter) or a page message asking for a questionnaire first (Blocked).
     // One the site stops showing is kept as Gone for a while, so a read one that comes back stays read.
     internal sealed class SiteNotice
@@ -26,15 +27,16 @@ namespace Univer.Desktop.Core
         public string Url { get; set; } = "";
         // The site's own number.
         public int Count { get; set; }
-        // Rows of the counted list not answered yet, read at this Count; -1 while no read of the list has said.
+        // Rows not answered yet on the last successful read. -1 when unknown.
         public int Open { get; set; } = -1;
+        public SurveyCheck SurveyStatus { get; set; }
         public string Text { get; set; } = "";
         // A message's page; for a counter, the section whose menu showed the count ("/student/").
         public string Page { get; set; } = "";
         public long FirstSeen { get; set; }
         public long LastSeen { get; set; }
         public bool Read { get; set; }
-        // The site's number when it was marked read: only a larger one makes it unread again.
+        // The count when it was marked read. Only a larger one makes it unread again.
         public int ReadCount { get; set; }
         public bool Gone { get; set; }
         public List<NoticeDetail> Details { get; set; } = new List<NoticeDetail>();
@@ -51,7 +53,7 @@ namespace Univer.Desktop.Core
     {
         public string Url, Title;
         public int Count, Open = -1;
-        public bool Menu;
+        public bool Menu, Checking;
         public List<NoticeDetail> Details = new List<NoticeDetail>();
     }
     // A page message that asks for a questionnaire or test; Url is the link inside it, or the page.
@@ -70,14 +72,27 @@ namespace Univer.Desktop.Core
     {
         public const string MessagePrefix = "univer-notices:";
         public const int Max = 30, Stored = 60, TitleLength = 100, TextLength = 280, MaxDetails = 3, MaxMessage = 65536;
+        private const string Surveys = SitePolicy.Origin + "/student/rating/";
+        private const int MaxSurveys = 10;
         // How long an item the site no longer shows keeps its read mark.
         public const long KeepGone = 60L * 24 * 60 * 60 * 1000;
         private static readonly Regex DatePattern = new Regex(@"^\d{2}\.\d{2}\.\d{4}$", RegexOptions.CultureInvariant);
         private static readonly Regex Space = new Regex(@"[\p{Cc}\s]+", RegexOptions.CultureInvariant);
         public static long Now() { return (DateTime.UtcNow.Ticks - new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc).Ticks) / TimeSpan.TicksPerMillisecond; }
-        // The number the panel shows: the site's count, or fewer when its list was read and has fewer open rows.
-        public static int Shown(SiteNotice notice) { return notice.Open >= 0 ? Math.Min(notice.Count, notice.Open) : notice.Count; }
-        public static bool Visible(SiteNotice notice) { return !notice.Gone && (notice.Kind == SiteNotice.Blocked || Shown(notice) > 0); }
+        internal static bool Survey(SiteNotice notice) { return notice.Kind == SiteNotice.Counter && notice.Url == Surveys; }
+        private static int DetailLimit(string url) { return url == Surveys ? MaxSurveys : MaxDetails; }
+        public static int Shown(SiteNotice notice)
+        {
+            if (Survey(notice)) return notice.SurveyStatus == SurveyCheck.Verified ? notice.Open : notice.Count;
+            return notice.Open < 0 ? notice.Count : Math.Min(notice.Count, notice.Open);
+        }
+        public static bool Visible(SiteNotice notice)
+        {
+            if (notice.Gone) return false;
+            if (notice.Kind == SiteNotice.Blocked) return true;
+            if (Survey(notice) && notice.SurveyStatus != SurveyCheck.Verified && notice.SurveyStatus != SurveyCheck.Fallback) return false;
+            return Shown(notice) > 0;
+        }
         public static List<SiteNotice> Showing(IEnumerable<SiteNotice> notices) { return notices.Where(Visible).Take(Max).ToList(); }
         public static int Unread(IEnumerable<SiteNotice> notices) { return Showing(notices).Count(n => !n.Read); }
         // The section a page belongs to: its first path segment ("/student/rating/" → "/student/").
@@ -105,10 +120,19 @@ namespace Univer.Desktop.Core
                     if (notice.Kind == SiteNotice.Counter && notice.Page == place && !shown.ContainsKey(notice.Url)) notice.Gone = true;
             foreach (var pair in shown)
             {
-                var count = Math.Max(0, Math.Min(9999, pair.Value.Max(l => l.Count)));
+                var survey = pair.Key == Surveys;
+                var links = survey ? pair.Value.Where(l => !l.Checking).ToList() : pair.Value;
+                var count = links.Count == 0 ? 0 : Math.Max(0, Math.Min(9999, links.Max(l => l.Count)));
                 SiteNotice old; byKey.TryGetValue(CounterKey(pair.Key), out old);
                 if (count == 0)
                 {
+                    var pending = survey ? pair.Value.FirstOrDefault(l => l.Checking) : null;
+                    if (pending != null)
+                    {
+                        // A changed site count needs a new check, but keep the last verified count for announcements.
+                        if (old != null && old.Count != pending.Count && old.SurveyStatus != SurveyCheck.Pending) old.SurveyStatus = SurveyCheck.Rechecking;
+                        continue;
+                    }
                     // Only the section that showed the count can say it is gone: another section's menu may list the same
                     // link without ever counting it.
                     if (old != null && old.Page == place) old.Gone = true;
@@ -116,12 +140,19 @@ namespace Univer.Desktop.Core
                 }
                 if (old == null) byKey[CounterKey(pair.Key)] = old = new SiteNotice { Key = CounterKey(pair.Key), Url = pair.Key, FirstSeen = now };
                 // A different count may be a new questionnaire: what the list said about the old number no longer applies.
-                if (old.Count != count) { old.Open = -1; old.Details = new List<NoticeDetail>(); }
-                var title = Clip(pair.Value.First(l => l.Count == count).Title, TitleLength);
+                if (!survey && old.Count != count) { old.Open = -1; old.Details = new List<NoticeDetail>(); }
+                var title = Clip(links.First(l => l.Count == count).Title, TitleLength);
                 old.Title = title.Length > 0 ? title : pair.Key; old.Count = count; old.Page = place; old.Gone = false; old.LastSeen = now;
-                var described = pair.Value.FirstOrDefault(l => l.Open >= 0);
-                if (described != null) { old.Open = described.Open; old.Details = described.Details.Take(MaxDetails).ToList(); }
-                old.Read = old.Read && count <= old.ReadCount;
+                var described = links.FirstOrDefault(l => l.Open >= 0);
+                if (survey)
+                {
+                    if (described != null) old.Open = described.Open;
+                    else if (old.SurveyStatus == SurveyCheck.Pending) old.Open = -1;
+                    old.SurveyStatus = described != null ? SurveyCheck.Verified : SurveyCheck.Fallback;
+                    old.Details = described?.Details.Take(MaxSurveys).ToList() ?? new List<NoticeDetail>();
+                }
+                else if (described != null) { old.Open = described.Open; old.Details = described.Details.Take(MaxDetails).ToList(); }
+                if (!survey || described != null) old.Read = old.Read && ReadNumber(old) <= old.ReadCount;
             }
             var messages = new Dictionary<string, NoticeMessage>(StringComparer.Ordinal);
             foreach (var message in scan.Messages.Where(m => !string.IsNullOrEmpty(m.Text)))
@@ -147,15 +178,22 @@ namespace Univer.Desktop.Core
                 .OrderBy(n => Visible(n) ? 0 : 1).ThenBy(n => n.Read).ThenByDescending(n => n.FirstSeen).ThenBy(n => n.Key, StringComparer.Ordinal)
                 .Take(Stored).ToList();
         }
+        private static int ReadNumber(SiteNotice notice) { return Survey(notice) ? Shown(notice) : notice.Count; }
         public static List<SiteNotice> MarkRead(IEnumerable<SiteNotice> current, string key)
-        { return current.Select(n => { var copy = n.Copy(); if (copy.Key == key) { copy.Read = true; copy.ReadCount = copy.Count; } return copy; }).ToList(); }
+        { return current.Select(n => { var copy = n.Copy(); if (copy.Key == key) { copy.Read = true; copy.ReadCount = ReadNumber(copy); } return copy; }).ToList(); }
         public static List<SiteNotice> MarkAllRead(IEnumerable<SiteNotice> current)
-        { return current.Select(n => { var copy = n.Copy(); if (Visible(copy)) { copy.Read = true; copy.ReadCount = copy.Count; } return copy; }).ToList(); }
-        // Shown unread items that are new, or whose site count grew; an item that only came back keeps quiet.
+        { return current.Select(n => { var copy = n.Copy(); if (Visible(copy)) { copy.Read = true; copy.ReadCount = ReadNumber(copy); } return copy; }).ToList(); }
+        // A new or growing count is announced once. A count that only returns keeps quiet.
         public static List<SiteNotice> NewlyUnread(IEnumerable<SiteNotice> previous, IEnumerable<SiteNotice> next)
         {
             var before = previous.ToDictionary(n => n.Key, StringComparer.Ordinal);
-            return Showing(next).Where(n => { SiteNotice old; return !n.Read && (!before.TryGetValue(n.Key, out old) || n.Count > old.Count); }).ToList();
+            return Showing(next).Where(n =>
+            {
+                if (n.Read) return false;
+                SiteNotice old; before.TryGetValue(n.Key, out old);
+                if (Survey(n)) return n.SurveyStatus == SurveyCheck.Verified && (old == null || old.SurveyStatus == SurveyCheck.Pending || n.Open > old.Open);
+                return old == null || n.Count > old.Count;
+            }).ToList();
         }
         // The scan in a page result (section false) or a background message (section true) of this generation, or null for
         // anything malformed. Links outside the trusted origin, files and oversized values are dropped.
@@ -179,8 +217,9 @@ namespace Univer.Desktop.Core
             {
                 var url = Address(Str(item, "u")); if (url == null) continue;
                 var link = new NoticeLink { Url = url, Title = Clip(Str(item, "t"), TitleLength), Count = Math.Max(0, Math.Min(9999, Int(item, "n"))), Menu = Int(item, "m") == 1 };
-                if (item.ContainsKey("o")) link.Open = Math.Max(0, Math.Min(9999, Int(item, "o")));
-                foreach (var entry in Items(item, "d").Take(MaxDetails).OfType<Dictionary<string, object>>())
+                link.Checking = url == Surveys && Int(item, "c") == 1;
+                if (item.ContainsKey("o")) link.Open = Math.Max(0, Math.Min(url == Surveys ? MaxSurveys : 9999, Int(item, "o")));
+                foreach (var entry in Items(item, "d").Take(DetailLimit(url)).OfType<Dictionary<string, object>>())
                 {
                     var name = Clip(Str(entry, "t"), TitleLength); if (name.Length == 0) continue;
                     var until = Str(entry, "e");
@@ -222,7 +261,7 @@ namespace Univer.Desktop.Core
                 var copy = n.Copy();
                 copy.Title = Clip(copy.Title, TitleLength); copy.Text = Clip(copy.Text, TextLength); copy.Page = copy.Page ?? "";
                 copy.Count = Math.Max(0, Math.Min(9999, copy.Count)); copy.Open = Math.Max(-1, Math.Min(9999, copy.Open));
-                copy.Details = copy.Details.Where(d => d != null && !string.IsNullOrEmpty(d.Title)).Take(MaxDetails)
+                copy.Details = copy.Details.Where(d => d != null && !string.IsNullOrEmpty(d.Title)).Take(DetailLimit(copy.Url))
                     .Select(d => new NoticeDetail { Title = Clip(d.Title, TitleLength), Until = DatePattern.IsMatch(d.Until ?? "") ? d.Until : "" }).ToList();
                 result.Add(copy);
             }

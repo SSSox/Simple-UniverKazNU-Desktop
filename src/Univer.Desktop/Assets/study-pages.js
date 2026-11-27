@@ -339,6 +339,7 @@
                 if (event.target !== head && event.target.closest('a,button,input,select,textarea')) return;
                 event.preventDefault();
                 record.closed = !record.closed; paintFold(record, event.type === 'keydown' || event.detail > 0);
+                if (record.closed && owns.has(head)) promoteOwn(owns.get(head));
             };
             head.addEventListener('click', record.toggle); head.addEventListener('keydown', record.toggle);
             head.setAttribute('role', 'button'); head.tabIndex = 0;
@@ -348,6 +349,73 @@
         if (head.dataset.univerCount !== count) head.dataset.univerCount = count;
         paintFold(record, false);
         allButton(record, files);
+    }
+    // A block the site left empty says so in words (Силлабус without an interactive syllabus): it is not shown at all. A
+    // block with any link is always shown. Only a block that is its own <div> is hidden, as the site writes it.
+    var NOT_FILLED = /^(не\s+заполнен[оаы]?|толтырылма(ған|ды|й\s+қалған)|not\s+(filled|completed)(\s+in)?)$/i, blanks = new Set();
+    function unfilled(head) {
+        var box = head.parentElement, words = '', node = head.nextSibling, links = false;
+        while (node && node.nodeName !== 'H4') {
+            if (node.nodeType === 1 && (node.matches('a[href]') || node.querySelector('a[href],img,iframe,video'))) links = true;
+            words += ' ' + (node.textContent || ''); node = node.nextSibling;
+        }
+        var empty = !links && NOT_FILLED.test(words.replace(/[\s()[\].,:;!–—-]+/g, ' ').trim());
+        var single = empty && box?.tagName === 'DIV' && box.closest('#l4 td.tt') && Array.from(box.children).filter(function (n) { return n.tagName === 'H4'; }).length === 1;
+        if (single && !blanks.has(box)) { box.setAttribute('data-univer-empty-section', ''); blanks.add(box); }
+        if (!single && box && blanks.has(box)) { box.removeAttribute('data-univer-empty-section'); blanks.delete(box); }
+        return !!single;
+    }
+    // The student's own syllabus in a block of printed syllabi: a tag in its link, and first in the block. It moves only
+    // while nobody is using the block (folded, or neither pointed at nor focused); otherwise it is first on the next visit,
+    // when syllabus-tasks.js already knows the answer.
+    var owns = new Map();
+    function ownText() { return language === 'en' ? 'Your programme' : language === 'kz' ? 'Сіздің мамандығыңыз' : 'Ваша специальность'; }
+    function ownSection(head, items) {
+        var own = window.__univerSyllabusV1?.own, links = items.filter(function (node) {
+            if (!node.matches('a[href]')) return false;
+            try { var url = new URL(node.getAttribute('href'), location.href); return url.origin === location.origin && /^\/student\/interactive\/syllabus\/print\/\d+\/\d+\/?$/.test(url.pathname); } catch (_) { return false; }
+        });
+        if (links.length < 1 || typeof own !== 'function') return;
+        var key = links.map(function (a) { return a.href; }).join(' '), record = owns.get(head);
+        // A lookup that failed (the programme could not be read) is asked again, at most every 20 s.
+        if (record && record.key === key && !(record.failed && Date.now() - record.failed > 20000)) { promoteOwn(record); return; }
+        if (record) unmarkOwn(record);
+        record = {key:key, head:head, link:null, tag:null, home:null, pending:false, box:null, later:null}; owns.set(head, record);
+        own(links.map(function (a) { return a.href; })).then(function (href) {
+            var link = href && links.find(function (a) { return a.href === href; });
+            if (!enabled || owns.get(head) !== record || !link || !link.isConnected) return;
+            var tag = document.createElement('span'); tag.className = 'univer-app-own-tag'; tag.textContent = ownText();
+            link.appendChild(tag); link.classList.add('univer-app-syllabus-own'); record.link = link; record.tag = tag;
+            if (head.nextElementSibling === link) return;
+            // In use now: the move waits until the block is folded, or left by both the pointer and the focus.
+            record.pending = true; record.box = link.parentNode;
+            record.later = function () { setTimeout(function () { if (owns.get(head) === record) promoteOwn(record); }, 0); };
+            record.box.addEventListener('mouseleave', record.later); record.box.addEventListener('focusout', record.later);
+            promoteOwn(record);
+        }, function () { record.failed = Date.now(); });
+    }
+    function promoteOwn(record) {
+        var link = record.link, head = record.head, box = record.box, closed = !!sections.get(head)?.closed;
+        if (!enabled || !record.pending || !link || !link.isConnected || link.parentNode !== box) return;
+        var inUse = false;
+        try { inUse = box.matches(':hover'); } catch (_) { }
+        if ((inUse || box.contains(document.activeElement)) && !closed) return;
+        record.pending = false; stopWaiting(record);
+        if (head.nextElementSibling === link) return;
+        record.home = {parent:box, next:link.nextSibling};
+        var move = function () { head.after(link); };
+        if (window.__univerMotionUI && !closed) window.__univerMotionUI.reflow(box, move); else move();
+    }
+    function stopWaiting(record) {
+        if (!record.box || !record.later) return;
+        record.box.removeEventListener('mouseleave', record.later); record.box.removeEventListener('focusout', record.later); record.later = null;
+    }
+    function unmarkOwn(record) {
+        record.pending = false; stopWaiting(record);
+        record.tag?.remove();
+        if (record.link) { record.link.classList.remove('univer-app-syllabus-own'); if (!record.link.getAttribute('class')) record.link.removeAttribute('class'); }
+        var home = record.home;
+        if (home && record.link && home.parent.isConnected) home.parent.insertBefore(record.link, home.next && home.next.parentNode === home.parent ? home.next : null);
     }
     function folds() {
         if (!coursePage()) return;
@@ -363,7 +431,8 @@
             if (h4.closest('#tools')) return;
             var items = [], node = h4.nextElementSibling;
             while (node && node.tagName !== 'H4') { items.push(node); node = node.nextElementSibling; }
-            if (items.length && clean(h4)) section(h4, items, false);
+            if (unfilled(h4)) return;
+            if (items.length && clean(h4)) { section(h4, items, false); ownSection(h4, items); }
         });
         // A file row says what its click does: it saves the file, or opens the teacher's link.
         document.querySelectorAll('#l4 table.univer-app-materials tr.file a.downLoad').forEach(function (a) {
@@ -628,6 +697,7 @@
         enabled = true;
         if (!style || !style.isConnected) { style = document.createElement('style'); style.id = 'univer-pages-style'; style.textContent = css(); (document.head || document.documentElement).appendChild(style); }
         grades(); notes(); captions(); documents(); crumbs(); periods(); memos(); courses(); outside(); folds(); freshFiles();
+        owns.forEach(function (record) { if (record.tag && record.tag.textContent !== ownText()) record.tag.textContent = ownText(); });
     }
     function release() {
         if (!enabled && !style) return;
@@ -647,6 +717,8 @@
         hinted.forEach(function (link) { link.removeAttribute('title'); }); hinted.clear();
         freshMarks.forEach(function (mark) { mark.remove(); }); freshMarks = [];
         Array.from(slides.keys()).forEach(stopSlide);
+        owns.forEach(unmarkOwn); owns.clear();
+        blanks.forEach(function (box) { box.removeAttribute('data-univer-empty-section'); }); blanks.clear();
         sections.forEach(function (record, head) {
             head.removeEventListener('click', record.toggle); head.removeEventListener('keydown', record.toggle);
             ['role','tabindex','aria-expanded','data-univer-fold','data-univer-count'].forEach(function (name) { head.removeAttribute(name); });

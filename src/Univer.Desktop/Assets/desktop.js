@@ -39,8 +39,21 @@
             var after = node.getBoundingClientRect().height;
             if (before <= 0 || after <= 0 || Math.abs(before - after) < 1) return;
             retire(layouts, node);
-            track(layouts, node, node.animate([{height:before + 'px', maxHeight:'none', overflow:'hidden'}, {height:after + 'px', maxHeight:'none', overflow:'hidden'}],
+            // max-height moves too: a box whose height a stylesheet holds at auto with !important (which an animation cannot
+            // override) still grows within it.
+            track(layouts, node, node.animate([{height:before + 'px', maxHeight:before + 'px', overflow:'hidden'}, {height:after + 'px', maxHeight:after + 'px', overflow:'hidden'}],
                 {duration:duration || 220, easing:ease, fill:'backwards'}));
+        };
+        // A block folds shut to nothing and only then is hidden (done), so what follows it closes up instead of jumping.
+        // done runs exactly once: at the end, when the run is stopped, or at once without motion.
+        var collapse = function (node, done, duration) {
+            var height = node?.isConnected ? node.getBoundingClientRect().height : 0;
+            stop(node);
+            if (!node?.isConnected || !allowed() || reduce() || !node.animate || height < 1) { done(); return; }
+            var animation = node.animate([{height:height + 'px', maxHeight:height + 'px', overflow:'hidden', opacity:1},
+                {height:'0px', maxHeight:'0px', overflow:'hidden', opacity:0, paddingTop:'0px', paddingBottom:'0px', marginTop:'0px', marginBottom:'0px'}],
+                {duration:duration || 180, easing:'cubic-bezier(.4,0,.2,1)', fill:'forwards'});
+            track(layouts, node, animation, function () { done(); animation.cancel(); });
         };
         var change = function (node, mutate, kind) {
             var before = node?.getBoundingClientRect().height || 0; stop(node); mutate();
@@ -139,7 +152,7 @@
             }
             details.__univerMotionToggle = open;
         }, true);
-        window.__univerMotionUI = {reveal:reveal, stop:stop, reduced:reduce, change:change, reflow:reflow, exit:exit, resize:resize, zoom:zoom};
+        window.__univerMotionUI = {reveal:reveal, stop:stop, reduced:reduce, change:change, reflow:reflow, exit:exit, resize:resize, zoom:zoom, collapse:collapse};
         document.addEventListener('visibilitychange', function () { if (document.hidden) stop(); });
         document.addEventListener('toggle', function (event) {
             var details = event.target;
@@ -1244,6 +1257,63 @@
 :root:root:root.univer-mobile #l4 .univer-app-lesson-label strong { font-size:14px!important; font-weight:600; }
 :root:root:root.univer-mobile #l4 .univer-app-table-scroll:has(>table.univer-app-matrix) { margin:0!important; }
 :root:root:root.univer-mobile #l4 .univer-app-table-scroll .univer-app-matrix :is(td,th) { padding:5px 10px!important; }
+/* A card beside an open syllabus list keeps its own height (study-links.js marks the cards of that grid row). */
+:root:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr[data-univer-own-height] { align-self:start; }
+/* An open course and its class log are one card (attendance.js marks the rows): the course row is its top, each class
+   type is a block under a hairline with its name and teacher over the marks, and the last row closes the card with room
+   before the next course. The rows are blocks, so their height can move when the log opens and folds. */
+:root:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr[data-univer-journal] { display:block!important; grid-column:1/-1; box-sizing:border-box; width:100%!important; min-width:0; margin:0; padding:0 20px!important; overflow:hidden; border:1px solid var(--u-line)!important; border-top:0!important; border-bottom:0!important; border-radius:0!important; background:var(--u-surface)!important; box-shadow:none!important; }
+:root:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr[data-univer-journal]>td { display:block; box-sizing:border-box; width:auto!important; min-width:0; height:auto!important; padding:0!important; border:0!important; background:none!important; text-align:left; }
+:root:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr[data-univer-journal]>td:is(.lt,.rt):empty { display:none!important; }
+:root:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr[data-univer-journal=top] { margin-top:4px; border-top:1px solid var(--u-line)!important; border-radius:12px 12px 0 0!important; }
+:root:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr[data-univer-journal=top]>td.ct { padding:0 0 14px!important; font-weight:400; }
+:root:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr[data-univer-journal=top]>td.ct>.univer-app-course-heading { margin:0 0 10px; padding-top:14px; border-top:0; }
+:root:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr[data-univer-journal=top]>td.ct>.univer-app-attendance-summary { max-width:620px; }
+:root:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr[data-univer-journal=head]>td:not(:empty) { padding:14px 0 8px!important; border-top:1px solid var(--u-line)!important; }
+:root:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr[data-univer-journal=body]>td:not(:empty) { padding:0 0 6px!important; }
+:root:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr[data-univer-journal-end] { margin-bottom:24px; border-bottom:1px solid var(--u-line)!important; border-radius:0 0 12px 12px!important; }
+:root:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr[data-univer-journal-end]>td:not(:empty) { padding-bottom:18px!important; }
+/* The rows' margins carry no !important: Chromium keeps an !important value through an animation, and the card's room
+   before the next course grows and folds with its rows. */
+:root:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr[data-univer-journal] .univer-app-lesson-label { display:flex; align-items:baseline; flex-wrap:wrap; gap:2px 12px; margin:0!important; }
+:root:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr[data-univer-journal] .univer-app-lesson-label strong { color:var(--u-ink); font-size:15px!important; font-weight:600; }
+:root:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr[data-univer-journal] .univer-app-lesson-label>span { color:var(--u-muted); font-size:13px!important; }
+:root:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr[data-univer-journal] div.inner { margin:0!important; padding:0!important; border:0!important; background:none!important; overflow:visible!important; }
+/* The marks: dates over marks in even columns that scroll sideways inside their block, never past the card. */
+:root:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr[data-univer-journal] .univer-app-table-scroll { width:fit-content; max-width:100%; margin:0!important; overflow-x:auto!important; overflow-y:hidden; border:1px solid var(--u-line)!important; border-radius:10px!important; background:var(--u-surface)!important; box-shadow:none!important; }
+:root:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr[data-univer-journal] .univer-app-matrix :is(td,th) { min-width:44px!important; padding:6px 8px!important; font-variant-numeric:tabular-nums; white-space:nowrap!important; }
+:root:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr[data-univer-journal] .univer-app-matrix th { background:var(--u-surface-2)!important; color:var(--u-muted)!important; font-size:12px!important; font-weight:600!important; }
+:root:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr[data-univer-journal] .univer-app-matrix td { color:var(--u-ink); font-size:14px!important; }
+:root:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr[data-univer-journal] .univer-app-matrix tr>:first-child:not(th) { min-width:44px!important; text-align:center!important; }
+:root:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr[data-univer-journal] .univer-app-matrix tr>th:first-child { min-width:72px!important; text-align:start!important; }
+/* An absence without a valid reason stands out in the low band's tint; one with a valid reason in the fair band's. */
+:root:root:root:root:root.univer-mobile #l4 .univer-app-matrix td.univer-app-absent { background:var(--univer-band-low-soft)!important; color:var(--univer-band-low-ink)!important; font-weight:700!important; }
+:root:root:root:root:root.univer-mobile #l4 .univer-app-matrix td.univer-app-excused { background:var(--univer-band-fair-soft)!important; color:var(--univer-band-fair-ink)!important; font-weight:600!important; }
+@media (max-width:600px) {
+ :root:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr[data-univer-journal] { padding:0 12px!important; }
+ :root:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr[data-univer-journal=top]>td.ct>.univer-app-course-heading { flex-wrap:wrap; gap:10px; }
+}
+/* A phone-wide course card: the totals' columns narrow so РК2 stays inside the card instead of being cut off. */
+@media (max-width:420px) {
+ :root:root:root:root.univer-mobile #l4 .univer-app-score-table>div { grid-template-columns:minmax(88px,1fr) repeat(var(--univer-columns,2),minmax(72px,auto)); padding:4px 10px; column-gap:6px; }
+}
+/* Absences: two labelled numbers per course, and the term's own pair above the courses. */
+:root:root:root:root:root.univer-mobile #l4 p.univer-app-attendance-absences { display:flex; flex-wrap:wrap; align-items:flex-start; gap:4px 32px; }
+:root:root:root:root:root.univer-mobile #l4 .univer-app-attendance-absences-label { flex:1 0 100%; color:var(--u-ink); font-size:13px; font-weight:600; }
+:root:root:root:root:root.univer-mobile #l4 .univer-app-absence { display:inline-grid; grid-template-columns:auto auto; align-items:baseline; justify-content:start; gap:0 6px; color:var(--u-muted); font-size:13px; }
+:root:root:root:root:root.univer-mobile #l4 .univer-app-absence>b { color:var(--u-ink); font-size:15px; font-weight:700; font-variant-numeric:tabular-nums; }
+:root:root:root:root:root.univer-mobile #l4 .univer-app-absence>small { grid-column:1/-1; color:var(--u-muted); font-size:12px; }
+:root:root:root:root:root.univer-mobile #l4 p.univer-app-attendance-term { display:flex; flex-wrap:wrap; align-items:baseline; gap:6px 24px; margin:0 0 12px!important; padding:12px 16px!important; border:1px solid var(--u-line); border-radius:12px; background:var(--u-surface); color:var(--u-text); font-size:14px!important; line-height:1.4!important; text-align:start; }
+:root:root:root:root:root.univer-mobile #l4 p.univer-app-attendance-term[hidden] { display:none!important; }
+:root:root:root:root:root.univer-mobile #l4 .univer-app-attendance-term-title { color:var(--u-ink); font-weight:600; }
+:root:root:root:root:root.univer-mobile #l4 .univer-app-attendance-term .univer-app-absence>b { font-size:17px; }
+/* The student's own syllabus: a tinted chip with a tag that says why, on the course page and in a card's syllabus list. */
+:root:root:root:root:root.univer-mobile #l4 [data-univer-empty-section] { display:none!important; }
+:root:root:root:root:root:root.univer-mobile #l4 .univer-app-own-tag { display:inline-flex; align-items:center; flex:none; height:20px; margin:0 0 0 8px; padding:0 8px; box-sizing:border-box; border-radius:6px; background:var(--u-brand); color:#fff!important; font-size:12px!important; font-weight:600!important; line-height:1; white-space:nowrap; vertical-align:middle; text-decoration:none; }
+:root:root:root:root:root:root.univer-mobile #l4 div.inner>div:has(>h4)>a.univer-app-syllabus-own { border-color:var(--u-brand)!important; background:var(--u-brand-soft)!important; color:var(--u-ink)!important; font-weight:600!important; }
+:root:root:root:root:root.univer-mobile #l4 .univer-app-syllabi li.univer-app-syllabus-own { margin:4px 0; padding:10px 12px; border:1px solid var(--u-brand-line); border-radius:8px; background:var(--u-brand-soft); }
+:root:root:root:root:root.univer-mobile #l4 .univer-app-syllabi li>.univer-app-own-tag { margin:0; }
+:root:root:root:root:root.univer-mobile #l4 .univer-app-syllabi li.univer-app-syllabus-own>a { color:var(--u-ink)!important; font-weight:600!important; }
 /* News: a search field and two quiet filters; what they found is said only when something is filtered. */
 :root:root:root:root.univer-mobile #l4 .univer-app-news-tools { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin:-4px -4px 10px!important; padding:4px!important; border:0!important; border-radius:0!important; background:none!important; box-shadow:none!important; }
 :root:root:root:root.univer-mobile #l4 input.univer-app-news-query { flex:1 1 300px; min-width:200px; background-color:var(--u-surface)!important; }
@@ -1335,6 +1405,7 @@
             return true;
         }
         if (apply(document)) mutated = true;
+        window.__univerNoticesV1?.present(enabled && !viewer);
         if (window.__univerKitV1) window.__univerKitV1.configure(enabled && !viewer);
         // «Наверх» reads the layout (button width, control boxes) and measure() writes scroll hints after its own reads:
         // in this order the page is laid out once, not again after the hint writes.

@@ -63,6 +63,7 @@
             if (globalThis.__univerShortcutsV1) globalThis.__univerShortcutsV1.configure(list(home.pins), list(home.order), list(home.hidden));
         } catch (_) { }
         try { if (globalThis.__univerDesktop) globalThis.__univerDesktop.apply(settings.readable, viewer, lang); } catch (_) { }
+        if (settings.readable && !viewer && window === window.top) window.__univerNoticesV1?.check();
         if (revealed) return;
         revealed = true;
         try { if (globalThis.__univerPaintV1) globalThis.__univerPaintV1.complete(false, settings.readable, viewer, lang); } catch (_) { }

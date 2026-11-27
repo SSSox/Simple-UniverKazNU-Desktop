@@ -24,6 +24,7 @@
         names: 4,                // course names in one note
         folded: 60,              // remembered collapsed classes
         parallel: 2,             // courses resolved at once
+        ownWait: 30000,          // milliseconds one call for the student's own syllabus waits for the printed syllabi
         again: 20000,            // a course whose pages failed is read once more after this
         fresh: 400 * 86400000,   // a found plan is kept for the semester: a syllabus does not change, a new programme or Refresh rereads it
         missing: 86400000,       // "no syllabus for this programme" is rechecked after this
@@ -359,12 +360,13 @@
         if (programPromise && !force) return programPromise;
         var saved = stored(STORE).program;
         if (!force && saved && CODE.test(saved.code || '') && Date.now() - saved.at < LIMITS.program) return programPromise = Promise.resolve(saved);
+        var epoch = generation;
         programPromise = (async function () {
             var sources = ['/student/bachelor/', '/student/educplan/'];
-            for (var i = 0; i < sources.length; i++) {
+            for (var i = 0; i < sources.length && epoch === generation; i++) {
                 var found = null;
                 try { found = parseProgram(await read(sources[i])); } catch (_) { }
-                if (!found) continue;
+                if (!found || epoch !== generation) continue;
                 found.at = Date.now();
                 var cache = stored(STORE); cache.program = found; keep(STORE, cache);
                 return found;
@@ -373,6 +375,90 @@
         })();
         programPromise.catch(function () { });
         return programPromise;
+    }
+    /* The student's own syllabus among printed ones (study-links.js and study-pages.js mark it). Each printed syllabus is
+       read once and only its programme codes, language divisions and academic year are kept; reads go two at a time
+       across the page, each within its own timeout and page size, and one call waits no longer than LIMITS.ownWait. The
+       programme code decides; among several, the student's language division, then the newest academic year. With the
+       programme unknown nothing is chosen; when it could not be read the call fails, so the caller may ask again later. */
+    var OWN = 'univer.desktop.syllabus-own.v1', OWN_KEPT = 200, OWN_SIZE = 200000;
+    // A read belongs to the generation that queued it: release (Original) and refresh drop the queue and the reads in
+    // flight, and a queued read whose callers have all stopped waiting (LIMITS.ownWait) is dropped before it starts.
+    var ownReads = new Map(), ownQueue = [], ownActive = 0;
+    // 6B01401 is written with a Latin or a Cyrillic letter.
+    function codeKey(value) { return String(value || '').toUpperCase().replace(/В/g, 'B').replace(/М/g, 'M').replace(/Д/g, 'D'); }
+    function ownStored() {
+        try {
+            var raw = localStorage.getItem(OWN), saved = raw && raw.length <= OWN_SIZE ? JSON.parse(raw) : null;
+            if (saved && saved.entries && typeof saved.entries === 'object' && !Array.isArray(saved.entries)) return saved;
+        } catch (_) { }
+        return {entries:{}};
+    }
+    function ownSave(href, facts) {
+        try {
+            var saved = ownStored(), keys; saved.entries[href] = facts;
+            keys = Object.keys(saved.entries).sort(function (a, b) { return (saved.entries[a].at || 0) - (saved.entries[b].at || 0); });
+            keys.slice(0, Math.max(0, keys.length - OWN_KEPT)).forEach(function (key) { delete saved.entries[key]; });
+            var text = JSON.stringify(saved);
+            if (text.length <= OWN_SIZE) localStorage.setItem(OWN, text);
+        } catch (_) { }
+    }
+    function ownPump() {
+        while (ownActive < LIMITS.parallel && ownQueue.length) {
+            var job = ownQueue.shift();
+            if (job.epoch !== generation || Date.now() > job.until) { job.reject(new Error('Syllabus read dropped')); continue; }
+            ownActive++;
+            job.task().then(job.resolve, job.reject).then(function () { ownActive--; ownPump(); });
+        }
+    }
+    function ownDrop() {
+        ownQueue.splice(0).forEach(function (job) { job.reject(new Error('Syllabus read dropped')); });
+        ownReads.clear();
+    }
+    function ownRead(href, until) {
+        var saved = ownStored().entries[href], known = ownReads.get(href);
+        if (saved && Array.isArray(saved.programs) && fresh(saved.at, LIMITS.fresh)) return Promise.resolve(saved);
+        if (known && known.job.epoch === generation) { known.job.until = Math.max(known.job.until, until); return known.promise; }
+        var epoch = generation, job, promise = new Promise(function (resolve, reject) {
+            ownQueue.push(job = {epoch:epoch, until:until, resolve:resolve, reject:reject, task:async function () {
+                var doc = await read(new URL(href).pathname);
+                if (epoch !== generation) throw new Error('Syllabus read dropped');
+                var parsed = parseSyllabus(doc);
+                var facts = {at:Date.now(), year:parsed.year, programs:parsed.programs.filter(function (g) { return g.code; }).slice(0, 40).map(function (g) { return [codeKey(g.code), g.division]; })};
+                ownSave(href, facts);
+                return facts;
+            }});
+            ownPump();
+        });
+        var entry = {job:job, promise:promise}, done = function () { if (ownReads.get(href) === entry) ownReads.delete(href); };
+        ownReads.set(href, entry); promise.then(done, done);
+        return promise;
+    }
+    async function ownSyllabus(hrefs) {
+        var list = [];
+        (hrefs || []).forEach(function (href) {
+            try { var url = new URL(href, location.origin); if (url.origin === location.origin && PRINT.test(url.pathname) && !url.search && list.indexOf(url.href) < 0) list.push(url.href); } catch (_) { }
+        });
+        list = list.slice(0, LIMITS.candidates);
+        if (!list.length) return null;
+        var epoch = generation, program = await studentProgram();
+        // Released (or refreshed) while the programme was read: nothing new is queued, and the caller may ask again.
+        if (epoch !== generation) throw new Error('Syllabus lookup dropped');
+        var code = codeKey(program?.code);
+        if (!CODE.test(code)) return null;
+        var timer = 0, until = Date.now() + LIMITS.ownWait, deadline = new Promise(function (resolve) { timer = setTimeout(resolve, LIMITS.ownWait, null); });
+        try {
+            var facts = await Promise.all(list.map(function (href) { return Promise.race([ownRead(href, until).catch(function () { return null; }), deadline]); }));
+            if (epoch !== generation) throw new Error('Syllabus lookup dropped');
+            var best = null;
+            list.forEach(function (href, index) {
+                var found = facts[index], mine = found ? found.programs.filter(function (p) { return p[0] === code; }) : [];
+                if (!mine.length) return;
+                var division = program.division && mine.some(function (p) { return p[1] === program.division; }) ? 1 : 0, year = +found.year || 0;
+                if (!best || division > best.division || (division === best.division && year > best.year)) best = {href:href, division:division, year:year};
+            });
+            return best ? best.href : null;
+        } finally { clearTimeout(timer); }
     }
     // The semester's courses are remembered too, so a page that finds every plan stored makes no request at all.
     async function courseList(force) {
@@ -599,7 +685,7 @@
         return model.jobs.find(function (job) { return job.key === key; }) || model.jobs.find(function (job) { return key.indexOf(job.key) === 0 || job.key.indexOf(key) === 0; }) || null;
     }
     function refresh() {
-        generation++; controllers.forEach(function (abort) { abort.abort(); }); controllers.clear(); active = 0;
+        generation++; ownDrop(); controllers.forEach(function (abort) { abort.abort(); }); controllers.clear(); active = 0;
         timers.forEach(clearTimeout); timers.clear();
         var cache = stored(STORE); delete cache.courses; delete cache.pattern; delete cache.list; keep(STORE, cache);
         boot(true); renderAll(true);
@@ -1018,7 +1104,7 @@
         (records || []).forEach(function (record) { if (record?.view && !views.has(record.view)) attach(record); });
     }
     function release() {
-        enabled = false; generation++; active = 0; model = null; programPromise = null; prefs = null; storeCache = null; storeOwner = null;
+        enabled = false; generation++; ownDrop(); active = 0; model = null; programPromise = null; prefs = null; storeCache = null; storeOwner = null;
         controllers.forEach(function (abort) { abort.abort(); }); controllers.clear(); teachers.clear(); timers.forEach(clearTimeout); timers.clear();
         views.forEach(function (state) {
             motion()?.stop(state.panel.root); state.panel.root.remove(); state.view.removeAttribute('data-syllabus');
@@ -1028,5 +1114,5 @@
     }
     // state: what QA reads to tell a finished page from a waiting one; course names and statuses only.
     function summary() { return {model:model ? model.state : 'off', reason:model?.reason || '', weeks:model ? model.pattern.state : 'off', jobs:(model?.jobs || []).map(function (job) { return {name:job.name, status:job.status, reason:job.reason || ''}; })}; }
-    window.__univerSyllabusV1 = {apply:apply, release:release, state:summary, limits:LIMITS, parseSyllabus:parseSyllabus, parseProgram:parseProgram, sroKind:sroKind, kindOf:kindOf, rate:rate, leadOf:leadOf, tasksFor:tasksFor, parseWeek:parseWeek, align:align};
+    window.__univerSyllabusV1 = {apply:apply, release:release, state:summary, own:ownSyllabus, limits:LIMITS, parseSyllabus:parseSyllabus, parseProgram:parseProgram, sroKind:sroKind, kindOf:kindOf, rate:rate, leadOf:leadOf, tasksFor:tasksFor, parseWeek:parseWeek, align:align};
 })();
