@@ -1354,7 +1354,7 @@
 :root:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr[data-univer-journal=top] { margin-top:4px; border-top:1px solid var(--u-line)!important; border-radius:12px 12px 0 0!important; }
 :root:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr[data-univer-journal=top]>td.ct { padding:0 0 14px!important; font-weight:400; }
 :root:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr[data-univer-journal=top]>td.ct>.univer-app-course-heading { margin:0 0 10px; padding-top:14px; border-top:0; }
-:root:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr[data-univer-journal=top]>td.ct>.univer-app-attendance-summary { max-width:620px; }
+:root:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr[data-univer-journal=top]>td.ct>.univer-app-attendance-summary { max-width:none; }
 :root:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr[data-univer-journal=head]>td:not(:empty) { padding:14px 0 8px!important; border-top:1px solid var(--u-line)!important; }
 :root:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr[data-univer-journal=body]>td:not(:empty) { padding:0 0 6px!important; }
 :root:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr[data-univer-journal-end] { margin-bottom:24px; border-bottom:1px solid var(--u-line)!important; border-radius:0 0 12px 12px!important; }
