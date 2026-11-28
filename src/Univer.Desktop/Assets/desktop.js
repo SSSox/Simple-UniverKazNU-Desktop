@@ -1140,7 +1140,7 @@
 /* Inside a course: one sheet of files, grouped by the site's sections. A row is the file; size and date line up on the right. */
 :root:root:root:root.univer-mobile #l4 table.univer-app-study-panel tr.brk>td.ct { padding:14px 0 6px!important; color:var(--u-ink)!important; font-size:15px!important; font-weight:600!important; }
 :root:root:root:root.univer-mobile #l4 div.inner>div:has(>h4) { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin:0 0 12px; }
-:root:root:root:root.univer-mobile #l4 div.inner>div:has(>h4)>h4 { flex:0 0 auto; margin:0 4px 0 0!important; color:var(--u-muted)!important; font-size:13px!important; font-weight:600!important; }
+:root:root:root:root.univer-mobile #l4 div.inner>div:has(>h4)>h4 { flex:0 0 auto; white-space:nowrap; margin:0 4px 0 0!important; color:var(--u-muted)!important; font-size:13px!important; font-weight:600!important; }
 :root:root:root:root.univer-mobile #l4 div.inner>div:has(>h4)>a.univer-app-page-link { height:34px!important; min-height:34px!important; padding:0 12px!important; border-radius:10px!important; font-size:13px!important; }
 :root:root:root:root.univer-mobile #l4 .univer-app-table-scroll:has(>.univer-app-materials) { overflow:hidden!important; border:1px solid var(--u-line)!important; border-radius:12px!important; background:var(--u-surface)!important; box-shadow:none!important; }
 :root:root:root:root.univer-mobile #l4 table.univer-app-materials, :root:root:root:root.univer-mobile #l4 table.univer-app-materials>tbody { display:block!important; width:100%!important; min-width:0!important; border:0!important; background:none!important; }

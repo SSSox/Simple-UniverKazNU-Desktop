@@ -799,6 +799,7 @@
 /* Printed syllabus contacts, on screen only: the site floats every block of its sheet (#content div), so a value row could
    spill out of its cell, under the next row's hover colour and border. Here the rows are in flow and laid out as a grid. */
 @media screen {
+  :root.univer-mobile #content table.students td.text div { float:none!important; }
  :root.univer-mobile :is(td,th).univer-app-contacts>.input-row { display:grid!important; grid-template-columns:minmax(0,1.2fr) minmax(0,1fr) minmax(0,1.3fr); gap:4px 16px; position:static!important; float:none!important; width:auto!important; min-width:0; box-sizing:border-box; margin:0!important; padding:8px 0!important; border-top:1px solid var(--u-line,#dfe5ec); }
  :root.univer-mobile :is(td,th).univer-app-contacts>.input-row.univer-app-contact-head { padding-top:0!important; border-top:0; }
  :root.univer-mobile :is(td,th).univer-app-contacts>.input-row.univer-app-contact-head+.input-row { border-top:0; }

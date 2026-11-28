@@ -306,7 +306,7 @@ html.univer-mobile .univer-app-cards>tbody, html.univer-mobile .univer-app-cards
 html.univer-mobile .univer-app-card-header { display:none!important; }
 html.univer-mobile .univer-app-card-header.univer-app-sort-head { display:flex!important; flex-wrap:wrap; gap:6px; margin:8px 0; }
 html.univer-mobile .univer-app-sort-head>th { display:block!important; min-width:0!important; width:auto!important; padding:12px!important; border:1px solid #d7e3ef!important; border-radius:8px; font-size:12px!important; }
-html.univer-mobile .univer-app-card-row { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:10px; margin:8px 0 12px; padding:14px; background:white; border:1px solid #d7e3ef; border-radius:10px; }
+html.univer-mobile .univer-app-card-row { display:grid; height:auto!important; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:10px; margin:8px 0 12px; padding:14px; background:white; border:1px solid #d7e3ef; border-radius:10px; }
 html.univer-mobile .univer-app-card-row>:is(td,th) { display:block; width:auto!important; min-width:0!important; height:auto!important; float:none!important; border:0!important; padding:0!important; white-space:normal!important; overflow-wrap:anywhere; line-height:1.5; }
 html.univer-mobile .univer-app-card-row>td:first-child { grid-column:1/-1; font-weight:500; }
 html.univer-mobile .univer-app-card-row>td[data-univer-field]::before { content:attr(data-univer-field); display:block; font-size:12px; font-weight:400; color:#61758a; margin-bottom:4px; }

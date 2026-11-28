@@ -124,3 +124,8 @@ test('other printed documents and pages get no contact controls', () => {
   assert.equal(p.d.querySelectorAll('.univer-app-copy,.univer-app-contact-link').length, 0);
   p.close();
 });
+
+test('card rows drop the height the site writes on them, so their fields never overlap', () => {
+  // The live exam schedule writes style="height:30px" on every row; a grid row of that height spilled over the next ones.
+  assert.match(read('univer-layout.js'), /\.univer-app-card-row \{ display:grid; height:auto!important;/);
+});
