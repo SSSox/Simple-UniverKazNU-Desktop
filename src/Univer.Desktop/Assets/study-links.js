@@ -40,7 +40,8 @@
         if (pending) return pending;
         var epoch = generation; attempted = true;
         var address=listHref(), lang=language, journal=window.__univerSyllabusV1?.journal, saved=journal?.(address,lang);
-        if (saved?.length && saved.every(course=>typeof course?.name==='string' && COURSE.test(course.href))) {
+        if (saved?.length && saved.every(course=>typeof course?.name==='string' && COURSE.test(course.href)) &&
+            Array.from(headings.values()).every(record=>courseOf(record,saved))) {
             courses=saved; connectCourses(); return courses;
         }
         pending = (async function () {
@@ -59,6 +60,10 @@
     }
     function remember(link) {
         if (!changed.has(link)) changed.set(link,['href','role','aria-controls','aria-expanded','hidden','tabindex','aria-hidden','data-univer-syllabus-source'].map(name=>[name,link.getAttribute(name)]));
+    }
+    function courseOf(record,list) {
+        var heading=fold(clean(record.original));
+        return list?.find(c=>heading===fold(c.name) || heading.startsWith(fold(c.name)+' ('));
     }
     function connectCourses() {
         if (!enabled) return;
@@ -80,7 +85,7 @@
                 button.addEventListener('click',event=>{event.stopPropagation();show(button,false,event);});
             }
             if (record.button.textContent!==text().print) record.button.textContent=text().print;
-            var course=courses?.find(c=>fold(clean(record.original))===fold(c.name) || fold(clean(record.original)).startsWith(fold(c.name)+' ('));
+            var course=courseOf(record,courses);
             if (course && !record.link) {
                 record.course=course;
                 var link=anchor(course.href,course.name);link.className='univer-app-attendance-course';link.title=text().umkd;
@@ -108,12 +113,14 @@
         var file=/^\/student\/umkd\/get\/\d+\/\d+\/\d{4}\/[12]\/?$/.test(url.pathname) && /силлаб|syllab/i.test(name);
         if (print || file) return {href:url.href,name:name,print:print};
     }
-    function loadItems(course,force) {
+    // A remembered list serves only the background lookup: an opened list is always the site's own, so a syllabus
+    // uploaded since the last visit is there.
+    function loadItems(course,force,remembered) {
         var href=course.href, journal=window.__univerSyllabusV1?.journal, lang=language, epoch=generation;
         if (!COURSE.test(href)) return Promise.reject(new Error('Course materials unavailable'));
         if (!force && materials.has(href)) return materials.get(href);
-        var saved=!force && journal?.(href,lang);
-        if (saved) return Promise.resolve(saved.map(item=>typeof item?.name==='string' && materialLink(item.href,item.name)).filter(Boolean));
+        var saved=remembered && journal?.(href,lang);
+        if (saved?.length) return Promise.resolve(saved.map(item=>typeof item?.name==='string' && materialLink(item.href,item.name)).filter(Boolean));
         var request=(async ()=>{
             var doc=await read(href), box=doc.getElementById('l4'), seen=new Set(), items=[];
             if (!box || !enabled || generation!==epoch) throw new Error('Course materials unavailable');
@@ -136,7 +143,7 @@
             for (var course of queued) {
                 if (!enabled || generation!==epoch) return;
                 try {
-                    var items=await loadItems(course,false);
+                    var items=await loadItems(course,false,true);
                     if (!enabled || generation!==epoch) return;
                     var hrefs=items.filter(item=>item.print).map(item=>item.href);
                     if (hrefs.length && syllabus.peekOwn(hrefs,course.href)===undefined) await syllabus.own(hrefs,course.href);

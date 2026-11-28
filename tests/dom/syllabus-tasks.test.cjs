@@ -314,6 +314,36 @@ test('a week the site leaves unanswered once is asked again at once and the topi
   assert.equal(JSON.parse(p.w.localStorage.getItem(WEEK_CACHE)).terms['ru|/2026/1'].pages[dropped] !== undefined, true);
   apply(p, false); p.close();
 });
+test('a syllabus that cannot be read does not hide the best of the readable ones, and that choice is not remembered', async () => {
+  const map = routes(); delete map['/student/interactive/syllabus/print/9004/2'];
+  map['/student/umkd/7001/2026/1'] = coursePage([['9001', 'Другой факультет'], ['9003', 'Казахское отделение'], ['9099', 'Недоступный']]);
+  const p = page(schedule(lessons), { routes: map, local: { [ACCOUNT]: 'student-a' } });
+  apply(p); await until(done(p));
+  assert.deepEqual(topics(lessonOf(p, 'Политология', 'лекция')), ['Тема казахского отделения']);
+  const answers = JSON.parse(p.w.localStorage.getItem(OWN) || '{}').answers || {};
+  assert.ok(!Object.values(answers).some(answer => /9003/.test(answer.path || '')), 'an unfinished choice is not remembered');
+  apply(p, false); p.close();
+});
+test('a syllabus uploaded after the last visit shows when the journal list is opened', async () => {
+  const journal = '<table><tr><td class="ct">Политология ([РК1 + РК2 + Экз] (100)) 01.09.2026 - 12.12.2026</td></tr></table>';
+  const path = '/student/attendance/full/2026/1', course = '/student/umkd/7001/2026/1';
+  const map = { ...routes(), '/student/umkd/0/2026/1': routes()['/student/umkd/'], [course]: coursePage([]) };
+  const open = async local => {
+    const p = page(journal, { path, local, routes: map }); p.w.__univerStudyV1.apply('ru');
+    await until(() => !!p.d.querySelector('.univer-app-course-syllabus'));
+    p.d.querySelector('.univer-app-course-syllabus').click();
+    await until(() => !!p.d.querySelector('.univer-app-syllabi li'));
+    return p;
+  };
+  const first = await open({ [ACCOUNT]: 'a1' });
+  const uploaded = p => !!p.d.querySelector('.univer-app-syllabi a[href$="/print/9004/2"]');
+  assert.equal(uploaded(first), false);
+  const local = snapshot(first); first.close();
+  map[course] = coursePage([['9004', 'Политология (Осень 2026)']]);
+  const again = await open(local);
+  assert.equal(uploaded(again), true);
+  again.close();
+});
 test('another student signing in on the same profile does not get the previous student\'s programme, course list or weeks', async () => {
   const first = page(schedule(lessons, 4), { routes: routes(), local: { 'univer.app.account.v1': 'a1' } });
   apply(first); await until(done(first));
@@ -860,9 +890,9 @@ test('the candidate limit cannot turn a partial scan into a kept answer', async 
   const p = page('', { routes: map, local: { [ACCOUNT]: 'a1' } });
   const api = p.w.__univerSyllabusV1;
   api.limits.candidates = 1;
-  map[new URL(candidates[0]).pathname] = map[new URL(candidates[1]).pathname];
+  map[new URL(candidates[0]).pathname] = map['/student/interactive/syllabus/print/9001/2'];
   map[new URL(candidates[1]).pathname] = politics;
-  await assert.rejects(api.own(candidates, course));
+  assert.equal(await api.own(candidates, course), null);
   assert.equal(api.peekOwn(candidates, course), undefined);
   assert.deepEqual(p.requests.filter(path => path.includes('/print/')), [new URL(candidates[0]).pathname]);
   api.limits.candidates = 2;
@@ -982,7 +1012,7 @@ test('Original aborts all schedule discovery, including the shared course list',
   p.close();
 });
 
-test('the journal preloads one course at a time and tags the first opening, including a zero-request revisit', async () => {
+test('the journal preloads one course at a time and tags the first opening, and a revisit reads only the opened course page', async () => {
   const journal = '<table>' + ['Политология', 'Культурология'].map(name =>
     '<tr><td class="ct">' + name + ' ([РК1 + РК2 + Экз] (100)) 01.09.2026 - 12.12.2026</td></tr>').join('') + '</table>';
   const path = '/student/attendance/full/2026/1', firstCourse = '/student/umkd/7001/2026/1', secondCourse = '/student/umkd/7002/2026/1';
@@ -1005,11 +1035,12 @@ test('the journal preloads one course at a time and tags the first opening, incl
   assert.equal(p.requests.length, before);
   const local = snapshot(p); p.close();
 
-  const again = page(journal, { path, local });
+  const again = page(journal, { path, local, routes: map });
   again.w.__univerStudyV1.apply('ru');
   again.d.querySelector('.univer-app-course-syllabus').click();
   await until(() => !!again.d.querySelector('.univer-app-own-tag'));
-  assert.deepEqual(again.requests, []);
+  // The opened list itself is the site's own: one read of the course page, no syllabus read again.
+  assert.deepEqual(again.requests, [firstCourse]);
   again.close();
 });
 
@@ -1032,7 +1063,8 @@ test('own(): an unread candidate leaves the match unresolved until the best poss
     try {
         const own = p.w.__univerSyllabusV1.own, links = prints([9003, 9004, 9002]), course = '/student/umkd/7001/2026/1';
         map[path] = site('<p>Printing unavailable</p>');
-        await assert.rejects(own(links, course));
+        // The best readable one is shown meanwhile, and asked about again.
+        assert.equal(await own(links, course), links[0]);
         map[path] = politics;
         assert.equal(await own(links, course), links[1]);
         assert.equal(p.requests.filter(r => r === path).length, 2);

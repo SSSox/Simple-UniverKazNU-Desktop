@@ -509,11 +509,12 @@
         var path = knownChoice(syllabusList(hrefs, course), null, account());
         return path ? location.origin + path : path;
     }
-    async function pickSyllabus(list, program, force) {
+    async function pickSyllabus(list, program, force, note) {
         var epoch = generation, who = account(), known = !force ? knownChoice(list, program, who) : undefined;
         if (known !== undefined) return known;
         var key = who + '|' + programmeKey(program) + '|' + list.key;
-        if (picks.has(key)) return picks.get(key);
+        if (picks.has(key)) return settle(await picks.get(key));
+        function settle(found) { if (note) note.partial = found.partial; return found.path; }
         var lookup = (async function () {
             var best = null, failed = false, expired = false, timer = 0, until = Date.now() + LIMITS.ownWait;
             var deadline = new Promise(function (resolve) {
@@ -535,24 +536,28 @@
                         if (!parsed) { failed = true; continue; }
                         var score = rate(parsed, program, list.year);
                         if (score < 0) continue;
-                        if (list.year && score === full) return batch[j];
+                        if (list.year && score === full) return {path:batch[j], partial:false};
                         if (!best || score > best.score || (score === best.score && +parsed.year > best.year))
                             best = {path:batch[j], score:score, year:+parsed.year || 0};
                     }
                 }
-                if (failed || expired || Date.now() >= until || list.paths.length < list.routes.size) throw new Error('Syllabus lookup incomplete');
-                return best ? best.path : null;
+                var partial = failed || expired || Date.now() >= until;
+                // The best of what could be read is shown; an unfinished lookup is not remembered and runs again next time.
+                if (!best && partial) throw new Error('Syllabus lookup incomplete');
+                // "None of these" is not an answer while some of the list was never read.
+                return {path:best ? best.path : null, partial:partial || (!best && list.paths.length < list.routes.size)};
             } finally { clearTimeout(timer); }
         })();
         picks.set(key, lookup);
         try {
-            var path = await lookup;
+            var found = await lookup, path = found.path;
             if (epoch !== generation || who !== account()) throw new Error('Syllabus lookup dropped');
+            if (found.partial) return settle(found);
             var saved = {at:Date.now(), program:programmeKey(program), path:path};
             if (answerOwner !== who) { answers.clear(); answerOwner = who; }
             if (answers.size >= 100) answers.delete(answers.keys().next().value);
             answers.set(list.key, saved); ownSave(who, 'answers', list.key, saved, 100);
-            return path;
+            return settle(found);
         } finally { if (picks.get(key) === lookup) picks.delete(key); }
     }
     async function ownSyllabus(hrefs, course) {
@@ -766,13 +771,13 @@
         var links = Array.from(doc.querySelectorAll('#l4 a[href]'));
         var list = syllabusList(links.map(function (a) { return a.href; }), job.href);
         if (!list.paths.length) return {status:'nosyllabus'};
-        var path = await pickSyllabus(list, program, owner.force);
+        var note = {}, path = await pickSyllabus(list, program, owner.force, note);
         if (!current()) throw new Error('Syllabus lookup dropped');
         if (!path) return {status:'unmatched'};
         var parsed = await printRead(path, list.routes.get(path), Date.now() + LIMITS.wait, owner.force);
         var link = links.find(function (a) { return printPath(a.href) === path; });
         var plan = group(parsed.entries);
-        return {status:'ready', plan:{href:path, title:clean(link).slice(0, 160), weeks:plan.weeks, kinds:plan.kinds}};
+        return {status:'ready', certain:!note.partial, plan:{href:path, title:clean(link).slice(0, 160), weeks:plan.weeks, kinds:plan.kinds}};
     }
     function wanted(job) {
         var found = false;
