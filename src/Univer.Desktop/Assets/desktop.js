@@ -28,32 +28,93 @@
             var from = current ? {opacity:current.opacity, transform:current.transform} :
                 {opacity:gentle ? .4 : content ? .2 : .2, transform:gentle ? 'none' : horizontal ? 'translateX(' + (kind === 'back' ? '-16px' : '16px') + ') scale(.985)' : content ? 'translateY(8px)' : kind === 'tile' ? 'translateY(10px) scale(.97)' : 'translateY(-8px) scale(.97)'};
             cancel(node);
+            // A popup opens at the fold pace (a menu, the account panel or a list is a disclosure too); reduced motion keeps
+            // its short fade.
+            var popup = kind === 'popup' && !gentle;
             var animation = node.animate([from, {opacity:1, transform:'none'}],
-                {duration:gentle ? 180 : content ? 200 : kind === 'tile' ? 200 : 240, delay:gentle ? 0 : (delay || 0), easing:ease, fill:'backwards'});
+                {duration:gentle ? 180 : content ? 200 : kind === 'tile' ? 200 : popup ? span(node.getBoundingClientRect().height) : 240, delay:gentle ? 0 : (delay || 0), easing:popup ? foldEase : ease, fill:'backwards'});
             motions.set(node, animation);
             var finish = function () { if (motions.get(node) === animation) motions.delete(node); };
             animation.onfinish = animation.oncancel = finish;
         };
-        var resize = function (node, before, duration) {
+        // Folding and unfolding share one pace: the run grows with the distance (220 ms for a step, up to 420 ms for a long
+        // article), so a long fold neither jumps nor drags, and it eases in and out the way a sheet is pulled.
+        var foldEase = 'cubic-bezier(.45,0,.25,1)';
+        var span = function (distance) { return Math.round(Math.min(420, Math.max(220, 220 + Math.abs(distance || 0) * .2))); };
+        var options = function (value) { return value && typeof value === 'object' ? value : {}; };
+        // Heights are measured as border boxes; a content-box box runs them less its own vertical padding and borders as they
+        // stand now (after the change), so a box whose padding changes with its state (the open news body) starts and ends
+        // exactly where it stands, without a snap.
+        var edges = function (node) {
+            var look = getComputedStyle(node);
+            if (look.boxSizing === 'border-box') return 0;
+            return ['paddingTop', 'paddingBottom', 'borderTopWidth', 'borderBottomWidth'].reduce(function (sum, key) { return sum + (parseFloat(look[key]) || 0); }, 0);
+        };
+        var px = function (height, edge) { return Math.max(0, height - edge) + 'px'; };
+        // A box closing above the reader's place: the page scrolls back with it, frame by frame from the box's own height, so
+        // what was read rolls up to the top of the block instead of the page racing past and then jumping. A wheel, touch or
+        // key from the reader takes the scroll back at once; the fold itself goes on.
+        var glide = function (node, anchor, before, after) {
+            var top = anchor?.isConnected ? anchor.getBoundingClientRect().top : 0;
+            if (!anchor?.isConnected || top >= 80 || before - after < 1) return null;
+            var from = window.scrollY || window.pageYOffset || 0, to = Math.max(0, Math.min(from, from + top - 12)), frame = 0, over = false;
+            var move = function (y) { window.scrollTo({top:Math.round(y), left:window.scrollX || 0, behavior:'instant'}); };
+            var off = function () {
+                if (over) return; over = true; if (frame) cancelAnimationFrame(frame);
+                ['wheel', 'touchstart', 'pointerdown', 'keydown'].forEach(function (type) { window.removeEventListener(type, off, true); });
+            };
+            ['wheel', 'touchstart', 'pointerdown', 'keydown'].forEach(function (type) { window.addEventListener(type, off, {capture:true, passive:true}); });
+            var step = function () {
+                frame = 0; if (over || !node.isConnected) return;
+                var now = node.getBoundingClientRect().height, part = Math.min(1, Math.max(0, (before - now) / (before - after)));
+                move(from + (to - from) * part);
+                frame = requestAnimationFrame(step);
+            };
+            frame = requestAnimationFrame(step);
+            return function (finished) { var still = !over; off(); if (finished && still) move(to); };
+        };
+        // While a height runs the box carries data-univer-resizing: a cap a stylesheet holds with !important (the folded
+        // news preview), which no animation can move, steps aside until the run ends, so closing moves as smoothly as
+        // opening. The content is clipped to the moving edge the whole time.
+        var resize = function (node, before, settings) {
             if (!node?.isConnected || !allowed() || reduce() || !node.animate) return;
-            var after = node.getBoundingClientRect().height;
-            if (before <= 0 || after <= 0 || Math.abs(before - after) < 1) return;
             retire(layouts, node);
+            var after = node.getBoundingClientRect().height, wanted = options(settings);
+            if (before <= 0 || after <= 0 || Math.abs(before - after) < 1) return;
+            node.setAttribute('data-univer-resizing', '');
             // max-height moves too: a box whose height a stylesheet holds at auto with !important (which an animation cannot
             // override) still grows within it.
-            track(layouts, node, node.animate([{height:before + 'px', maxHeight:before + 'px', overflow:'hidden'}, {height:after + 'px', maxHeight:after + 'px', overflow:'hidden'}],
-                {duration:duration || 220, easing:ease, fill:'backwards'}));
+            var edge = edges(node);
+            var animation = node.animate([{height:px(before, edge), maxHeight:px(before, edge), overflow:'hidden'}, {height:px(after, edge), maxHeight:px(after, edge), overflow:'hidden'}],
+                {duration:span(wanted.distance || after - before), easing:foldEase, fill:'backwards'});
+            var scroll = after < before ? glide(node, wanted.follow, before, after) : null;
+            track(layouts, node, animation, function () { scroll?.(animation.playState === 'finished'); node.removeAttribute('data-univer-resizing'); });
+            return true;
         };
         // A block folds shut to nothing and only then is hidden (done), so what follows it closes up instead of jumping.
         // done runs exactly once: at the end, when the run is stopped, or at once without motion.
-        var collapse = function (node, done, duration) {
+        var collapse = function (node, done, settings) {
             var height = node?.isConnected ? node.getBoundingClientRect().height : 0;
             stop(node);
             if (!node?.isConnected || !allowed() || reduce() || !node.animate || height < 1) { done(); return; }
-            var animation = node.animate([{height:height + 'px', maxHeight:height + 'px', overflow:'hidden', opacity:1},
+            var edge = edges(node);
+            var animation = node.animate([{height:px(height, edge), maxHeight:px(height, edge), overflow:'hidden', opacity:1},
                 {height:'0px', maxHeight:'0px', overflow:'hidden', opacity:0, paddingTop:'0px', paddingBottom:'0px', marginTop:'0px', marginBottom:'0px'}],
-                {duration:duration || 180, easing:'cubic-bezier(.4,0,.2,1)', fill:'forwards'});
+                {duration:span(options(settings).distance || height), easing:foldEase, fill:'forwards'});
             track(layouts, node, animation, function () { done(); animation.cancel(); });
+        };
+        // A box closes to `target` px with its content still in place, and only then is changed (done): nothing inside
+        // vanishes while the edge is still moving. done runs exactly once, as with collapse. The start is read before any run
+        // on the box is stopped: a box still opening closes from where its edge is, not from its full height.
+        var shut = function (node, target, done) {
+            var height = node?.isConnected ? node.getBoundingClientRect().height : 0;
+            stop(node);
+            if (!node?.isConnected || !allowed() || reduce() || !node.animate || height - target < 1) { done(); return; }
+            node.setAttribute('data-univer-resizing', '');
+            var edge = edges(node);
+            var animation = node.animate([{height:px(height, edge), maxHeight:px(height, edge), overflow:'hidden'}, {height:px(target, edge), maxHeight:px(target, edge), overflow:'hidden'}],
+                {duration:span(height - target), easing:foldEase, fill:'forwards'});
+            track(layouts, node, animation, function () { node.removeAttribute('data-univer-resizing'); done(); animation.cancel(); });
         };
         var change = function (node, mutate, kind) {
             var before = node?.getBoundingClientRect().height || 0; stop(node); mutate();
@@ -131,7 +192,7 @@
             clone.style.cssText += ';position:fixed!important;left:' + rect.left + 'px!important;top:' + rect.top + 'px!important;width:' + rect.width + 'px!important;height:' + rect.height + 'px!important;margin:0!important;z-index:10000!important;pointer-events:none!important;';
             stop(node); document.body.appendChild(clone);
             track(ghosts, node, clone.animate([{opacity:opacity, transform:transform}, {opacity:0, transform:reduce() ? 'none' : 'translateY(-8px) scale(.97)'}],
-                {duration:140, easing:ease, fill:'forwards'}), function () { clone.remove(); });
+                {duration:reduce() ? 140 : span(rect.height), easing:reduce() ? ease : foldEase, fill:'forwards'}), function () { clone.remove(); });
         };
         var zoom = function (node, ratio) {
             if (!node?.isConnected) return; stop(node);
@@ -146,13 +207,26 @@
             if (!details?.matches(detailsSelector) || !allowed() || event.detail === 0) return;
             event.preventDefault(); var open = !details.open;
             if (details.matches('.univer-app-menu,.univer-app-account')) { if (!open) exit(details); else stop(details); details.open = open; }
+            else if (details.__univerShutting) {
+                // A click while it closes keeps it open: the box grows back from where it is, its content never left.
+                var from = details.getBoundingClientRect().height; details.__univerShutting = null; details.removeAttribute('data-univer-shutting'); stop(details); resize(details, from);
+                return;
+            }
+            else if (!open) {
+                // The content stays while the box closes up to its heading; the details element closes when the edge arrives.
+                var box = details.getBoundingClientRect(), head = summary.getBoundingClientRect(), look = getComputedStyle(details);
+                var target = head.bottom - box.top + (parseFloat(look.paddingBottom) || 0) + (parseFloat(look.borderBottomWidth) || 0), token = {};
+                details.__univerShutting = token; details.setAttribute('data-univer-shutting', '');
+                shut(details, target, function () { if (details.__univerShutting !== token) return; details.__univerShutting = null; details.removeAttribute('data-univer-shutting'); details.__univerMotionToggle = false; details.open = false; });
+                return;
+            }
             else {
-                var before = details.getBoundingClientRect().height; stop(details); details.open = open; resize(details, before, open ? 220 : 180);
-                if (open) Array.from(details.children).filter(function (n) { return n.tagName !== 'SUMMARY'; }).forEach(function (n) { reveal(n, 'content'); });
+                var before = details.getBoundingClientRect().height; stop(details); details.open = open; resize(details, before);
+                Array.from(details.children).filter(function (n) { return n.tagName !== 'SUMMARY'; }).forEach(function (n) { reveal(n, 'content'); });
             }
             details.__univerMotionToggle = open;
         }, true);
-        window.__univerMotionUI = {reveal:reveal, stop:stop, reduced:reduce, change:change, reflow:reflow, exit:exit, resize:resize, zoom:zoom, collapse:collapse};
+        window.__univerMotionUI = {reveal:reveal, stop:stop, reduced:reduce, change:change, reflow:reflow, exit:exit, resize:resize, zoom:zoom, collapse:collapse, shut:shut, span:span, easing:foldEase};
         document.addEventListener('visibilitychange', function () { if (document.hidden) stop(); });
         document.addEventListener('toggle', function (event) {
             var details = event.target;
@@ -160,7 +234,8 @@
             var handled = details.__univerMotionToggle === details.open; delete details.__univerMotionToggle;
             if (!details.open) { if (!handled && !ghosts.has(details)) stop(details); return; }
             if (details.classList.contains('univer-app-menu')) reveal(details, 'popup');
-            else if (!handled) Array.from(details.children).filter(function (node) { return node.tagName !== 'SUMMARY'; }).forEach(function (node) { reveal(node, details.classList.contains('univer-app-account') ? 'popup' : 'content'); });
+            // The account panel opens like the menu whether a click or the page opened it.
+            else if (!handled || details.classList.contains('univer-app-account')) Array.from(details.children).filter(function (node) { return node.tagName !== 'SUMMARY'; }).forEach(function (node) { reveal(node, details.classList.contains('univer-app-account') ? 'popup' : 'content'); });
         }, true);
         var preference = window.matchMedia?.('(prefers-reduced-motion: reduce)');
         if (preference?.addEventListener) preference.addEventListener('change', function () { stop(); });
@@ -673,7 +748,8 @@
 :root.univer-mobile :is(.univer-app-catalog,.univer-app-faq,.univer-app-info,#l5 .univer-app-university) { margin:0 0 10px!important; overflow:hidden; background:#fff!important; border:1px solid var(--u-line)!important; border-radius:12px!important; box-shadow:var(--u-shadow); }
 :root.univer-mobile :is(.univer-app-catalog,.univer-app-faq,.univer-app-info,#l5 .univer-app-university)>summary { display:flex!important; align-items:center; gap:12px; min-height:0!important; padding:14px 18px!important; color:var(--u-ink)!important; font-size:15px!important; font-weight:500!important; }
 :root.univer-mobile :is(.univer-app-catalog,.univer-app-faq,.univer-app-info,#l5 .univer-app-university)>summary::after { content:''; width:8px; height:8px; margin:-4px 2px 0 auto; flex:0 0 auto; border-right:2px solid var(--u-muted); border-bottom:2px solid var(--u-muted); transform:rotate(45deg); }
-:root.univer-mobile :is(.univer-app-catalog,.univer-app-faq,.univer-app-info,#l5 .univer-app-university)[open]>summary::after { margin-top:4px; transform:rotate(-135deg); }
+/* A closing fold (data-univer-shutting) turns its chevron back at the start, while its content still slides shut. */
+:root.univer-mobile :is(.univer-app-catalog,.univer-app-faq,.univer-app-info,#l5 .univer-app-university)[open]:not([data-univer-shutting])>summary::after { margin-top:4px; transform:rotate(-135deg); }
 :root.univer-mobile :is(.univer-app-catalog,.univer-app-faq,.univer-app-info,#l5 .univer-app-university)[open]>summary { border-bottom:1px solid var(--u-line); }
 :root.univer-mobile :is(.univer-app-catalog,.univer-app-faq,.univer-app-info,#l5 .univer-app-university):hover>summary { background:var(--u-surface-2); }
 :root.univer-mobile #l5 .univer-app-university>div { padding:12px 18px!important; font-size:13px!important; color:var(--u-muted); }
@@ -691,7 +767,8 @@
 :root.univer-mobile .univer-app-news .news>td:nth-child(2) :is(table) { max-width:100%; }
 :root.univer-mobile table.univer-app-news { overflow-anchor:none; }
 :root.univer-mobile .univer-app-news-body { display:flow-root; position:relative; }
-:root.univer-mobile .univer-app-news-body[data-collapsed=true] { max-height:248px!important; overflow:hidden!important; }
+/* The preview's cap steps aside while its height runs (data-univer-resizing, desktop motion), so folding shut slides too. */
+:root.univer-mobile .univer-app-news-body[data-collapsed=true]:not([data-univer-resizing]) { max-height:248px!important; overflow:hidden!important; }
 :root.univer-mobile .univer-app-news-body[data-collapsed=true]::after { content:''; position:absolute; bottom:0; left:0; right:0; height:36px; pointer-events:none; background:linear-gradient(transparent,#fff); }
 :root.univer-mobile #l4 .univer-app-news button.univer-app-news-toggle { display:inline-flex!important; align-items:center; gap:10px; min-height:38px!important; margin:8px 0 0!important; padding:6px 10px!important; border:0!important; border-radius:6px!important; background:transparent!important; color:var(--u-ink)!important; font:600 14px/1.4 var(--u-font)!important; box-shadow:none!important; }
 :root.univer-mobile #l4 .univer-app-news button.univer-app-news-toggle[hidden] { display:none!important; }

@@ -1442,7 +1442,7 @@ html.univer-mobile.univer-app-document body { padding:24px!important; background
             if(table.__univerSortButton?.isConnected){if(table.__univerSortButton.textContent!==caption)table.__univerSortButton.textContent=caption;return;}
             var button=document.createElement('button'); button.type='button'; button.className='univer-app-sort-toggle'; button.setAttribute('aria-expanded','false');
             button.textContent=caption;
-            button.addEventListener('click',function(event){var before=table.getBoundingClientRect().height;window.__univerMotionUI?.stop(table);var closed=table.classList.toggle('univer-app-sort-collapsed');button.setAttribute('aria-expanded',String(!closed));if(event.detail>0)window.__univerMotionUI?.resize(table,before,closed?180:220);});
+            button.addEventListener('click',function(event){var before=table.getBoundingClientRect().height;window.__univerMotionUI?.stop(table);var closed=table.classList.toggle('univer-app-sort-collapsed');button.setAttribute('aria-expanded',String(!closed));if(event.detail>0)window.__univerMotionUI?.resize(table,before);});
             table.classList.add('univer-app-sort-collapsed');table.before(button);table.__univerSortButton=button;
         });
         // Not every observed .inner grid has TH headings (testing and split AJAX results).

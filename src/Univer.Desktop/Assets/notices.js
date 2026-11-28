@@ -394,7 +394,10 @@
         }
         current.fetching = false;
         if (typeof __univerNative === 'function' && fetching && refresh) {
-            queuedRefresh = function () { if (owner() === mark) scan(fetchSections, generation, refresh); };
+            queuedRefresh = function () {
+                if (owner() === mark) scan(fetchSections, generation, refresh);
+                else send({v:1, g:current.g, kind:'done', page:page, read:0, failed:1, refresh:refresh});
+            };
             current.fetching = true;
         } else if (!fetching && typeof __univerNative === 'function') {
             var sections = [];

@@ -392,7 +392,9 @@
                     toggle.setAttribute('aria-expanded','false');
                     if (!animate || !left || !motion?.collapse) { change(); return; }
                     closing.set(token,rows);
-                    rows.forEach(row=>motion.collapse(row,()=>{ if (--left===0 && closing.get(token)===rows) { closing.delete(token); place(change); } },200));
+                    // The rows fold at one pace, set by the whole log's height (the shared fold pace).
+                    var distance=rows.reduce((sum,row)=>sum+row.getBoundingClientRect().height,0);
+                    rows.forEach(row=>motion.collapse(row,()=>{ if (--left===0 && closing.get(token)===rows) { closing.delete(token); place(change); } },{distance}));
                     return;
                 }
                 // The rows stay shut while the grid slides (so the courses below are not moved twice) and grow in the next
@@ -400,15 +402,19 @@
                 // hint under a wide table), so the height they grow to is final.
                 var created=place(()=>{ var made=change(); if (moving) journalOf(token).forEach(shutRow); return made; });
                 if (moving) {
-                    Promise.resolve().then(()=>(window.requestAnimationFrame||setTimeout)(()=>journalOf(token).filter(row=>shut.has(row)).forEach(row=>{
-                        unshutRow(row); motion.resize(row,1,240); motion.reveal(row,'content');
-                        var room=row.hasAttribute('data-univer-journal-end')&&row.animate?getComputedStyle(row).marginBottom:'';
-                        if (parseFloat(room)>0) row.animate([{marginBottom:'0px'},{marginBottom:room}],{duration:240,easing:'cubic-bezier(.22,1,.36,1)'});
-                    })));
+                    Promise.resolve().then(()=>(window.requestAnimationFrame||setTimeout)(()=>{
+                        var grow=journalOf(token).filter(row=>shut.has(row)); grow.forEach(unshutRow);
+                        var distance=grow.reduce((sum,row)=>sum+row.getBoundingClientRect().height,0);
+                        grow.forEach(row=>{
+                            motion.resize(row,1,{distance}); motion.reveal(row,'content');
+                            var room=row.hasAttribute('data-univer-journal-end')&&row.animate?getComputedStyle(row).marginBottom:'';
+                            if (parseFloat(room)>0) row.animate([{marginBottom:'0px'},{marginBottom:room}],{duration:motion.span?motion.span(distance):240,easing:motion.easing||'cubic-bezier(.22,1,.36,1)'});
+                        });
+                    }));
                     if (created&&!created.closest('[hidden]')) motion.reveal(created,'content');
                 }
                 else if (animate) {
-                    journalOf(token).forEach(row=>{ motion?.resize(row,1,240); motion?.reveal(row,'content'); });
+                    journalOf(token).forEach(row=>{ motion?.resize(row,1); motion?.reveal(row,'content'); });
                     if (created&&!created.closest('[hidden]')) motion?.reveal(created,'content');
                 }
             });

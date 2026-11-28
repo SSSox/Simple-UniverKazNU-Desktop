@@ -752,17 +752,26 @@ test('own(): concurrent lookups share a failed programme read, then retry it on 
     } finally { p.close(); }
 });
 
-test('own(): a failed printed read leaves the choice unverified and only the failed candidate is retried', async () => {
+test('own(): the best readable match wins when another printed candidate is unavailable', async () => {
     const map = routes(), p = page(site('<p>x</p>'), { routes: map }), path = '/student/interactive/syllabus/print/9004/2';
     try {
-        const own = p.w.__univerSyllabusV1.own, links = prints([9002, 9004]);
+        const own = p.w.__univerSyllabusV1.own, links = prints([9003, 9004, 9002]);
+        map[path] = site('<p>Printing unavailable</p>');
+        assert.equal(await own(links), links[2]);
+    } finally { p.close(); }
+});
+
+test('own(): without a match, only the failed candidate is retried', async () => {
+    const map = routes(), p = page(site('<p>x</p>'), { routes: map }), path = '/student/interactive/syllabus/print/9004/2';
+    try {
+        const own = p.w.__univerSyllabusV1.own, links = prints([9001, 9004]);
         delete map[path];
         await assert.rejects(own(links));
         map[path] = site('<p>Temporary error</p>');
         await assert.rejects(own(links));
         map[path] = politics;
         assert.equal(await own(links), links[1]);
-        assert.equal(p.requests.filter(request => request.includes('/9002/')).length, 1);
+        assert.equal(p.requests.filter(request => request.includes('/9001/')).length, 1);
         assert.equal(p.requests.filter(request => request === path).length, 3);
     } finally { p.close(); }
 });

@@ -193,6 +193,30 @@ test('a refresh queued during a survey check reads again and has its own complet
     } finally { p.w.close(); }
 });
 
+test('a queued refresh reports failure if the account changes before it starts', async () => {
+    const p = page(shell(rows), 'https://univer.kaznu.kz/student/rating/', { routes: routesFor('') });
+    try {
+        const account = 'univer.app.account.v1', fetch = p.w.fetch;
+        let releaseFirst;
+        const first = new Promise(resolve => { releaseFirst = resolve; });
+        p.w.fetch = async (address, options) => {
+            const response = await fetch(address, options);
+            if (address.endsWith('/208')) await first;
+            return response;
+        };
+        p.w.localStorage.setItem(account, 'a1');
+        assert.equal(scan(p).fetching, true);
+        assert.equal(scan(p, false, 7).fetching, true);
+        p.w.localStorage.setItem(account, 'b2');
+        releaseFirst();
+        await settle();
+        assert.deepEqual(p.requests, ['/student/rating/208', '/student/rating/207']);
+        assert.deepEqual(messages(p).filter(message => message.refresh === 7), [
+            { v: 1, g: 'n1', kind: 'done', page: '/student/rating/', read: 0, failed: 1, refresh: 7 }
+        ]);
+    } finally { p.w.close(); }
+});
+
 test('an unreadable questionnaire restores the site count and leaves the details unknown', async () => {
   const routes = routesFor('done');
   delete routes['/student/rating/207'];

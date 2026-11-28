@@ -66,9 +66,10 @@
                     var before = body.getBoundingClientRect().height;
                     window.__univerMotionUI?.stop(body);
                     expanded.set(record.source,!wasOpen); updateFold(record);
-                    if (event.detail > 0) window.__univerMotionUI?.resize(body, before, wasOpen ? 180 : 220);
-                    if (!wasOpen && event.detail > 0) window.__univerMotionUI?.reveal(body, 'content');
-                    if (wasOpen && row.getBoundingClientRect().top < 80) row.scrollIntoView?.({block:'start', behavior:event.detail > 0 && window.__univerMotion !== false && !window.__univerMotionUI?.reduced() ? 'smooth' : 'auto'});
+                    // The article unrolls from the preview the reader already sees (no fade: that would flash the text it
+                    // shows), and rolls back up with the page following it to the article's start when that is out of view.
+                    var moved = event.detail > 0 && window.__univerMotionUI?.resize(body, before, {follow:row});
+                    if (wasOpen && !moved && row.getBoundingClientRect().top < 80) row.scrollIntoView?.({block:'start', behavior:'auto'});
                 });
                 // A keyboard user reaching a link below the preview gets the full article before continuing.
                 body.addEventListener('focusin',() => { window.__univerMotionUI?.stop(body); expanded.set(record.source,true); updateFold(record); });

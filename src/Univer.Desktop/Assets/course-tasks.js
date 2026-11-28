@@ -234,9 +234,10 @@
                         if (record.view === entry[0]) return;
                         record.view = entry[0];
                         filter.querySelectorAll('button').forEach(function (other) { other.setAttribute('aria-pressed', String(other === button)); });
-                        show();
-                        // A pointer's choice brings the other list in the way the page's other blocks arrive; keys switch at once.
-                        if (event.detail > 0) window.__univerMotionUI?.reveal(body, 'content');
+                        // A pointer's choice brings the other list in the way the page's other blocks arrive, the box moving to
+                        // its new height at the shared fold pace; keys switch at once.
+                        var motion = event.detail > 0 ? window.__univerMotionUI : null;
+                        if (motion?.change) motion.change(body, show); else show();
                     });
                     filter.appendChild(button);
                 });

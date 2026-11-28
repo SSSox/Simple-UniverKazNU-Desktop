@@ -210,3 +210,24 @@ test('the course grid slides with a class log on both opening and closing, and t
  toggle().click();toggle().click();assert.deepEqual(calls,[]);assert.deepEqual(rooms,[]);
  p.w.__univerAttendanceV1.release();p.close();
 });
+
+test('a class log grows and folds as one block: every row runs at the pace of the whole log, its room too',async()=>{
+ const p=page(),grows=[],folds=[],rooms=[];let finish=[];
+ p.w.HTMLElement.prototype.animate=function(frames,options){if(frames.some(f=>'marginBottom' in f))rooms.push(options);return {cancel(){}};};
+ p.w.HTMLElement.prototype.getBoundingClientRect=function(){return {top:0,left:0,width:300,height:this.hasAttribute('data-univer-journal')?40:100};};
+ const real=p.w.getComputedStyle;p.w.getComputedStyle=n=>n.hasAttribute?.('data-univer-journal-end')?{marginBottom:'24px'}:real(n);
+ p.w.__univerMotionUI={reduced:()=>false,reveal(){},stop(){},span:d=>1000+d,easing:'shared',reflow(parent,mutate){mutate();},
+  resize(n,before,options){grows.push(options);},collapse(n,done,options){folds.push(options);finish.push(done);}};
+ const toggle=()=>card(p,'course-a').querySelector('.univer-app-attendance-details-toggle');
+ toggle().dispatchEvent(new p.w.MouseEvent('click',{bubbles:true,detail:1}));
+ await new Promise(r=>setTimeout(r,20));
+ // The rows that grow are measured once, together: 40 px each in this stand-in layout.
+ const rows=grows.length,distance=rows*40;
+ assert.ok(rows>1);
+ assert.equal(JSON.stringify(grows),JSON.stringify(Array(rows).fill({distance})),'each row grows at the pace of the whole log');
+ assert.deepEqual(rooms.map(o=>[o.duration,o.easing]),[[1000+distance,'shared']],'the room before the next course keeps the same pace');
+ toggle().dispatchEvent(new p.w.MouseEvent('click',{bubbles:true,detail:1}));
+ assert.equal(JSON.stringify(folds),JSON.stringify(Array(rows).fill({distance})),'and folds at it');
+ finish.forEach(done=>done());
+ p.w.__univerAttendanceV1.release();p.close();
+});

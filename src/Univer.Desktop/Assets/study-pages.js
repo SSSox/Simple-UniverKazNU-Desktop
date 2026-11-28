@@ -238,8 +238,11 @@
         if (!measures || !item.animate) return;
         var from = prepared.from, to = closing ? 0 : 1, frame = function (value) { var result = {'--univer-slide':String(value)}; Object.keys(measures).forEach(function (k) { result[k] = measures[k]; }); return result; };
         item.setAttribute('data-univer-sliding', '');
-        var animation = item.animate([frame(from), frame(to)], {duration:Math.max(90, Math.round((closing ? 260 : 320) * Math.abs(to - from))),
-            easing:closing ? 'cubic-bezier(.4,0,.2,1)' : 'cubic-bezier(.22,1,.36,1)', fill:'forwards'});
+        // The whole section moves at the shared fold pace (desktop.js): its run grows with the section's height, and a
+        // reversal takes the part of it that is left.
+        var motion = window.__univerMotionUI, full = motion?.span ? motion.span(prepared.distance || 0) : closing ? 260 : 320;
+        var animation = item.animate([frame(from), frame(to)], {duration:Math.max(90, Math.round(full * Math.abs(to - from))),
+            easing:motion?.easing || (closing ? 'cubic-bezier(.4,0,.2,1)' : 'cubic-bezier(.22,1,.36,1)'), fill:'forwards'});
         var mine = {animation:animation, measures:measures};
         slides.set(item, mine);
         animation.onfinish = function () { if (slides.get(item) === mine) stopSlide(item); };
@@ -269,7 +272,8 @@
             });
             return;
         }
-        plan.forEach(function (step) { slideRow(step.item, closed, step); });
+        var distance = plan.reduce(function (sum, step) { return sum + (step.measures ? parseFloat(step.measures['--univer-slide-h']) || 0 : 0); }, 0);
+        plan.forEach(function (step) { step.distance = distance; slideRow(step.item, closed, step); });
     }
     // «Скачать все»: a button in a files section's heading row, beside the heading button rather than inside it, with its
     // label drawn by CSS, so the heading's text (which names the fold and the folder) stays the same. Teachers' links are

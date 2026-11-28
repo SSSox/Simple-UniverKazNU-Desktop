@@ -56,17 +56,18 @@ test('filtered news search hidden article text, retain expansion across result p
   p.w.__univerNewsV1.release();assert.equal(p.d.querySelector('.univer-app-news-body,.univer-app-news-toggle'),null);p.close();
 });
 
-test('pointer news expansion fades only after revealing all content; collapse, focus and release cancel it',()=>{
+test('pointer news expansion unrolls from the preview without a fade; collapse follows its row; focus and release cancel it',()=>{
   const p=context(newsPage([newsRow('09','Длинная новость','<a href="#tail" id="tail">Конец</a>')]),'/news/student',news);
   newsGeometry(p,()=>600); const calls=[];
-  p.w.__univerMotionUI={reveal(node,kind){calls.push(['reveal',node,kind]);},stop(node){calls.push(['stop',node]);},resize(node,before,duration){calls.push(['resize',node,before,duration]);}};
+  p.w.__univerMotionUI={reveal(node,kind){calls.push(['reveal',node,kind]);},stop(node){calls.push(['stop',node]);},resize(node,before,options){calls.push(['resize',node,before,options]);}};
   p.w.__univerNewsV1.apply('ru'); const body=p.d.querySelector('.univer-app-news-body'),button=p.d.querySelector('.univer-app-news-toggle');
   button.dispatchEvent(new p.w.MouseEvent('click',{bubbles:true,detail:1}));
-  assert.equal(body.getAttribute('data-collapsed'),'false'); assert.equal(calls.at(-1)[0],'reveal'); assert.equal(calls.at(-1)[2],'content');
+  assert.equal(body.getAttribute('data-collapsed'),'false'); assert.equal(calls.at(-1)[0],'resize'); assert.equal(calls.filter(c=>c[0]==='reveal').length,0,'the preview is already on screen: no fade');
   button.dispatchEvent(new p.w.MouseEvent('click',{bubbles:true,detail:1}));
-  assert.equal(body.getAttribute('data-collapsed'),'true'); assert.equal(calls.at(-1)[0],'resize'); assert.equal(calls.at(-1)[3],180);
+  assert.equal(body.getAttribute('data-collapsed'),'true'); assert.equal(calls.at(-1)[0],'resize'); assert.equal(calls.at(-1)[3].follow,body.closest('tr'),'the page follows the article back to its start');
+  const resized=calls.filter(c=>c[0]==='resize').length;
   const before=calls.filter(c=>c[0]==='reveal').length; button.click();
-  assert.equal(body.getAttribute('data-collapsed'),'false'); assert.equal(calls.filter(c=>c[0]==='reveal').length,before);
+  assert.equal(body.getAttribute('data-collapsed'),'false'); assert.equal(calls.filter(c=>c[0]==='reveal').length,before); assert.equal(calls.filter(c=>c[0]==='resize').length,resized,'a key opens at once');
   p.d.getElementById('tail').focus(); assert.equal(calls.at(-1)[0],'stop');
   p.w.__univerNewsV1.release(); assert.equal(calls.at(-1)[0],'stop'); assert.equal(p.d.querySelector('.univer-app-news-body'),null); p.close();
 });

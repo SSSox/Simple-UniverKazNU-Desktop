@@ -23,7 +23,8 @@
     // The button needs a window at least MIN_VIEW tall; the room is given only while MIN_COLUMN px of page (a phone's width)
     // remain beside it. The app's sidebar grows with the zoom: the QA window's page is 656 px at 150% (room made) and
     // 480 px at 200% (no room).
-    var MIN_VIEW = 300, MIN_COLUMN = 360;
+    // The home routes keep at least two tiles a row (220 px each and their gap, shortcuts.js) between their two rooms.
+    var MIN_VIEW = 300, MIN_COLUMN = 360, HOME_COLUMN = 480;
     // Built node by node: the stores' checks refuse HTML text written into the page.
     function icon() {
         var ns = 'http://www.w3.org/2000/svg', svg = document.createElementNS(ns, 'svg');
@@ -103,11 +104,16 @@
     function room(size, force) {
         var root = document.documentElement, width = button.offsetWidth || 120;
         var need = Math.min(MAX_ROOM, Math.max(MIN_ROOM, Math.ceil((EDGE + width + 16) / 16) * 16)) + '';
-        var held = root.getAttribute(ROOM), fits = size.width - need >= MIN_COLUMN;
+        // The home routes centre their column, so their room is taken on both sides (shortcuts.js).
+        var home = root.classList.contains('univer-app-home');
+        var held = root.getAttribute(ROOM), fits = size.width - need * (home ? 2 : 1) >= (home ? HOME_COLUMN : MIN_COLUMN);
         // A room given up leaves the control under the button again: that is checked at once.
         if (size.height < MIN_VIEW || !fits) { if (held) { root.removeAttribute(ROOM); force = true; lastMark = ''; } }
         else { cramped = false; if (held) { if (held !== need) root.setAttribute(ROOM, need); return; } }
         if (size.height < MIN_VIEW) return;
+        // Главная and Бакалавр (shortcuts.js marks both univer-app-home) share one tile grid: both always take the room, so
+        // their column, and with it the grid, is the same at every window size whatever controls either page holds.
+        if (fits && home) { root.setAttribute(ROOM, need); return; }
         var now = Date.now();
         // A clock set back does not stop the checks.
         if (!force && now >= checked && now - checked < 1000) return;

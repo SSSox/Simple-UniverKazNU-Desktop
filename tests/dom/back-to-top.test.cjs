@@ -330,3 +330,65 @@ test('a page that replaced its body gets the button back on the next check', () 
   assert.ok(p.host()); assert.equal(p.button().classList.contains('on'), true);
   p.w.close();
 });
+
+// Главная (/news/student/1/) and Бакалавр share one tile grid: both always take the room, so the column is the same
+// width at every window size whether or not either page has a small control under the button.
+test('both home pages take the room without a control under the button, and only while the window can spare it', () => {
+  const home = page(site); home.d.documentElement.classList.add('univer-app-home');
+  home.top.configure(true, 'ru');
+  assert.equal(home.room(), '160', 'no control is needed on a home page');
+  home.top.configure(true, 'en'); home.top.refresh();
+  assert.ok(home.room(), 'the language only changes the step');
+  home.w.close();
+  const other = page(site); other.top.configure(true, 'ru');
+  assert.equal(other.room(), null, 'other pages still make room only for a control');
+  other.w.close();
+  // The class may arrive after the first check (shortcuts.js runs later): the next poll gives the room.
+  const late = page(site); late.top.configure(true, 'ru');
+  late.d.documentElement.classList.add('univer-app-home'); late.top.refresh();
+  assert.equal(late.room(), '160');
+  late.w.close();
+  // Too narrow to spare the room: both keep the full column, and the button still shows over a page with nothing under it.
+  const narrow = page(site, [], 6000, { width: 480, height: 800 }); narrow.d.documentElement.classList.add('univer-app-home');
+  narrow.top.configure(true, 'ru'); narrow.scroll(3000); narrow.top.refresh();
+  assert.equal(narrow.room(), null);
+  assert.equal(narrow.button().classList.contains('on'), true);
+  narrow.w.close();
+});
+
+test('the news page nested body cell never takes the room a second time: its padding outweighs every room rule', () => {
+  const shortcuts = fs.readFileSync('src/Univer.Desktop/Assets/shortcuts.js', 'utf8');
+  const rule = /((?::root)+)\.univer-mobile\.univer-app-home #l4 td\.center\.univer-app-home-body \{ padding:0!important; \}/.exec(shortcuts);
+  assert.ok(rule, 'the nested cell has no padding of its own');
+  // The strongest room rule is :root:root + .univer-mobile + [data-univer-top-room] + :not(.x) + .center: six classes.
+  const strongest = Math.max(...Array.from(desktop.matchAll(/((?::root)+)\.univer-mobile[^{]*\[data-univer-top-room\][^{]*#l4 td\.center \{/g),
+    (m) => m[1].length / 5 + 1 + (m[0].match(/\[|:not\(|\.univer-app-[\w-]+\]|\.center/g) || []).length));
+  assert.ok(rule[1].length / 5 + 4 > strongest, 'home body ' + (rule[1].length / 5 + 4) + ' classes against ' + strongest);
+});
+
+// The home column is centred, so its room is taken on both sides: it is given only while two tiles a row still fit
+// between the two rooms, and below that both home routes keep the full column at the same width.
+test('a home page takes the room only while two tiles fit between both rooms', () => {
+  for (const [width, room] of [[760, null], [800, '160'], [1000, '160']]) {
+    const p = page(site, [], 6000, { width, height: 800 }); p.d.documentElement.classList.add('univer-app-home');
+    p.top.configure(true, 'ru');
+    assert.equal(p.room(), room, width + ' px');
+    p.w.close();
+  }
+  // Other pages keep their right-only room down to a phone's column beside it.
+  const other = page(site, [{ left: 860, top: 3000, width: 110, height: 32 }], 6000, { width: 1000, height: 800 }); other.top.configure(true, 'ru');
+  assert.equal(other.room(), '160');
+  other.w.close();
+});
+
+test('the home frame holds the same centred column on both sides at every width, outweighing every room rule', () => {
+  const shortcuts = fs.readFileSync('src/Univer.Desktop/Assets/shortcuts.js', 'utf8');
+  const rule = /@media screen \{ ((?::root)+)\.univer-mobile\.univer-app-home #l4>td \{ padding-left:([^;]+)!important; padding-right:([^;]+)!important; \} \}/.exec(shortcuts);
+  assert.ok(rule, 'one screen rule for the frame of both routes, not gated on a window width');
+  assert.equal(rule[2], rule[3], 'left and right are the same');
+  for (const part of ['var(--u-home-gutter)', 'calc((100% - var(--u-page)) / 2)', 'var(--u-top-room, 0px)']) assert.ok(rule[2].includes(part), part);
+  // Classes and pseudo-classes of each room rule that can reach the frame cell (td.center directly under #l4).
+  const weight = (selector) => (selector.match(/:root|\.[\w-]+|\[[^\]]+\]/g) || []).length;
+  const home = weight(rule[1] + '.univer-mobile.univer-app-home');
+  for (const m of desktop.matchAll(/([^{}\n]*\[data-univer-top-room\][^{}\n]*#l4 td\.center) \{/g)) assert.ok(home > weight(m[1]), m[1].trim() + ' ' + weight(m[1]) + ' >= ' + home);
+});

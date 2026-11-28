@@ -206,7 +206,7 @@
                 window.__univerMotionUI?.stop(li); li.hidden = !open;
                 if (open && event.detail > 0) window.__univerMotionUI?.reveal(li, 'content', Math.min(index, 2) * 24);
             });
-            if (event.detail > 0) window.__univerMotionUI?.resize(list, before, open ? 220 : 180);
+            if (event.detail > 0) window.__univerMotionUI?.resize(list, before);
             paint(open);
         });
         paint(false); return button;

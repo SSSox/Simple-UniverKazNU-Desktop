@@ -548,3 +548,25 @@ test('UMKD: the student\'s own syllabus gets a «Ваша специальнос
   assert.equal(own.textContent, 'Социология'); assert.equal(own.hasAttribute('class'), false);
   p.close();
 });
+
+test('UMKD: a section slides at the shared fold pace, set by its height, and a reversal takes what is left of it', () => {
+  const p = page(umkdSections, 'https://univer.kaznu.kz/student/umkd/321/2026/1');
+  apply(p);
+  const runs = [], real = p.w.getComputedStyle.bind(p.w);
+  let slide = '';
+  p.w.CSS = { registerProperty() {} };
+  p.w.Element.prototype.animate = function (frames, options) { const run = { frames, options, cancelled: false, cancel() { this.cancelled = true; } }; runs.push(run); return run; };
+  p.w.getComputedStyle = node => node.matches('tr.file') ? { display: 'grid', paddingTop: '8px', paddingBottom: '8px', marginTop: '0px', marginBottom: '0px',
+    borderTopWidth: '1px', borderBottomWidth: '0px', getPropertyValue: name => name === '--univer-slide' ? slide : '' } : real(node);
+  p.w.Element.prototype.getBoundingClientRect = function () { return { top: 0, left: 0, width: 600, height: this.matches('tr.file') ? 52 : 30 }; };
+  const head = p.d.getElementById('lectures'), ui = p.w.__univerMotionUI;
+  const click = () => head.dispatchEvent(new p.w.MouseEvent('click', { bubbles: true, cancelable: true, detail: 1 }));
+  click();
+  assert.equal(runs.length, 3);
+  // Three rows of 52 px: one 156 px section.
+  assert.ok(runs.every(run => run.options.duration === ui.span(156) && run.options.easing === ui.easing), JSON.stringify(runs[0].options));
+  slide = '0.4'; click();
+  assert.equal(runs[3].options.duration, Math.round(ui.span(156) * 0.6), 'the open run takes the part of the pace that is left');
+  assert.equal(runs[3].options.easing, ui.easing);
+  p.close();
+});

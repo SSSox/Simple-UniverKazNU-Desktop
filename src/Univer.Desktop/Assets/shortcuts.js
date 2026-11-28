@@ -16,7 +16,13 @@
 /* Home and Bachelor share a content gutter; tiles, headings and panels start on one line. */
 :root.univer-mobile.univer-app-home { --u-home-gutter:24px; }
 :root.univer-mobile.univer-app-home #l4>td { padding:24px var(--u-home-gutter) 32px!important; box-sizing:border-box; }
-:root.univer-mobile.univer-app-home #l4 td.center.univer-app-home-body { padding:0!important; }
+/* The news page nests its body cell in the frame cell; the frame alone holds the column (and its «Наверх» room), or the
+   nested cell would narrow the tiles a second time. */
+:root:root:root:root.univer-mobile.univer-app-home #l4 td.center.univer-app-home-body { padding:0!important; }
+/* Both routes keep one centred column whatever cell holds the page: the frame takes the gutter, the page width and the
+   «Наверх» room (back-to-top.js) on both sides at every window width, so the tile grid has the same place, width and
+   columns. On screen only: the button, and its room, are not printed. */
+@media screen { :root:root:root:root:root.univer-mobile.univer-app-home #l4>td { padding-left:max(var(--u-home-gutter), calc((100% - var(--u-page)) / 2), var(--u-top-room, 0px))!important; padding-right:max(var(--u-home-gutter), calc((100% - var(--u-page)) / 2), var(--u-top-room, 0px))!important; } }
 :root.univer-mobile.univer-app-home #l4>td>* { max-width:var(--u-page); margin-left:auto!important; margin-right:auto!important; box-sizing:border-box; }
 :root.univer-mobile.univer-app-home .univer-app-quick { margin:0 auto 24px!important; align-items:stretch; gap:12px; }
 :root.univer-mobile.univer-app-home #l4 h1 { margin-top:24px; margin-bottom:12px; }

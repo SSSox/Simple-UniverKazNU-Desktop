@@ -119,7 +119,8 @@ test('menus animate on pointer opening, keep a fade in reduced motion and cancel
   const button = p.d.querySelector('.univer-app-sections'), menu = p.d.querySelector('.univer-app-menu');
   button.click(); await new Promise(r => setTimeout(r, 20));
   const normal = records.find(r => r.node === menu);
-  assert.ok(normal); assert.equal(normal.options.duration, 240); assert.match(normal.frames[0].transform, /translateY/);
+  // A popup opens at the shared fold pace: 220 ms for a menu that has no height yet (jsdom), eased in and out.
+  assert.ok(normal); assert.equal(normal.options.duration, 220); assert.equal(normal.options.easing, 'cubic-bezier(.45,0,.25,1)'); assert.match(normal.frames[0].transform, /translateY/);
   button.click(); assert.equal(menu.open, false); assert.equal(normal.cancelled, true);
   button.click(); await new Promise(r => setTimeout(r, 20));
   await new Promise(r => setTimeout(r, 260)); assert.equal(menu.open, true);
@@ -203,11 +204,17 @@ test('owned disclosures grow and reverse from current geometry; keyboard cancels
   details.getBoundingClientRect=()=>({width:300,height:details.open?180:40,left:0,top:0});
   p.w.HTMLElement.prototype.animate=function(frames,options){const r={node:this,frames,options,cancel(){this.cancelled=true;this.oncancel?.();}};records.push(r);return r;};
   details.querySelector('summary').dispatchEvent(new p.w.MouseEvent('click',{bubbles:true,cancelable:true,detail:1}));
-  const enter=records.find(r=>r.node===details);assert.equal(details.open,true);assert.equal(enter.frames[0].height,'40px');assert.equal(enter.frames[1].height,'180px');
+  // The box is content-box with a 1 px border above and below: its border-box heights run less those 2 px.
+  const enter=records.find(r=>r.node===details);assert.equal(details.open,true);assert.equal(enter.frames[0].height,'38px');assert.equal(enter.frames[1].height,'178px');
+  // Closing keeps the answer in place while the box closes up to its question; the element closes when the edge arrives.
+  details.querySelector('summary').getBoundingClientRect=()=>({width:300,height:40,left:0,top:0,bottom:40});
   details.querySelector('summary').dispatchEvent(new p.w.MouseEvent('click',{bubbles:true,cancelable:true,detail:1}));
-  const exit=records.filter(r=>r.node===details).at(-1);assert.equal(details.open,false);assert.equal(enter.cancelled,true);assert.equal(exit.frames[1].height,'40px');assert.equal(exit.options.duration,180);
+  const exit=records.filter(r=>r.node===details).at(-1);assert.equal(details.open,true,'still open while it closes');assert.equal(enter.cancelled,true);
+  assert.equal(details.hasAttribute('data-univer-shutting'),true,'the chevron turns back at once');
+  assert.equal(exit.frames[0].height,'178px');assert.equal(exit.frames[1].height,'39px','the question and the own 1 px bottom border of the box (41 px border box)');assert.equal(exit.options.duration,248,'140 px: the shared pace');
   await new Promise(r=>setTimeout(r,10));assert.notEqual(exit.cancelled,true);assert.equal(details.querySelector('a'),link);
   p.d.dispatchEvent(new p.w.KeyboardEvent('keydown',{key:'Tab',bubbles:true}));assert.equal(exit.cancelled,true);assert.equal(details.style.height,'');
+  assert.equal(details.open,false,'a key ends the close at once');assert.equal(details.hasAttribute('data-univer-shutting'),false);assert.equal(details.hasAttribute('data-univer-resizing'),false);
   apply(p,false);p.close();
 });
 
@@ -228,7 +235,8 @@ test('popup exits are passive snapshots; real controls close now and Original or
   menu.open=true;await new Promise(r=>setTimeout(r,10));p.w.__univerMotionUI.exit(menu);menu.open=false;
   await new Promise(r=>setTimeout(r,10));const ghost=p.d.querySelector('[data-univer-motion-ghost]');assert.ok(ghost);assert.equal(menu.open,false);
   assert.equal(ghost.getAttribute('aria-hidden'),'true');assert.equal(ghost.querySelector('[id],[name],[onclick]'),null);assert.equal(ghost.style.pointerEvents,'none');
-  assert.equal(records.find(r=>r.node===ghost).options.duration,140);
+  // The 400 px menu fades out at the shared fold pace.
+  assert.equal(records.find(r=>r.node===ghost).options.duration,300);assert.equal(records.find(r=>r.node===ghost).options.easing,'cubic-bezier(.45,0,.25,1)');
   menu.open=true;await new Promise(r=>setTimeout(r,10));assert.equal(ghost.isConnected,false);assert.equal(menu.open,true);
   p.w.__univerMotionUI.exit(menu);menu.open=false;apply(p,false);assert.equal(p.d.querySelector('[data-univer-motion-ghost]'),null);p.close();
 });
@@ -541,7 +549,7 @@ test('popup exit hoists CSS.supports, prunes non-visual nodes before copying, an
   const smallGhost = p.d.querySelector('[data-univer-motion-ghost]');
   assert.ok(smallGhost && !smallGhost.querySelector('script,style,iframe,[id]'));
   assert.equal(smallGhost.getAttribute('aria-hidden'), 'true');
-  assert.equal(records.at(-1).options.duration, 140);
+  assert.equal(records.at(-1).options.duration, 244, 'a 120 px panel at the shared fold pace');
   p.w.__univerMotionUI.stop(small);
   small.remove();
 
@@ -573,7 +581,7 @@ test('popup exit hoists CSS.supports, prunes non-visual nodes before copying, an
   assert.equal(largeGhost.style.backgroundColor, 'rgb(255, 255, 255)');
   assert.equal(largeGhost.style.borderRadius, '12px');
   assert.equal(records.at(-1).node, largeGhost);
-  assert.equal(records.at(-1).options.duration, 140);
+  assert.equal(records.at(-1).options.duration, 304, 'a 420 px panel at the shared fold pace');
   apply(p, false);
   assert.equal(p.d.querySelector('[data-univer-motion-ghost]'), null, 'Original removes lightweight ghost');
   p.close();
@@ -599,5 +607,169 @@ test('resize and collapse move max-height with height, so a row whose height a s
   box.animate = frames => { runs.push([...frames].map(f => [f.height, f.maxHeight])); return { cancel() {}, finish() {} }; };
   ui.resize(box, 40); ui.collapse(box, () => {});
   assert.deepEqual(runs, [[['40px', '40px'], ['120px', '120px']], [['120px', '120px'], ['0px', '0px']]]);
+  apply(p, false); p.close();
+});
+
+function motionPage() {
+  const p = page(shell.replace('CONTENT', '<div id="box">Текст</div>'), 'https://univer.kaznu.kz/news/student'); apply(p);
+  p.w.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {} });
+  const records = [];
+  p.w.HTMLElement.prototype.animate = function (frames, options) { const r = { node: this, frames, options, playState: 'running', cancel() { this.cancelled = true; this.playState = 'idle'; this.oncancel?.(); }, end() { this.playState = 'finished'; this.onfinish?.(); } }; records.push(r); return r; };
+  return { p, records, ui: p.w.__univerMotionUI, box: p.d.getElementById('box') };
+}
+
+test('folds take a pace that grows with the distance, within 220 to 420 ms, and ease in and out', () => {
+  const { p, records, ui, box } = motionPage(); let height = 120;
+  box.getBoundingClientRect = () => ({ top: 0, height, width: 300 });
+  for (const [before, after, duration] of [[100, 120, 224], [248, 1248, 420], [248, 748, 320], [3000, 248, 420]]) {
+    height = after; ui.resize(box, before);
+    const run = records.at(-1);
+    assert.equal(run.options.duration, duration, before + ' → ' + after);
+    assert.equal(run.options.easing, 'cubic-bezier(.45,0,.25,1)');
+    assert.deepEqual([run.frames[0].overflow, run.frames[1].overflow], ['hidden', 'hidden'], 'clipped to the moving edge');
+  }
+  height = 400; ui.collapse(box, () => {});
+  assert.equal(records.at(-1).options.duration, 300); assert.equal(records.at(-1).options.easing, 'cubic-bezier(.45,0,.25,1)');
+  // A caller that moves several boxes as one (the journal's rows) gives the whole distance.
+  height = 40; ui.resize(box, 1, { distance: 1000 }); assert.equal(records.at(-1).options.duration, 420);
+  assert.equal(ui.span(0), 220); assert.equal(ui.span(-2000), 420);
+  apply(p, false); p.close();
+});
+
+test('a running fold marks its box so !important caps step aside, and the mark goes when it ends or is stopped', () => {
+  const { p, records, ui, box } = motionPage(); let height = 248;
+  box.getBoundingClientRect = () => ({ top: 0, height, width: 300 });
+  ui.resize(box, 1200);
+  assert.equal(box.hasAttribute('data-univer-resizing'), true, 'closing: the cap waits');
+  records.at(-1).end(); assert.equal(box.hasAttribute('data-univer-resizing'), false);
+  height = 900; ui.resize(box, 248); assert.equal(box.hasAttribute('data-univer-resizing'), true);
+  ui.stop(box); assert.equal(records.at(-1).cancelled, true); assert.equal(box.hasAttribute('data-univer-resizing'), false);
+  // The folded news preview's cap is the one that held the close still: it now waits for the run.
+  assert.match(desktop, /\.univer-app-news-body\[data-collapsed=true\]:not\(\[data-univer-resizing\]\) \{ max-height:248px!important; overflow:hidden!important; \}/);
+  assert.doesNotMatch(desktop, /\.univer-app-news-body\[data-collapsed=true\] \{ max-height/);
+  // Without motion nothing is marked and nothing runs.
+  const count = records.length; p.w.__univerMotion = false; ui.resize(box, 1200);
+  assert.equal(records.length, count); assert.equal(box.hasAttribute('data-univer-resizing'), false);
+  apply(p, false); p.close();
+});
+
+test('a box closing above the reader scrolls the page back with its edge; the reader scrolling takes over at once', () => {
+  const { p, records, ui, box } = motionPage(); let height = 248, top = -1500, y = 3000; const frames = [], scrolls = [];
+  const row = p.d.createElement('div'); p.d.body.append(row); row.getBoundingClientRect = () => ({ top, height: 300, width: 300 });
+  box.getBoundingClientRect = () => ({ top, height, width: 300 });
+  Object.defineProperty(p.w, 'scrollY', { configurable: true, get: () => y });
+  p.w.scrollTo = (o) => { scrolls.push(o.top); y = o.top; };
+  p.w.requestAnimationFrame = (f) => { frames.push(f); return frames.length; }; p.w.cancelAnimationFrame = () => {};
+  ui.resize(box, 2000, { follow: row });
+  height = 1124; frames.shift()(); // half way through the fold
+  assert.equal(scrolls.at(-1), 3000 + (1488 - 3000) / 2, 'half the fold, half the way back');
+  records.at(-1).end(); assert.equal(scrolls.at(-1), 1488, 'the article starts just under the window top');
+  // An article whose start is in view does not move the page; a wheel stops the page from following.
+  top = 200; scrolls.length = 0; height = 248; ui.resize(box, 2000, { follow: row }); records.at(-1).end(); assert.deepEqual(scrolls, []);
+  top = -1500; y = 3000; ui.resize(box, 2000, { follow: row });
+  p.w.dispatchEvent(new p.w.Event('wheel')); records.at(-1).end(); assert.deepEqual(scrolls, [], 'the reader has the page');
+  apply(p, false); p.close();
+});
+
+test('a click on a closing FAQ keeps it open and grows it back from where it is', () => {
+  const p = page(shell.replace('CONTENT', ''), 'https://univer.kaznu.kz/news/student'); apply(p);
+  p.w.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {} });
+  const details = p.d.createElement('details'); details.className = 'univer-app-faq'; details.open = true;
+  const summary = p.d.createElement('summary'); summary.textContent = 'Вопрос'; const answer = p.d.createElement('p'); answer.textContent = 'Ответ';
+  details.append(summary, answer); p.d.body.append(details);
+  let height = 300; details.getBoundingClientRect = () => ({ width: 300, height, top: 0 }); summary.getBoundingClientRect = () => ({ width: 300, height: 40, top: 0, bottom: 40 });
+  const records = []; p.w.HTMLElement.prototype.animate = function (frames, options) { const r = { node: this, frames, options, cancel() { this.cancelled = true; this.oncancel?.(); } }; records.push(r); return r; };
+  const click = () => summary.dispatchEvent(new p.w.MouseEvent('click', { bubbles: true, cancelable: true, detail: 1 }));
+  click(); const closing = records.at(-1); assert.equal(details.open, true); assert.equal(closing.frames[1].height, '39px', 'down to the question and the bottom border (content box: less both borders)');
+  // Half way shut, the box is 170 px tall; a second click stops the close and the box grows back from there.
+  height = 170; const count = records.length; details.getBoundingClientRect = () => ({ width: 300, height: records.length > count || closing.cancelled ? 300 : 170, top: 0 });
+  click();
+  assert.equal(closing.cancelled, true); assert.equal(details.open, true, 'a second click keeps it open');
+  assert.equal(details.hasAttribute('data-univer-shutting'), false);
+  const back = records.at(-1); assert.notEqual(back, closing); assert.equal(back.frames[0].height, '168px'); assert.equal(back.frames[1].height, '298px');
+  apply(p, false); p.close();
+});
+
+// The helper measures border boxes; a content-box box whose padding changes with its state (the open news body gains
+// 28 px below) runs those heights less its current padding and borders, so it starts and ends where it stands.
+test('a fold runs border-box heights on the box own sizing basis, so a padding change never snaps', () => {
+  const { p, records, ui, box } = motionPage(); let height = 900;
+  box.getBoundingClientRect = () => ({ top: 0, height, width: 300 });
+  box.style.paddingBottom = '28px'; box.style.boxSizing = 'content-box';
+  ui.resize(box, 248);
+  let run = records.at(-1);
+  assert.deepEqual([run.frames[0].height, run.frames[0].maxHeight], ['220px', '220px'], 'starts at the 248 px preview: 220 + 28');
+  assert.deepEqual([run.frames[1].height, run.frames[1].maxHeight], ['872px', '872px'], 'ends at the article: 872 + 28 = 900, its height after the run');
+  run.end();
+  // Closing: the same basis from the article down to the preview.
+  height = 248; ui.resize(box, 900); run = records.at(-1);
+  assert.deepEqual([run.frames[0].height, run.frames[1].height], ['872px', '220px']);
+  run.end();
+  // A border-box box runs the measured heights as they are.
+  box.style.boxSizing = 'border-box'; height = 900; ui.resize(box, 248); run = records.at(-1);
+  assert.deepEqual([run.frames[0].height, run.frames[1].height], ['248px', '900px']);
+  run.end(); box.style.boxSizing = 'content-box';
+  // collapse and shut use the same basis.
+  height = 400; ui.collapse(box, () => {}); assert.equal(records.at(-1).frames[0].height, '372px'); assert.equal(records.at(-1).frames[1].height, '0px');
+  ui.stop(box); ui.shut(box, 100, () => {}); assert.deepEqual([records.at(-1).frames[0].height, records.at(-1).frames[1].height], ['372px', '72px']);
+  apply(p, false); p.close();
+});
+
+test('a close click on an FAQ still opening closes from where its edge is', () => {
+  const p = page(shell.replace('CONTENT', ''), 'https://univer.kaznu.kz/news/student'); apply(p);
+  p.w.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {} });
+  const details = p.d.createElement('details'); details.className = 'univer-app-faq';
+  const summary = p.d.createElement('summary'); summary.textContent = 'Вопрос'; const answer = p.d.createElement('p'); answer.textContent = 'Ответ';
+  details.append(summary, answer); p.d.body.append(details);
+  const records = []; p.w.HTMLElement.prototype.animate = function (frames, options) { const r = { node: this, frames, options, cancel() { this.cancelled = true; this.oncancel?.(); } }; records.push(r); return r; };
+  // While the opening run is live the box is 110 px on screen, half way to its 180 px.
+  const opening = () => records.find(r => r.node === details && r.frames[1].height === '178px' && !r.cancelled);
+  details.getBoundingClientRect = () => ({ width: 300, height: opening() ? 110 : details.open ? 180 : 40, top: 0 });
+  summary.getBoundingClientRect = () => ({ width: 300, height: 40, top: 0, bottom: 40 });
+  const click = () => summary.dispatchEvent(new p.w.MouseEvent('click', { bubbles: true, cancelable: true, detail: 1 }));
+  click(); const enter = opening(); assert.ok(enter); assert.equal(details.open, true);
+  click();
+  const closing = records.at(-1);
+  assert.equal(enter.cancelled, true); assert.notEqual(closing, enter);
+  assert.equal(closing.frames[0].height, '108px', 'from the 110 px on screen (less both borders), not the full 180 px');
+  assert.equal(closing.frames[1].height, '39px');
+  assert.equal(closing.options.duration, 234, '69 px left to close: the shared pace');
+  apply(p, false); p.close();
+});
+
+test('the account panel and the menu open and close on a pointer at the shared fold pace; keys and reduced motion keep theirs', async () => {
+  const p = page(shell.replace('CONTENT', ''), 'https://univer.kaznu.kz/news/student'); apply(p);
+  let reduced = false; p.w.matchMedia = () => ({ matches: reduced, addEventListener() {}, removeEventListener() {} });
+  const records = []; p.w.HTMLElement.prototype.animate = function (frames, options) { const r = { node: this, frames, options, cancel() { this.cancelled = true; this.oncancel?.(); } }; records.push(r); return r; };
+  const account = p.d.querySelector('details.univer-app-account'), summary = account.querySelector('summary'), body = account.querySelector('summary+div');
+  body.getBoundingClientRect = () => ({ width: 240, height: 200, left: 0, top: 40 });
+  account.getBoundingClientRect = () => ({ width: 240, height: account.open ? 240 : 40, left: 0, top: 0 });
+  const click = (target, detail = 1) => target.dispatchEvent(new p.w.MouseEvent('click', { bubbles: true, cancelable: true, detail }));
+  click(summary); await new Promise(r => setTimeout(r, 20));
+  assert.equal(account.open, true);
+  const open = records.filter(r => r.node === body).at(-1);
+  assert.ok(open, 'a pointer opening moves the panel in'); assert.equal(open.options.duration, 260, '200 px panel'); assert.equal(open.options.easing, 'cubic-bezier(.45,0,.25,1)');
+  assert.match(open.frames[0].transform, /translateY/);
+  summary.focus(); click(summary);
+  assert.equal(account.open, false, 'the real panel closes at once'); assert.equal(p.d.activeElement, summary, 'focus stays on the summary');
+  const ghost = p.d.querySelector('[data-univer-motion-ghost]'); assert.ok(ghost);
+  const fade = records.find(r => r.node === ghost); assert.equal(fade.options.duration, 268, '240 px panel'); assert.equal(fade.options.easing, 'cubic-bezier(.45,0,.25,1)');
+  await new Promise(r => setTimeout(r, 20));
+  // The menu's own summary at the same pace.
+  const menu = p.d.querySelector('.univer-app-menu'); menu.getBoundingClientRect = () => ({ width: 360, height: 300, left: 24, top: 64 });
+  click(menu.querySelector('summary')); await new Promise(r => setTimeout(r, 20));
+  assert.equal(menu.open, true); const shown = records.filter(r => r.node === menu).at(-1); assert.equal(shown.options.duration, 280); assert.equal(shown.options.easing, 'cubic-bezier(.45,0,.25,1)');
+  click(menu.querySelector('summary')); assert.equal(menu.open, false);
+  const menuGhost = Array.from(p.d.querySelectorAll('[data-univer-motion-ghost]')).at(-1); assert.equal(records.find(r => r.node === menuGhost).options.duration, 280);
+  await new Promise(r => setTimeout(r, 20));
+  // Reduced motion keeps its short fades without movement.
+  reduced = true; click(summary); await new Promise(r => setTimeout(r, 20));
+  const gentle = records.filter(r => r.node === body).at(-1); assert.equal(gentle.options.duration, 180); assert.equal(gentle.frames[0].transform, 'none');
+  click(summary); const still = records.at(-1); assert.equal(still.options.duration, 140); assert.equal(still.frames[1].transform, 'none');
+  reduced = false; await new Promise(r => setTimeout(r, 20));
+  // A key opens and closes at once.
+  p.d.dispatchEvent(new p.w.KeyboardEvent('keydown', { key: 'Tab', bubbles: true }));
+  const count = records.length; account.open = true; await new Promise(r => setTimeout(r, 20));
+  assert.equal(records.length, count, 'no motion for a key'); account.open = false;
   apply(p, false); p.close();
 });

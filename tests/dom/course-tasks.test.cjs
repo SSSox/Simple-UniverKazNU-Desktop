@@ -329,3 +329,18 @@ test('a description whose numbers do not run 1, 2, 3 stays as written', () => {
   assert.equal(p.d.querySelector('.univer-app-task-facts>.univer-app-task-status').dataset.state, 'open');
   apply(p, false); p.close();
 });
+
+test('switching open and closed assignments moves the list to its new height at the shared pace; a key switches at once', async () => {
+  const p = page(index, 'https://univer.kaznu.kz/student/discussion/index/', { routes: siteRoutes });
+  apply(p); await settle();
+  const calls = [], real = p.w.__univerMotionUI;
+  p.w.__univerMotionUI = Object.assign({}, real, { change(node, mutate, kind) { calls.push([node.classList.contains('univer-app-tasks-body'), kind]); mutate(); } });
+  const box = p.d.querySelector('.univer-app-tasks'), views = Array.from(box.querySelectorAll('.univer-app-tasks-filter button'));
+  views[1].dispatchEvent(new p.w.MouseEvent('click', { bubbles: true, detail: 1 }));
+  assert.deepEqual(calls, [[true, undefined]], 'the list changes inside one height run');
+  assert.equal(box.querySelectorAll('.univer-app-task-item').length, 1);
+  views[0].dispatchEvent(new p.w.MouseEvent('click', { bubbles: true, detail: 0 }));
+  assert.equal(calls.length, 1, 'a key press is not animated');
+  assert.equal(views[0].getAttribute('aria-pressed'), 'true');
+  p.w.__univerMotionUI = real; p.close();
+});

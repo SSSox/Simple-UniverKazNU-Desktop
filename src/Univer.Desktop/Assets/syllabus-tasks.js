@@ -379,8 +379,8 @@
     /* The student's own syllabus among printed ones (study-links.js and study-pages.js mark it). Each printed syllabus is
        read once and only its programme codes, language divisions and academic year are kept; reads go two at a time
        across the page, each within its own timeout and page size, and one call waits no longer than LIMITS.ownWait. The
-       programme code decides; among several, the student's language division, then the newest academic year. With the
-       programme unknown or a read incomplete, the call fails so the caller may ask again later. */
+       programme code decides; among readable matches, the student's language division, then the newest academic year.
+       With the programme unknown or no match and an incomplete read, the call fails so the caller may ask again later. */
     var OWN = 'univer.desktop.syllabus-own.v1', OWN_KEPT = 200, OWN_SIZE = 200000;
     // A read belongs to the generation that queued it: release (Original) and refresh drop the queue and the reads in
     // flight, and a queued read whose callers have all stopped waiting (LIMITS.ownWait) is dropped before it starts.
@@ -450,7 +450,7 @@
         var timer = 0, until = Date.now() + LIMITS.ownWait, deadline = new Promise(function (resolve) { timer = setTimeout(resolve, LIMITS.ownWait, null); });
         try {
             var facts = await Promise.all(list.map(function (href) { return Promise.race([ownRead(href, until).catch(function () { return null; }), deadline]); }));
-            if (epoch !== generation || facts.some(function (found) { return !found; })) throw new Error('Syllabus lookup incomplete');
+            if (epoch !== generation) throw new Error('Syllabus lookup dropped');
             var best = null;
             list.forEach(function (href, index) {
                 var found = facts[index], mine = found ? found.programs.filter(function (p) { return p[0] === code; }) : [];
@@ -458,7 +458,9 @@
                 var division = program.division && mine.some(function (p) { return p[1] === program.division; }) ? 1 : 0, year = +found.year || 0;
                 if (!best || division > best.division || (division === best.division && year > best.year)) best = {href:href, division:division, year:year};
             });
-            return best ? best.href : null;
+            if (best) return best.href;
+            if (facts.some(function (found) { return !found; })) throw new Error('Syllabus lookup incomplete');
+            return null;
         } finally { clearTimeout(timer); }
     }
     // The semester's courses are remembered too, so a page that finds every plan stored makes no request at all.
