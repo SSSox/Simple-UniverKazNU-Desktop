@@ -12,7 +12,7 @@
     var MESSAGE = '.message,.error,.warning,.alert,.attention,[style*="color"],font[color],p,li,div,span,td,b,strong';
     var SKIP = '#tools,#login_frm,#modal_auth_frm,#modal_agreement,#attentionSt,.news,.univer-app-news,.univer-app-menu,script,style,noscript,select,option,textarea';
     var MAX_LINKS = 120, MAX_SECTIONS = 4, MAX_LISTS = 3;
-    var SURVEYS = '/student/rating/', MAX_SURVEYS = 10, READ_TIMEOUT = 15000, SURVEY_FRESH = 3 * 60 * 1000;
+    var SURVEYS = '/student/rating/', MAX_SURVEYS = 10, READ_TIMEOUT = 15000, SURVEY_FRESH = 3 * 60 * 1000, SURVEY_SHOWN = 60 * 60 * 1000;
     var ACCOUNT = 'univer.app.account.v1', SURVEY_COUNT = 'univer.desktop.survey-count.v1';
     var badges = new Map(), presenting = false, surveyResult = null, lastCheck = null;
     var fetching = false, queuedRefreshes = [];
@@ -83,11 +83,13 @@
         var result = surveyResult?.owner === mark && surveyResult.count === count ? surveyResult : cached(mark);
         return result?.count === count ? result : null;
     }
-    function freshSurvey(mark, count) {
+    // A check is reused for SURVEY_FRESH; the menu keeps showing it longer, so the answered number does not come back
+    // between two checks.
+    function freshSurvey(mark, count, limit) {
         var result = surveyFor(mark, count);
         if (!result || !Number.isFinite(result.at)) return null;
         var age = Date.now() - result.at;
-        return age >= 0 && age < SURVEY_FRESH && Array.isArray(result.details) && result.details.length === result.open &&
+        return age >= 0 && age < (limit || SURVEY_FRESH) && Array.isArray(result.details) && result.details.length === result.open &&
             result.details.every(function (detail) {
                 return detail && typeof detail.t === 'string' && detail.t.length > 0 && detail.t.length <= 100 &&
                     typeof detail.e === 'string' && (detail.e === '' || /^\d{2}\.\d{2}\.\d{4}$/.test(detail.e));
@@ -108,7 +110,7 @@
         var live = new Set(current.map(function (badge) { return badge.node; }));
         badges.forEach(function (badge, node) { if (!live.has(node)) restore(badge); });
         current.forEach(function (badge) {
-            var result = freshSurvey(mark, badge.count), open = result ? result.open : null;
+            var result = freshSurvey(mark, badge.count, SURVEY_SHOWN), open = result ? result.open : null;
             if (open === null || open === badge.count || badge.count === 0) {
                 if (badges.has(badge.node)) restore(badge);
                 return;

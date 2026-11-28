@@ -153,6 +153,8 @@ namespace Univer.Desktop.Core
                 }
                 else if (described != null) { old.Open = described.Open; old.Details = described.Details.Take(MaxDetails).ToList(); }
                 if (!survey || described != null) old.Read = old.Read && ReadNumber(old) <= old.ReadCount;
+                // Answering lowers the read mark, so the next questionnaire is unread again.
+                if (survey && described != null) old.ReadCount = Math.Min(old.ReadCount, ReadNumber(old));
             }
             var messages = new Dictionary<string, NoticeMessage>(StringComparer.Ordinal);
             foreach (var message in scan.Messages.Where(m => !string.IsNullOrEmpty(m.Text)))

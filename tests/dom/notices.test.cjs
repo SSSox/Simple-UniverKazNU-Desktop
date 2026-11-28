@@ -166,6 +166,27 @@ test('a verified desktop result is reused across pages until the menu count chan
     } finally { p.w.close(); warm.w.close(); }
 });
 
+test('a verified count stays in the menu after it ages, until a new check or an hour passes', async () => {
+    const p = page(shell(rows), 'https://univer.kaznu.kz/student/rating/', { routes: routesFor('done') });
+    try {
+        let now = 1000000;
+        p.w.Date.now = () => now;
+        p.w.localStorage.setItem('univer.app.account.v1', 'a1');
+        p.w.__univerNoticesV1.present(true);
+        scan(p);
+        await settle();
+        assert.equal(badge(p).hidden, true);
+        p.requests.splice(0);
+        now += 5 * 60 * 1000;
+        p.w.__univerNoticesV1.present(true);
+        assert.equal(badge(p).hidden, true, 'no red number between two checks');
+        assert.deepEqual(p.requests, []);
+        now += 60 * 60 * 1000;
+        p.w.__univerNoticesV1.present(true);
+        assert.equal(badge(p).hidden, false, 'a very old check no longer speaks for the site');
+    } finally { p.w.close(); }
+});
+
 test('each refresh queued during a survey check reads in order and has its own completion', async () => {
     const p = page(shell(rows), 'https://univer.kaznu.kz/student/rating/', { routes: routesFor('') });
     try {

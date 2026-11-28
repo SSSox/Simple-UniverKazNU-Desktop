@@ -53,6 +53,19 @@ namespace Univer.Desktop.Tests
             list = Notices.Merge(list, Scan("/student/rating/", 2, 7), 2);
             Assert.Equal(7, Notices.Shown(Notices.Showing(list).Single()));
         }
+        [Theory]
+        [InlineData(1, 0)]
+        [InlineData(2, 1)]
+        public void ReadMark_ShrinksWithAnsweredQuestionnaires_SoTheNextOneIsAnnounced(int read, int left)
+        {
+            var list = Notices.Merge(new List<SiteNotice>(), Scan("/student/rating/", 2, read), 1);
+            list = Notices.MarkAllRead(list);
+            var answered = Notices.Merge(list, Scan("/student/rating/", 2, left), 2);
+            Assert.Equal(0, Notices.Unread(answered));
+            var next = Notices.Merge(answered, Scan("/student/rating/", 2, left + 1), 3);
+            Assert.Single(Notices.NewlyUnread(answered, next));
+            Assert.Equal(left + 1, Notices.Unread(next) > 0 ? Notices.Shown(Notices.Showing(next).Single()) : 0);
+        }
         [Fact]
         public void NewQuestionnaire_AfterAnsweredOnes_IsShownAndAnnounced()
         {
