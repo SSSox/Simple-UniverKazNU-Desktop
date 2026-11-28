@@ -1432,7 +1432,7 @@
 :root:root.univer-mobile #l4 table.mt:has(table.univer-app-news) { max-width:900px!important; margin-left:auto!important; margin-right:auto!important; }
 /* Collapse is the same quiet button as Show in full. While it rides the window edge a white band with a fade lies
    under it across the card, so the text ends above it the way a folded article ends. */
-:root:root.univer-mobile #l4 .univer-app-news tr.news { overflow-x:clip; }
+:root:root.univer-mobile #l4 .univer-app-news tr.news { overflow:clip; }
 :root:root.univer-mobile #l4 .univer-app-news-body:has(+button.univer-app-news-toggle[aria-expanded=true]:not([hidden])) { padding-bottom:28px; }
 :root:root.univer-mobile #l4 .univer-app-news button.univer-app-news-toggle[aria-expanded=true] { --u-news-rise:12px; position:sticky; bottom:var(--u-news-rise); z-index:6; }
 :root:root.univer-mobile #l4 .univer-app-news button.univer-app-news-toggle[aria-expanded=true]::before { content:''; position:absolute; z-index:-1; left:-24px; right:-3000px; top:-44px; bottom:calc(-1 * var(--u-news-rise)); pointer-events:none; background:linear-gradient(transparent,#fff 36px); }
