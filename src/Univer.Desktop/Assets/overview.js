@@ -196,18 +196,30 @@
     // Long lists show their first items; the rest open in place with the same motion as other disclosures.
     function limit(list, count) {
         var items = Array.from(list.children); if (items.length <= count) return null;
-        items.slice(count).forEach(function (li) { li.hidden = true; });
+        var extra = items.slice(count);
+        extra.forEach(function (li) { li.hidden = true; });
         var button = element('button', 'univer-app-overview-more'); button.type = 'button'; button.setAttribute('aria-expanded', 'false');
         var paint = function (open) { button.textContent = open ? text().collapse : text().showAll + ' (' + items.length + ')'; button.setAttribute('aria-expanded', String(open)); };
         button.addEventListener('click', function (event) {
             var open = button.getAttribute('aria-expanded') !== 'true';
-            var before = list.getBoundingClientRect().height; window.__univerMotionUI?.stop(list);
-            items.slice(count).forEach(function (li, index) {
-                window.__univerMotionUI?.stop(li); li.hidden = !open;
-                if (open && event.detail > 0) window.__univerMotionUI?.reveal(li, 'content', Math.min(index, 2) * 24);
-            });
-            if (event.detail > 0) window.__univerMotionUI?.resize(list, before);
+            var motion = window.__univerMotionUI, animate = event.detail > 0;
             paint(open);
+            if (!open && extra.some(function (li) { return li.contains(document.activeElement); })) button.focus({preventScroll:true});
+            extra.forEach(function (li) { li.inert = !open; });
+            if (!open && animate && motion?.shut) {
+                var target = items[count - 1].getBoundingClientRect().bottom - list.getBoundingClientRect().top;
+                motion.shut(list, target, function () {
+                    if (button.getAttribute('aria-expanded') === 'false') extra.forEach(function (li) { li.hidden = true; });
+                });
+                return;
+            }
+            var before = animate ? list.getBoundingClientRect().height : 0;
+            motion?.stop(list);
+            extra.forEach(function (li, index) {
+                var wasHidden = li.hidden; li.hidden = !open;
+                if (open && wasHidden && animate) motion?.reveal(li, 'content', Math.min(index, 2) * 24);
+            });
+            if (animate) motion?.resize(list, before);
         });
         paint(false); return button;
     }

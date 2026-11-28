@@ -54,10 +54,12 @@
         // A box closing above the reader's place: the page scrolls back with it, frame by frame from the box's own height, so
         // what was read rolls up to the top of the block instead of the page racing past and then jumping. A wheel, touch or
         // key from the reader takes the scroll back at once; the fold itself goes on.
-        var glide = function (node, anchor, before, after) {
-            var top = anchor?.isConnected ? anchor.getBoundingClientRect().top : 0;
-            if (!anchor?.isConnected || top >= 80 || before - after < 1) return null;
-            var from = window.scrollY || window.pageYOffset || 0, to = Math.max(0, Math.min(from, from + top - 12)), frame = 0, over = false;
+        var scrollStart = function (anchor) {
+            if (anchor?.isConnected) return {y:window.scrollY || window.pageYOffset || 0, top:anchor.getBoundingClientRect().top};
+        };
+        var glide = function (node, start, before, after) {
+            if (!start || start.top >= 80 || before - after < 1) return null;
+            var from = start.y, to = Math.max(0, Math.min(from, from + start.top - 12)), frame = 0, over = false;
             var move = function (y) { window.scrollTo({top:Math.round(y), left:window.scrollX || 0, behavior:'instant'}); };
             var off = function () {
                 if (over) return; over = true; if (frame) cancelAnimationFrame(frame);
@@ -78,16 +80,17 @@
         // opening. The content is clipped to the moving edge the whole time.
         var resize = function (node, before, settings) {
             if (!node?.isConnected || !allowed() || reduce() || !node.animate) return;
+            var wanted = options(settings), start = scrollStart(wanted.follow);
             retire(layouts, node);
-            var after = node.getBoundingClientRect().height, wanted = options(settings);
-            if (before <= 0 || after <= 0 || Math.abs(before - after) < 1) return;
+            var after = node.getBoundingClientRect().height;
+            if (before < 0 || after <= 0 || Math.abs(before - after) < 1) return;
             node.setAttribute('data-univer-resizing', '');
             // max-height moves too: a box whose height a stylesheet holds at auto with !important (which an animation cannot
             // override) still grows within it.
             var edge = edges(node);
             var animation = node.animate([{height:px(before, edge), maxHeight:px(before, edge), overflow:'hidden'}, {height:px(after, edge), maxHeight:px(after, edge), overflow:'hidden'}],
                 {duration:span(wanted.distance || after - before), easing:foldEase, fill:'backwards'});
-            var scroll = after < before ? glide(node, wanted.follow, before, after) : null;
+            var scroll = glide(node, start, before, after);
             track(layouts, node, animation, function () { scroll?.(animation.playState === 'finished'); node.removeAttribute('data-univer-resizing'); });
             return true;
         };
@@ -106,7 +109,8 @@
         // A box closes to `target` px with its content still in place, and only then is changed (done): nothing inside
         // vanishes while the edge is still moving. done runs exactly once, as with collapse. The start is read before any run
         // on the box is stopped: a box still opening closes from where its edge is, not from its full height.
-        var shut = function (node, target, done) {
+        var shut = function (node, target, done, settings) {
+            var start = scrollStart(options(settings).follow);
             var height = node?.isConnected ? node.getBoundingClientRect().height : 0;
             stop(node);
             if (!node?.isConnected || !allowed() || reduce() || !node.animate || height - target < 1) { done(); return; }
@@ -114,7 +118,11 @@
             var edge = edges(node);
             var animation = node.animate([{height:px(height, edge), maxHeight:px(height, edge), overflow:'hidden'}, {height:px(target, edge), maxHeight:px(target, edge), overflow:'hidden'}],
                 {duration:span(height - target), easing:foldEase, fill:'forwards'});
-            track(layouts, node, animation, function () { node.removeAttribute('data-univer-resizing'); done(); animation.cancel(); });
+            var scroll = glide(node, start, height, target);
+            track(layouts, node, animation, function () {
+                scroll?.(animation.playState === 'finished'); node.removeAttribute('data-univer-resizing'); done(); animation.cancel();
+            });
+            return true;
         };
         var change = function (node, mutate, kind) {
             var before = node?.getBoundingClientRect().height || 0; stop(node); mutate();
@@ -202,11 +210,12 @@
             motions.set(node, animation); animation.onfinish = animation.oncancel = function () { if (motions.get(node) === animation) motions.delete(node); };
         };
         var detailsSelector = 'details.univer-app-menu,details.univer-app-account,details.univer-app-faq,details.univer-app-catalog,details.univer-app-info,details.univer-app-category,details.univer-app-university,details.univer-app-useful';
+        var popupBody = function (details) { return details.classList.contains('univer-app-account') ? details.querySelector(':scope > div') || details : details; };
         document.addEventListener('click', function (event) {
             var summary = event.target.closest?.('summary'), details = summary?.parentElement;
             if (!details?.matches(detailsSelector) || !allowed() || event.detail === 0) return;
             event.preventDefault(); var open = !details.open;
-            if (details.matches('.univer-app-menu,.univer-app-account')) { if (!open) exit(details); else stop(details); details.open = open; }
+            if (details.matches('.univer-app-menu,.univer-app-account')) { if (!open) exit(popupBody(details)); else stop(details); details.open = open; }
             else if (details.__univerShutting) {
                 // A click while it closes keeps it open: the box grows back from where it is, its content never left.
                 var from = details.getBoundingClientRect().height; details.__univerShutting = null; details.removeAttribute('data-univer-shutting'); stop(details); resize(details, from);
@@ -232,7 +241,7 @@
             var details = event.target;
             if (!details.matches?.(detailsSelector)) return;
             var handled = details.__univerMotionToggle === details.open; delete details.__univerMotionToggle;
-            if (!details.open) { if (!handled && !ghosts.has(details)) stop(details); return; }
+            if (!details.open) { if (!handled && !ghosts.has(popupBody(details))) stop(details); return; }
             if (details.classList.contains('univer-app-menu')) reveal(details, 'popup');
             // The account panel opens like the menu whether a click or the page opened it.
             else if (!handled || details.classList.contains('univer-app-account')) Array.from(details.children).filter(function (node) { return node.tagName !== 'SUMMARY'; }).forEach(function (node) { reveal(node, details.classList.contains('univer-app-account') ? 'popup' : 'content'); });
@@ -766,9 +775,9 @@
 :root.univer-mobile .univer-app-news .news>td:first-child>div:not(.date) * { color:inherit!important; background:none!important; }
 :root.univer-mobile .univer-app-news .news>td:nth-child(2) :is(table) { max-width:100%; }
 :root.univer-mobile table.univer-app-news { overflow-anchor:none; }
-:root.univer-mobile .univer-app-news-body { display:flow-root; position:relative; }
+:root.univer-mobile .univer-app-news-body { display:flow-root; position:relative; --u-news-preview:248px; }
 /* The preview's cap steps aside while its height runs (data-univer-resizing, desktop motion), so folding shut slides too. */
-:root.univer-mobile .univer-app-news-body[data-collapsed=true]:not([data-univer-resizing]) { max-height:248px!important; overflow:hidden!important; }
+:root.univer-mobile .univer-app-news-body[data-collapsed=true]:not([data-univer-resizing]) { max-height:var(--u-news-preview)!important; overflow:hidden!important; }
 :root.univer-mobile .univer-app-news-body[data-collapsed=true]::after { content:''; position:absolute; bottom:0; left:0; right:0; height:36px; pointer-events:none; background:linear-gradient(transparent,#fff); }
 :root.univer-mobile #l4 .univer-app-news button.univer-app-news-toggle { display:inline-flex!important; align-items:center; gap:10px; min-height:38px!important; margin:8px 0 0!important; padding:6px 10px!important; border:0!important; border-radius:6px!important; background:transparent!important; color:var(--u-ink)!important; font:600 14px/1.4 var(--u-font)!important; box-shadow:none!important; }
 :root.univer-mobile #l4 .univer-app-news button.univer-app-news-toggle[hidden] { display:none!important; }

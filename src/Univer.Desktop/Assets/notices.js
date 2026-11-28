@@ -15,7 +15,7 @@
     var SURVEYS = '/student/rating/', MAX_SURVEYS = 10, READ_TIMEOUT = 15000, SURVEY_FRESH = 3 * 60 * 1000;
     var ACCOUNT = 'univer.app.account.v1', SURVEY_COUNT = 'univer.desktop.survey-count.v1';
     var badges = new Map(), presenting = false, surveyResult = null, lastCheck = null;
-    var fetching = false, queuedRefresh = null;
+    var fetching = false, queuedRefreshes = [];
 
     function clean(value) { return String(value || '').replace(/\s+/g, ' ').trim(); }
     function red(value) {
@@ -292,8 +292,7 @@
     }
     function finishRead() {
         fetching = false;
-        var refresh = queuedRefresh; queuedRefresh = null;
-        if (refresh) refresh();
+        while (!fetching && queuedRefreshes.length) queuedRefreshes.shift()();
     }
     // The extension's layout ticks share one check, including a cooldown after an inconclusive read.
     function check() {
@@ -394,10 +393,10 @@
         }
         current.fetching = false;
         if (typeof __univerNative === 'function' && fetching && refresh) {
-            queuedRefresh = function () {
-                if (owner() === mark) scan(fetchSections, generation, refresh);
-                else send({v:1, g:current.g, kind:'done', page:page, read:0, failed:1, refresh:refresh});
-            };
+            queuedRefreshes.push(function () {
+                if (owner() === mark && scan(fetchSections, generation, refresh)) return;
+                send({v:1, g:current.g, kind:'done', page:page, read:0, failed:1, refresh:refresh});
+            });
             current.fetching = true;
         } else if (!fetching && typeof __univerNative === 'function') {
             var sections = [];

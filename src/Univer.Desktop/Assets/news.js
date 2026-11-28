@@ -33,7 +33,7 @@
     }
     function paintFold(record, long) {
         if (long === null) return;
-        var open = expanded.get(record.source) === true;
+        var open = record.closing || expanded.get(record.source) === true;
         var collapsed = String(long && !open);
         if (record.body.getAttribute('data-collapsed') !== collapsed) record.body.setAttribute('data-collapsed',collapsed);
         if (record.button.hidden === long) record.button.hidden = !long;
@@ -63,16 +63,25 @@
                 record = {body,button,row,source:foldSources.get(row) || row}; folds.set(row,record);
                 button.addEventListener('click',event => {
                     event.stopPropagation(); var wasOpen = expanded.get(record.source) === true;
-                    var before = body.getBoundingClientRect().height;
-                    window.__univerMotionUI?.stop(body);
-                    expanded.set(record.source,!wasOpen); updateFold(record);
-                    // The article unrolls from the preview the reader already sees (no fade: that would flash the text it
-                    // shows), and rolls back up with the page following it to the article's start when that is out of view.
-                    var moved = event.detail > 0 && window.__univerMotionUI?.resize(body, before, {follow:row});
-                    if (wasOpen && !moved && row.getBoundingClientRect().top < 80) row.scrollIntoView?.({block:'start', behavior:'auto'});
+                    var motion = window.__univerMotionUI;
+                    expanded.set(record.source,!wasOpen);
+                    if (wasOpen) {
+                        // Keep the preview cap and its padding change out of layout until the fold reaches the target.
+                        var finish = function () { record.closing = false; updateFold(record); };
+                        var preview = event.detail > 0 && parseFloat(getComputedStyle(body).getPropertyValue('--u-news-preview'));
+                        if (preview && motion?.shut) {
+                            record.closing = true;
+                            if (motion.shut(body, preview, function () { if (record.closing) finish(); }, {follow:row})) return;
+                        } else { motion?.stop(body); finish(); }
+                        if (row.getBoundingClientRect().top < 80) row.scrollIntoView?.({block:'start', behavior:'auto'});
+                    } else {
+                        var before = body.getBoundingClientRect().height;
+                        record.closing = false; motion?.stop(body); updateFold(record);
+                        if (event.detail > 0) motion?.resize(body, before);
+                    }
                 });
                 // A keyboard user reaching a link below the preview gets the full article before continuing.
-                body.addEventListener('focusin',() => { window.__univerMotionUI?.stop(body); expanded.set(record.source,true); updateFold(record); });
+                body.addEventListener('focusin',() => { record.closing = false; window.__univerMotionUI?.stop(body); expanded.set(record.source,true); updateFold(record); });
                 body.addEventListener('load',scheduleFolds,true);
                 foldObserver?.observe(body);
             }

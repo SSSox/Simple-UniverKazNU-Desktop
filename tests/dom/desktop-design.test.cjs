@@ -645,7 +645,7 @@ test('a running fold marks its box so !important caps step aside, and the mark g
   height = 900; ui.resize(box, 248); assert.equal(box.hasAttribute('data-univer-resizing'), true);
   ui.stop(box); assert.equal(records.at(-1).cancelled, true); assert.equal(box.hasAttribute('data-univer-resizing'), false);
   // The folded news preview's cap is the one that held the close still: it now waits for the run.
-  assert.match(desktop, /\.univer-app-news-body\[data-collapsed=true\]:not\(\[data-univer-resizing\]\) \{ max-height:248px!important; overflow:hidden!important; \}/);
+  assert.match(desktop, /\.univer-app-news-body\[data-collapsed=true\]:not\(\[data-univer-resizing\]\) \{ max-height:var\(--u-news-preview\)!important; overflow:hidden!important; \}/);
   assert.doesNotMatch(desktop, /\.univer-app-news-body\[data-collapsed=true\] \{ max-height/);
   // Without motion nothing is marked and nothing runs.
   const count = records.length; p.w.__univerMotion = false; ui.resize(box, 1200);
@@ -743,7 +743,7 @@ test('the account panel and the menu open and close on a pointer at the shared f
   const records = []; p.w.HTMLElement.prototype.animate = function (frames, options) { const r = { node: this, frames, options, cancel() { this.cancelled = true; this.oncancel?.(); } }; records.push(r); return r; };
   const account = p.d.querySelector('details.univer-app-account'), summary = account.querySelector('summary'), body = account.querySelector('summary+div');
   body.getBoundingClientRect = () => ({ width: 240, height: 200, left: 0, top: 40 });
-  account.getBoundingClientRect = () => ({ width: 240, height: account.open ? 240 : 40, left: 0, top: 0 });
+  account.getBoundingClientRect = () => ({ width: 120, height: 40, left: 120, top: 0 });
   const click = (target, detail = 1) => target.dispatchEvent(new p.w.MouseEvent('click', { bubbles: true, cancelable: true, detail }));
   click(summary); await new Promise(r => setTimeout(r, 20));
   assert.equal(account.open, true);
@@ -753,7 +753,8 @@ test('the account panel and the menu open and close on a pointer at the shared f
   summary.focus(); click(summary);
   assert.equal(account.open, false, 'the real panel closes at once'); assert.equal(p.d.activeElement, summary, 'focus stays on the summary');
   const ghost = p.d.querySelector('[data-univer-motion-ghost]'); assert.ok(ghost);
-  const fade = records.find(r => r.node === ghost); assert.equal(fade.options.duration, 268, '240 px panel'); assert.equal(fade.options.easing, 'cubic-bezier(.45,0,.25,1)');
+  const fade = records.find(r => r.node === ghost); assert.equal(fade.options.duration, 260, '200 px panel'); assert.equal(fade.options.easing, 'cubic-bezier(.45,0,.25,1)');
+  assert.equal(ghost.style.top, '40px', 'only the panel is copied');
   await new Promise(r => setTimeout(r, 20));
   // The menu's own summary at the same pace.
   const menu = p.d.querySelector('.univer-app-menu'); menu.getBoundingClientRect = () => ({ width: 360, height: 300, left: 24, top: 64 });

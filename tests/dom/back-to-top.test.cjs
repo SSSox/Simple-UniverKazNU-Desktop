@@ -366,9 +366,33 @@ test('the news page nested body cell never takes the room a second time: its pad
   assert.ok(rule[1].length / 5 + 4 > strongest, 'home body ' + (rule[1].length / 5 + 4) + ' classes against ' + strongest);
 });
 
-// The home column is centred, so its room is taken on both sides: it is given only while two tiles a row still fit
-// between the two rooms, and below that both home routes keep the full column at the same width.
-test('a home page takes the room only while two tiles fit between both rooms', () => {
+test('home routes add side room without narrowing their tile grid as the window grows', () => {
+  const shortcuts = fs.readFileSync('src/Univer.Desktop/Assets/shortcuts.js', 'utf8');
+  const ramp = /min\(var\(--u-top-room, 0px\), calc\(\(100% - (\d+)px\) \/ 2\)\)/.exec(shortcuts);
+  assert.ok(ramp, 'the centred frame limits the room to the width beyond the tile column');
+  const available = Number(ramp[1]);
+  for (const route of ['/news/student/1/', '/student/bachelor/']) {
+    const p = page(site, [], 6000, { width: 798, height: 800 });
+    p.w.history.replaceState(null, '', route);
+    p.d.documentElement.classList.add('univer-app-home');
+    p.top.configure(true, 'ru');
+    let previous = 0;
+    for (let width = 798; width <= 1130; width++) {
+      Object.defineProperty(p.w, 'innerWidth', { configurable: true, value: width });
+      p.top.refresh();
+      const gutter = Math.max(16, Math.min(24, (width - 868) / 2), Math.min(Number(p.room()), (width - available) / 2));
+      const column = width - 2 * gutter;
+      assert.ok(column >= previous, `${route} at ${width}px: ${column}px after ${previous}px`);
+      assert.ok(Math.floor((column + 12) / 232) >= 3);
+      assert.equal(p.button().classList.contains('on'), false, 'stable while the button is hidden');
+      previous = column;
+    }
+    assert.equal(p.room(), '160');
+    p.w.close();
+  }
+});
+
+test('home pages request the room when their shared column starts to make space for it', () => {
   for (const [width, room] of [[760, null], [800, '160'], [1000, '160']]) {
     const p = page(site, [], 6000, { width, height: 800 }); p.d.documentElement.classList.add('univer-app-home');
     p.top.configure(true, 'ru');

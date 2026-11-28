@@ -24,6 +24,36 @@ const lead = b => { const n = b.querySelector('.univer-app-overview-upnext'); re
 const states = b => Array.from(b.querySelectorAll('.univer-app-overview-state')).map(n => n.textContent);
 const counted = b => Array.from(b.querySelectorAll('.univer-app-overview-lessons *')).filter(n => !n.children.length && /через|ещё/.test(n.textContent)).map(n => n.textContent);
 
+test('extra overview rows stay visible as they close, and a second click reopens them in place', () => {
+  const p = today(8, 0);
+  try {
+    p.w.document.documentElement.classList.add('univer-mobile'); p.w.eval(read('desktop.js'));
+    const records = [];
+    p.w.HTMLElement.prototype.animate = function (frames) {
+      const run = { node: this, frames, cancel() { this.cancelled = true; this.oncancel?.(); } };
+      records.push(run); return run;
+    };
+    const lesson = {start: 540, end: 590, parts: {name: 'Политология', type: 'Лекция', kind: 'lecture', room: '305', rest: []}};
+    p.w.__univerOverviewV1.renderToday(p.body, Array.from({ length: 6 }, () => lesson), null);
+    const list = p.body.querySelector('ol,ul'), button = p.body.querySelector('button');
+    const rows = Array.from(list.children), extra = rows.slice(4);
+    let midway;
+    list.getBoundingClientRect = () => ({ top: 10, height: midway && !midway.cancelled ? 200 : rows.filter(row => !row.hidden).length * 40 });
+    rows[3].getBoundingClientRect = () => ({ bottom: 170 });
+    const pointer = () => button.dispatchEvent(new p.w.MouseEvent('click', { detail: 1 }));
+    button.click(); pointer();
+    assert.equal(button.getAttribute('aria-expanded'), 'false');
+    assert.ok(extra.every(row => !row.hidden && row.inert));
+    const closing = records.at(-1);
+    assert.equal(closing.frames[1].height, '160px');
+    midway = closing; pointer();
+    assert.equal(closing.cancelled, true); assert.ok(extra.every(row => !row.hidden && !row.inert));
+    assert.equal(records.at(-1).frames[0].height, '200px');
+    pointer(); records.at(-1).onfinish(); assert.ok(extra.every(row => row.hidden));
+    button.click(); button.click(); assert.ok(extra.every(row => row.hidden), 'keyboard closes immediately');
+  } finally { p.close(); }
+});
+
 test('before the next class one line counts down to it and its row does not say it again', () => {
   const p = today(10, 30);
   try {

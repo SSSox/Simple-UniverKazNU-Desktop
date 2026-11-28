@@ -253,6 +253,43 @@ test('a task folds on its own button, the switch hides all of them, and both cho
   apply(again, false); again.close();
 });
 
+test('schedule and lesson disclosures keep their body while closing and can reverse', async () => {
+  const p = page(schedule(lessons), { routes: routes() });
+  try {
+    apply(p); await until(done(p));
+    const runs = [];
+    p.w.HTMLElement.prototype.animate = function (frames) {
+      const run = { node: this, frames, cancel() { this.cancelled = true; this.oncancel?.(); } };
+      runs.push(run); return run;
+    };
+    const lesson = lessonOf(p, 'Политология', 'лекция');
+    for (const [container, selector] of [[p.d.querySelector('.univer-app-syl-panel'), '.univer-app-syl-sro-body'], [lesson, '.univer-app-syl-body']]) {
+      const fold = container.querySelector('.univer-app-syl-fold'), body = container.querySelector(selector), first = body.firstChild;
+      let height = 180;
+      body.getBoundingClientRect = () => ({ height: body.hidden ? 0 : height });
+      const pointer = () => fold.dispatchEvent(new p.w.MouseEvent('click', { bubbles: true, detail: 1 }));
+      pointer();
+      assert.equal(fold.getAttribute('aria-expanded'), 'false');
+      assert.equal(body.hidden, false); assert.equal(body.inert, true);
+      assert.equal(body.firstChild, first);
+      const closing = runs.at(-1);
+      assert.equal(closing.node, body); assert.equal(closing.frames[1].height, '0px');
+      height = 90;
+      body.getBoundingClientRect = () => ({ height: closing.cancelled ? 180 : height });
+      pointer();
+      assert.equal(closing.cancelled, true); assert.equal(body.hidden, false); assert.equal(body.inert, false);
+      assert.ok(runs.some(run => run.node === body && run.frames[0].height === '90px' && run.frames[1].height === '180px'));
+      pointer(); runs.at(-1).onfinish(); assert.equal(body.hidden, true);
+      fold.click(); fold.click(); assert.equal(body.hidden, true, 'keyboard closes immediately');
+      fold.click(); p.w.matchMedia = () => ({ matches: true });
+      pointer(); assert.equal(body.hidden, true, 'reduced motion closes immediately');
+      fold.click(); p.w.matchMedia = () => ({ matches: false }); p.w.__univerMotion = false;
+      pointer(); assert.equal(body.hidden, true, 'disabled motion closes immediately');
+      p.w.__univerMotion = true;
+    }
+  } finally { p.close(); }
+});
+
 test('another student signing in on the same profile does not get the previous student\'s programme, course list or weeks', async () => {
   const first = page(schedule(lessons, 4), { routes: routes(), local: { 'univer.app.account.v1': 'a1' } });
   apply(first); await until(done(first));

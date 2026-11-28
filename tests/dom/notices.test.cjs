@@ -166,7 +166,7 @@ test('a verified desktop result is reused across pages until the menu count chan
     } finally { p.w.close(); warm.w.close(); }
 });
 
-test('a refresh queued during a survey check reads again and has its own completion', async () => {
+test('each refresh queued during a survey check reads in order and has its own completion', async () => {
     const p = page(shell(rows), 'https://univer.kaznu.kz/student/rating/', { routes: routesFor('') });
     try {
         const fetch = p.w.fetch;
@@ -180,6 +180,7 @@ test('a refresh queued during a survey check reads again and has its own complet
         };
         assert.equal(scan(p).fetching, true);
         assert.equal(scan(p, false, 7).fetching, true);
+        assert.equal(scan(p, false, 8).fetching, true);
         assert.deepEqual(p.requests, ['/student/rating/208']);
         releaseFirst();
         await settle();
@@ -188,8 +189,8 @@ test('a refresh queued during a survey check reads again and has its own complet
         assert.equal(messages(p).some(message => message.kind === 'done' && message.refresh === 7), false);
         releaseRefresh();
         await settle();
-        const done = messages(p).at(-1);
-        assert.deepEqual([done.kind, done.refresh, done.read, done.failed], ['done', 7, 2, 0]);
+        const done = messages(p).filter(message => message.kind === 'done' && message.refresh);
+        assert.deepEqual(done.map(({ refresh, read, failed }) => [refresh, read, failed]), [[7, 2, 0], [8, 2, 0]]);
     } finally { p.w.close(); }
 });
 
@@ -207,13 +208,13 @@ test('a queued refresh reports failure if the account changes before it starts',
         p.w.localStorage.setItem(account, 'a1');
         assert.equal(scan(p).fetching, true);
         assert.equal(scan(p, false, 7).fetching, true);
+        assert.equal(scan(p, false, 8).fetching, true);
         p.w.localStorage.setItem(account, 'b2');
         releaseFirst();
         await settle();
         assert.deepEqual(p.requests, ['/student/rating/208', '/student/rating/207']);
-        assert.deepEqual(messages(p).filter(message => message.refresh === 7), [
-            { v: 1, g: 'n1', kind: 'done', page: '/student/rating/', read: 0, failed: 1, refresh: 7 }
-        ]);
+        assert.deepEqual(messages(p).filter(message => message.refresh), [7, 8].map(refresh =>
+            ({ v: 1, g: 'n1', kind: 'done', page: '/student/rating/', read: 0, failed: 1, refresh })));
     } finally { p.w.close(); }
 });
 

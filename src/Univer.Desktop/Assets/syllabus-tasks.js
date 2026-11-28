@@ -738,6 +738,26 @@
     function setHidden(node, hidden) { if (node.hidden !== hidden) node.hidden = hidden; }
     function setAttribute(node, name, value) { if (node.getAttribute(name) !== value) node.setAttribute(name, value); }
     function motion() { return window.__univerMotionUI; }
+    function foldBody(fold, body, open, animate) {
+        if (fold.getAttribute('aria-expanded') === String(open)) return;
+        setAttribute(fold, 'aria-expanded', String(open));
+        if (!open && body.contains(document.activeElement)) fold.focus({preventScroll:true});
+        body.inert = !open;
+        var ui = motion();
+        if (!open && animate && ui?.collapse) {
+            ui.collapse(body, function () { if (fold.getAttribute('aria-expanded') === 'false') setHidden(body, true); });
+            return;
+        }
+        var before = animate && !body.hidden ? body.getBoundingClientRect().height : 0;
+        ui?.stop(body); setHidden(body, !open);
+        if (open && animate) { ui?.resize(body, before); ui?.reveal(body, 'content'); }
+    }
+    function lessonFold(block, open, animate) {
+        var fold = block.firstElementChild, label = open ? text().hide : text().show;
+        fold.title = label;
+        setAttribute(fold, 'aria-label', label + ': ' + fold.textContent);
+        foldBody(fold, fold.nextElementSibling, open, animate);
+    }
     // A height change is animated from where the box was; a keyboard press (detail 0) changes it at once.
     function resized(node, change, animate) {
         var before = animate && node.isConnected ? node.getBoundingClientRect().height : 0;
@@ -811,8 +831,7 @@
         alertRetry.addEventListener('click', retry);
         fold.addEventListener('click', function (event) {
             P.sro = !P.sro; savePreferences();
-            views.forEach(function (other) { render(other, event.detail > 0 && other === state); });
-            if (P.sro && event.detail > 0) motion()?.reveal(body, 'content');
+            views.forEach(function (other) { foldBody(other.panel.fold, other.panel.body, P.sro, event.detail > 0 && other === state); });
         });
         rest.addEventListener('click', function (event) { state.allSro = !state.allSro; state.sroSignature = ''; render(state, event.detail > 0); });
         panel.addEventListener('click', function (event) { var again = event.target.closest?.('.univer-app-syl-note-retry'); if (again) retry(); });
@@ -847,7 +866,7 @@
         var notes = [];
         if (errors.length) notes.push([L.failed, errors, true]);
         if (model.pattern.state === 'failed') notes.push([L.noWeeks, [], true]);
-        var signature = language + '|' + week + '|' + P.sro + '|' + state.allSro + '|' + reading + '|' + items.map(function (item) { return item.key + ':' + item.entry.topic.length + ':' + item.entry.score; }).join(',') + '|' + JSON.stringify(notes);
+        var signature = language + '|' + week + '|' + state.allSro + '|' + reading + '|' + items.map(function (item) { return item.key + ':' + item.entry.topic.length + ':' + item.entry.score; }).join(',') + '|' + JSON.stringify(notes);
         plan.items = items; plan.notes = notes; plan.signature = signature;
         plan.changed = signature !== state.sroSignature;
         plan.first = !state.sroSignature;
@@ -864,13 +883,12 @@
         if (!plan.reading && !plan.notes.length && model.state === 'ready') keepWork(state, plan.items);
         setText(ui.count, plan.items.length ? String(plan.items.length) : '');
         setHidden(ui.count, !plan.items.length);
-        setAttribute(ui.fold, 'aria-expanded', String(P.sro));
+        foldBody(ui.fold, ui.body, P.sro, false);
         // Nothing to hand in and nothing to report: the section stays out of the way.
         setHidden(ui.section, !(plan.items.length || plan.reading || plan.notes.length));
         if (!plan.changed) return;
         state.sroSignature = plan.signature;
         motion()?.stop(ui.root);
-        setHidden(ui.body, !P.sro);
         var limit = state.allSro ? plan.items.length : LIMITS.sro, known = new Map();
         Array.from(ui.list.children).forEach(function (row) { known.set(row.dataset.key, row); });
         ui.list.replaceChildren();
@@ -926,7 +944,7 @@
         var foldKey = card.key + '|' + card.kind, folded = !!P.folded[foldKey];
         // The class's own rows first, then the work named beside it.
         var all = entries.map(function (entry) { return {entry:entry, kind:card.kind}; }).concat(work.map(function (entry) { return {entry:entry, kind:'sro', label:L.sroName}; }));
-        var signature = want + '|' + (want === 'same' ? first.time : '') + '|' + language + '|' + week + '|' + folded + '|' + card.all + '|' + all.map(function (item) { return item.kind + ':' + item.entry.week + ':' + item.entry.name + ':' + item.entry.topic.length + ':' + item.entry.score; }).join(',');
+        var signature = want + '|' + (want === 'same' ? first.time : '') + '|' + language + '|' + week + '|' + card.all + '|' + all.map(function (item) { return item.kind + ':' + item.entry.week + ':' + item.entry.name + ':' + item.entry.topic.length + ':' + item.entry.score; }).join(',');
         var changed = signature !== card.signature, appear = changed && animate && P.lessons && card.signature !== undefined;
         return {state:state, card:card, L:L, P:P, job:job, want:want, first:first, foldKey:foldKey, folded:folded, all:all, signature:signature, changed:changed, appear:appear, before:0, boxes:[]};
     }
@@ -949,22 +967,19 @@
         if (want === 'loading') { block.append(element('span', 'univer-app-syl-wait', L.loading)); return; }
         if (want === 'same') { block.append(element('span', 'univer-app-syl-same', L.same(first.time))); return; }
         var fold = button('univer-app-syl-fold'), body = element('div', 'univer-app-syl-body');
-        body.id = 'univer-syl-task-' + (++counter); fold.setAttribute('aria-controls', body.id); fold.setAttribute('aria-expanded', String(!folded));
-        fold.title = folded ? L.show : L.hide;
+        body.id = 'univer-syl-task-' + (++counter); fold.setAttribute('aria-controls', body.id);
         var caption = element('span', 'univer-app-syl-fold-text');
         var name = all.length === 1 ? meta(all[0].entry, all[0].label) || L.topic : L.topics(all.length);
-        caption.append(element('span', 'univer-app-syl-meta', name)); fold.setAttribute('aria-label', (folded ? L.show : L.hide) + ': ' + name);
+        caption.append(element('span', 'univer-app-syl-meta', name));
         fold.appendChild(caption);
         fold.addEventListener('click', function (event) {
             if (P.folded[foldKey]) delete P.folded[foldKey]; else P.folded[foldKey] = 1;
             savePreferences();
-            var matching = [];
-            views.forEach(function (other) { other.cards.forEach(function (item) { if (item.key === card.key && item.kind === card.kind) matching.push({state:other, card:item, animate:event.detail > 0 && item === card}); }); });
-            drawLessons(matching);
-            if (!P.folded[foldKey] && event.detail > 0 && card.block) motion()?.reveal(card.block.querySelector('.univer-app-syl-body'), 'content');
-            card.block?.querySelector('.univer-app-syl-fold')?.focus({preventScroll:true});
+            views.forEach(function (other) { other.cards.forEach(function (item) {
+                if (item.key === card.key && item.kind === card.kind && item.block?.dataset.state === 'ready') lessonFold(item.block, !P.folded[foldKey], event.detail > 0 && item === card);
+            }); });
+            fold.focus({preventScroll:true});
         });
-        body.hidden = folded;
         var shown = card.all ? all : all.slice(0, LIMITS.perLesson), blocks = [];
         shown.forEach(function (item, index) {
             var box = topicBlock(item.entry, state.expanded, job.href + '|' + item.entry.week + '|' + item.kind + '|' + item.entry.name + '|' + index, index === shown.length - 1 ? job.plan.href : '');
@@ -977,6 +992,7 @@
             body.appendChild(rest);
         }
         block.append(fold, body); block.blocks = blocks;
+        lessonFold(block, !folded, false);
         plan.boxes = blocks;
     }
     function drawLessons(items) {
@@ -1111,7 +1127,7 @@
         controllers.forEach(function (abort) { abort.abort(); }); controllers.clear(); teachers.clear(); timers.forEach(clearTimeout); timers.clear();
         views.forEach(function (state) {
             motion()?.stop(state.panel.root); state.panel.root.remove(); state.view.removeAttribute('data-syllabus');
-            state.cards.forEach(function (card) { card.block?.remove(); });
+            state.cards.forEach(function (card) { if (card.block) { motion()?.stop(card.block); card.block.remove(); } });
         });
         views.clear(); style?.remove(); style = null;
     }

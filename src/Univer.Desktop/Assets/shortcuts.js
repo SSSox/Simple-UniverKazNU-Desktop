@@ -14,22 +14,19 @@
     var homePages = /^\/news\/student(?:\/1)?\/?$|^\/student\/bachelor\/?$/i;
     var css = `
 /* Home and Bachelor share a content gutter; tiles, headings and panels start on one line. */
-:root.univer-mobile.univer-app-home { --u-home-gutter:24px; }
+:root.univer-mobile.univer-app-home { --u-home-gutter:clamp(16px, calc((100% - 868px) / 2), 24px); }
 :root.univer-mobile.univer-app-home #l4>td { padding:24px var(--u-home-gutter) 32px!important; box-sizing:border-box; }
 /* The news page nests its body cell in the frame cell; the frame alone holds the column (and its «Наверх» room), or the
    nested cell would narrow the tiles a second time. */
 :root:root:root:root.univer-mobile.univer-app-home #l4 td.center.univer-app-home-body { padding:0!important; }
-/* Both routes keep one centred column whatever cell holds the page: the frame takes the gutter, the page width and the
-   «Наверх» room (back-to-top.js) on both sides at every window width, so the tile grid has the same place, width and
-   columns. On screen only: the button, and its room, are not printed. */
-@media screen { :root:root:root:root:root.univer-mobile.univer-app-home #l4>td { padding-left:max(var(--u-home-gutter), calc((100% - var(--u-page)) / 2), var(--u-top-room, 0px))!important; padding-right:max(var(--u-home-gutter), calc((100% - var(--u-page)) / 2), var(--u-top-room, 0px))!important; } }
+/* Both frames add «Наверх» room only from space beyond 768px, so widening the window never narrows the tile column. */
+@media screen { :root:root:root:root:root.univer-mobile.univer-app-home #l4>td { padding-left:max(var(--u-home-gutter), calc((100% - var(--u-page)) / 2), min(var(--u-top-room, 0px), calc((100% - 768px) / 2)))!important; padding-right:max(var(--u-home-gutter), calc((100% - var(--u-page)) / 2), min(var(--u-top-room, 0px), calc((100% - 768px) / 2)))!important; } }
 :root.univer-mobile.univer-app-home #l4>td>* { max-width:var(--u-page); margin-left:auto!important; margin-right:auto!important; box-sizing:border-box; }
 :root.univer-mobile.univer-app-home .univer-app-quick { margin:0 auto 24px!important; align-items:stretch; gap:12px; }
 :root.univer-mobile.univer-app-home #l4 h1 { margin-top:24px; margin-bottom:12px; }
 :root.univer-mobile.univer-app-home #l4 table.mt td.univer-app-credentials-host { padding:8px 18px 12px!important; }
 :root.univer-mobile #l4 td.univer-app-credentials-host .univer-app-credential { display:grid!important; grid-template-columns:110px minmax(0,1fr) auto; }
 :root.univer-mobile #l4 td.univer-app-credentials-host .univer-app-credential-value { min-width:0; }
-@media (max-width:900px) { :root.univer-mobile.univer-app-home { --u-home-gutter:16px; } }
 @media (max-width:640px) { :root.univer-mobile #l4 td.univer-app-credentials-host .univer-app-credential { grid-template-columns:minmax(0,1fr); } }
 :root.univer-mobile .univer-app-quick .univer-app-tile { position:relative; display:flex; min-width:0; }
 :root.univer-mobile .univer-app-quick .univer-app-tile>a { flex:1 1 auto; min-width:0; overflow-wrap:break-word; }

@@ -59,12 +59,13 @@ test('filtered news search hidden article text, retain expansion across result p
 test('pointer news expansion unrolls from the preview without a fade; collapse follows its row; focus and release cancel it',()=>{
   const p=context(newsPage([newsRow('09','Длинная новость','<a href="#tail" id="tail">Конец</a>')]),'/news/student',news);
   newsGeometry(p,()=>600); const calls=[];
-  p.w.__univerMotionUI={reveal(node,kind){calls.push(['reveal',node,kind]);},stop(node){calls.push(['stop',node]);},resize(node,before,options){calls.push(['resize',node,before,options]);}};
+  p.w.__univerMotionUI={reveal(node,kind){calls.push(['reveal',node,kind]);},stop(node){calls.push(['stop',node]);},resize(node,before){calls.push(['resize',node,before]);},shut(node,target,done,options){calls.push(['shut',node,target,options]);done();}};
   p.w.__univerNewsV1.apply('ru'); const body=p.d.querySelector('.univer-app-news-body'),button=p.d.querySelector('.univer-app-news-toggle');
+  body.style.setProperty('--u-news-preview', '248px');
   button.dispatchEvent(new p.w.MouseEvent('click',{bubbles:true,detail:1}));
   assert.equal(body.getAttribute('data-collapsed'),'false'); assert.equal(calls.at(-1)[0],'resize'); assert.equal(calls.filter(c=>c[0]==='reveal').length,0,'the preview is already on screen: no fade');
   button.dispatchEvent(new p.w.MouseEvent('click',{bubbles:true,detail:1}));
-  assert.equal(body.getAttribute('data-collapsed'),'true'); assert.equal(calls.at(-1)[0],'resize'); assert.equal(calls.at(-1)[3].follow,body.closest('tr'),'the page follows the article back to its start');
+  assert.equal(body.getAttribute('data-collapsed'),'true'); assert.equal(calls.at(-1)[0],'shut'); assert.equal(calls.at(-1)[3].follow,body.closest('tr'),'the page follows the article back to its start');
   const resized=calls.filter(c=>c[0]==='resize').length;
   const before=calls.filter(c=>c[0]==='reveal').length; button.click();
   assert.equal(body.getAttribute('data-collapsed'),'false'); assert.equal(calls.filter(c=>c[0]==='reveal').length,before); assert.equal(calls.filter(c=>c[0]==='resize').length,resized,'a key opens at once');
@@ -81,6 +82,39 @@ test('news react to resize, late media and new rows; keyboard focus reveals a cl
   p.d.querySelector('table.univer-app-news tbody').insertAdjacentHTML('beforeend',newsRow('08','Поздняя новость'));height=400;
   p.w.__univerNewsV1.apply('ru');assert.equal(p.d.querySelectorAll('.univer-app-news-toggle:not([hidden])').length,2);
   p.w.__univerNewsV1.release();p.w.dispatchEvent(new p.w.Event('resize'));await wait(10);assert.equal(p.d.querySelector('.univer-app-news-toggle'),null);p.close();
+});
+
+test('closing a long article holds the bottom scroll position until the height starts moving', () => {
+  const p = context(newsPage([newsRow('09', 'Длинная новость')]), '/news/student', news);
+  try {
+    p.d.documentElement.classList.add('univer-mobile');
+    p.w.eval(fs.readFileSync('src/Univer.Desktop/Assets/desktop.js', 'utf8'));
+    newsGeometry(p, () => 2000); p.w.__univerNewsV1.apply('ru');
+    const body = p.d.querySelector('.univer-app-news-body'), button = p.d.querySelector('.univer-app-news-toggle');
+    body.style.setProperty('--u-news-preview', '248px');
+    button.click();
+    let y = 1900, height = 2000, run;
+    const frames = [], scrolls = [];
+    Object.defineProperty(p.w, 'scrollY', { get: () => y });
+    body.closest('tr').getBoundingClientRect = () => ({ top: 500 - y });
+    body.getBoundingClientRect = () => {
+      if (body.dataset.collapsed === 'true' && !body.hasAttribute('data-univer-resizing')) {
+        y = Math.min(y, 148); return { width: 720, height: 248 };
+      }
+      return { width: 720, height };
+    };
+    body.animate = keyframes => { run = { keyframes, cancel() {} }; return run; };
+    p.w.requestAnimationFrame = callback => frames.push(callback);
+    p.w.cancelAnimationFrame = () => {};
+    p.w.scrollTo = ({ top }) => { y = top; scrolls.push(top); };
+    button.dispatchEvent(new p.w.MouseEvent('click', { detail: 1 }));
+    assert.equal(y, 1900, 'the page is still full height on click');
+    assert.deepEqual(Array.from(run.keyframes, frame => frame.height), ['2000px', '248px']);
+    height = 1124; frames.shift()();
+    assert.deepEqual(scrolls, [1194], 'the glide starts from the scroll position before any shrink');
+    run.playState = 'finished'; run.onfinish();
+    assert.equal(body.dataset.collapsed, 'true');
+  } finally { p.close(); }
 });
 test('date search aggregates pages, hides unnecessary pagination and search, and clears to the intact source',async()=>{
   const p=context(newsPage([newsRow('09','One'),newsRow('08','Two')],1,true),'/news/student',news);
