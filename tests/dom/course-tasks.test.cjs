@@ -54,7 +54,7 @@ const task = (end = 1) => shell(panel(row('<td class="ct"><a href="/student/disc
   row('<td class="ct"><a name="mes"></a><form id="send_message" action="/student/discussion/task/send/9001/501/7101/2026/1/9/" method="post"><select id="user_to" name="user_to"><option value="">Преподаватель</option></select>' +
     '<input type="button" id="sb_btn" value="Отправить"></form></td>')));
 
-function page(content, url, { routes = {}, referrer, storage } = {}) {
+function page(content, url, { routes = {}, referrer, storage, extension } = {}) {
   const html = '<table class="wrappertable"><tr id="l1"><td class="header">КазНУ</td></tr><tr id="l4"><td>' + content + '</td></tr></table>';
   const errors = [], virtualConsole = new VirtualConsole();
   virtualConsole.on('jsdomError', error => errors.push(String(error.message)));
@@ -65,7 +65,8 @@ function page(content, url, { routes = {}, referrer, storage } = {}) {
   w.HTMLElement.prototype.scrollIntoView = function () { w.__scrolled = this.id; };
   w.jQuery = () => ({ bind() {} });
   w.__univerNative = () => {};
-  if (storage) Object.entries(storage).forEach(([key, value]) => w.sessionStorage.setItem(key, value));
+  if (storage) Object.entries(storage).forEach(([key, value]) => w.localStorage.setItem(key, value));
+  if (extension) w.eval(fs.readFileSync('src/Univer.Extension/scripts/prelude.js', 'utf8'));
   w.fetch = (address, options) => {
     requests.push({ address, options });
     const body = routes[address];
@@ -83,9 +84,13 @@ const siteRoutes = {
   '/student/discussion/task/list/501/7101/2026/1/9/': taskList([{ id: 9001, title: 'Синтетическое задание по истории', start: -3, end: 1 }]),
   '/student/discussion/task/list/501/7101/2026/1/7/': taskList([{ id: 9002, title: 'Прошлое синтетическое задание', start: -17, end: -12 }], 7)
 };
+const INDEX = 'https://univer.kaznu.kz/student/discussion/index/';
+const ACCOUNT = 'univer.app.account.v1', CACHE = 'univer.desktop.course-tasks.v1';
+const FIRST_COURSE = '/student/discussion/acpos/list/7101/2026/1/', SECOND_COURSE = '/student/discussion/acpos/list/7102/2026/1/';
+const OLD_WEEK = '/student/discussion/task/list/501/7101/2026/1/7/', CURRENT_WEEK = '/student/discussion/task/list/501/7101/2026/1/9/';
 
-test('the course list shows open and closed assignments of every week and links each to its task and course weeks', async () => {
-  const p = page(index, 'https://univer.kaznu.kz/student/discussion/index/', { routes: siteRoutes });
+test('the course list shows open and closed assignments and retries only the failed course on revisit', async () => {
+  const p = page(index, INDEX, { routes: siteRoutes, storage: { [ACCOUNT]: 'a1' } });
   apply(p);
   const box = p.d.querySelector('.univer-app-tasks');
   assert.ok(box, 'an assignments panel above the course list');
@@ -129,21 +134,81 @@ test('the course list shows open and closed assignments of every week and links 
   assert.match(box.querySelector('.univer-app-task-status').textContent, /^due \d\d\.\d\d · 1 day left$/);
   assert.equal(p.d.getElementById('7101').querySelector('.univer-app-course-tasks').textContent, 'Open: 1');
   assert.equal(box.querySelector('.univer-app-tasks-filter button').textContent, 'Open1');
-  const cached = Object.keys(p.w.sessionStorage).find(key => key.startsWith('univer-app-course-tasks:'));
-  assert.ok(cached, 'the result is kept for this browser session');
-  const stored = p.w.sessionStorage.getItem(cached);
+  const stored = p.w.localStorage.getItem(CACHE);
+  assert.ok(stored, 'the successful course is kept under the account');
   apply(p, false);
   assert.equal(p.d.querySelectorAll('.univer-app-tasks,.univer-app-course-tasks,#univer-tasks-style').length, 0);
   assert.equal(p.d.getElementById('7101').cells[1].textContent, 'История Казахстана (0)');
   p.close();
 
-  const again = page(index, 'https://univer.kaznu.kz/student/discussion/index/', { routes: siteRoutes, storage: { [cached]: stored } });
+  const again = page(index, INDEX, { routes: siteRoutes, storage: { [ACCOUNT]: 'a1', [CACHE]: stored } });
   apply(again);
-  assert.equal(again.requests.length, 0, 'a recent result is shown without reading the pages again');
+  assert.deepEqual(again.requests.map(r => r.address), [SECOND_COURSE]);
+  await settle();
   assert.equal(again.d.querySelectorAll('.univer-app-task-item').length, 1);
   again.d.querySelector('.univer-app-tasks-refresh').click();
   assert.ok(again.requests.length > 0, 'Refresh reads them again');
   await settle(); again.close();
+});
+
+test('course results survive reload during collection and a fully checked index makes no requests on revisit', async () => {
+  const routes = { ...siteRoutes, [SECOND_COURSE]: plans([]) }, mark = { [ACCOUNT]: 'a1' };
+  const p = page(index, INDEX, { routes, storage: mark });
+  const fetch = p.w.fetch, signals = [];
+  p.w.fetch = (address, options) => {
+    if (address !== SECOND_COURSE) return fetch(address, options);
+    signals.push(options.signal); return new Promise(() => {});
+  };
+  apply(p);
+  assert.ok(await until(() => p.w.localStorage.getItem(CACHE)?.includes(FIRST_COURSE)));
+  assert.match(p.d.querySelector('.univer-app-tasks-state').textContent, /1 из 2/);
+  const saved = () => ({ ...mark, [CACHE]: p.w.localStorage.getItem(CACHE) });
+  const storage = saved();
+  apply(p, false); assert.ok(signals[0].aborted); p.close();
+  const again = page(index, INDEX, { routes, storage });
+  apply(again); await settle();
+  assert.deepEqual(again.requests.map(r => r.address), [SECOND_COURSE]);
+  const finished = { ...mark, [CACHE]: again.w.localStorage.getItem(CACHE) };
+  again.close();
+  const warm = page(index, INDEX, { storage: finished });
+  apply(warm);
+  assert.deepEqual(warm.requests, []);
+  assert.equal(warm.d.querySelector('.univer-app-tasks').dataset.busy, 'false');
+  warm.close();
+});
+
+test('old closed weeks keep their tasks for a day while current weeks are checked again', async () => {
+  const routes = { ...siteRoutes, [SECOND_COURSE]: plans([]) }, mark = { [ACCOUNT]: 'a1' };
+  const first = page(index, INDEX, { routes, storage: mark });
+  apply(first); await settle();
+  const cache = JSON.parse(first.w.localStorage.getItem(CACHE));
+  first.close();
+  Object.values(cache.courses).forEach(record => { record.at -= 11 * 60 * 1000; });
+  const again = page(index, INDEX, { routes, storage: { ...mark, [CACHE]: JSON.stringify(cache) } });
+  apply(again); await settle();
+  const requests = again.requests.map(r => r.address);
+  assert.ok(requests.includes(CURRENT_WEEK));
+  assert.ok(!requests.includes(OLD_WEEK));
+  again.d.querySelector('[data-view=closed]').click();
+  assert.match(again.d.querySelector('.univer-app-task-item').textContent, /Прошлое синтетическое задание/);
+  again.close();
+
+  Object.values(cache.weeks).forEach(record => { record.at -= 24 * 60 * 60 * 1000; });
+  for (const settings of [
+    { storage: { ...mark, [CACHE]: JSON.stringify(cache) } },
+    { storage: { [ACCOUNT]: 'b2', [CACHE]: JSON.stringify(cache) } },
+    { storage: {} },
+    { storage: mark, extension: true }
+  ]) {
+    const pageToCheck = page(index, INDEX, { routes, ...settings });
+    apply(pageToCheck); await settle();
+    assert.ok(pageToCheck.requests.some(r => r.address === OLD_WEEK));
+    if (!settings.storage[ACCOUNT] || settings.extension) {
+      assert.equal(pageToCheck.w.localStorage.getItem(CACHE), null);
+      assert.equal(pageToCheck.w.sessionStorage.length, 0);
+    }
+    pageToCheck.close();
+  }
 });
 
 test('an expired session or a login page in a background read counts as a failed course, never as no assignments', async () => {

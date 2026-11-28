@@ -71,11 +71,11 @@ const lessons = [
   [['Политология', 'семинар', 'Помощников П. П.'], ['Иностранный язык', 'семинар', 'Языкова Я. Я.']],
   [['Физическая культура', 'практика', 'Спортов С. С.']]];
 
-function page(content, { routes: map = {}, local, dark, now, extension } = {}) {
+function page(content, { routes: map = {}, local, dark, now, extension, path = '/student/myschedule/' } = {}) {
   const html = '<table class="wrappertable"><tr id="l1"><td class="header">КазНУ</td></tr><tr id="l4"><td>' + content + '</td></tr></table>';
   const errors = [], virtualConsole = new VirtualConsole();
   virtualConsole.on('jsdomError', error => errors.push(String(error.message)));
-  const dom = new JSDOM(html, { url: 'https://univer.kaznu.kz/student/myschedule/', runScripts: 'outside-only', virtualConsole });
+  const dom = new JSDOM(html, { url: 'https://univer.kaznu.kz' + path, runScripts: 'outside-only', virtualConsole });
   const w = dom.window, requests = []; opened.push(w);
   // now: the moment the page is open at, as Date arguments in local time.
   if (now) { const Real = w.Date, at = new Real(...now).getTime(); w.Date = class extends Real { constructor(...args) { super(...(args.length ? args : [at])); } static now() { return at; } }; }
@@ -84,8 +84,7 @@ function page(content, { routes: map = {}, local, dark, now, extension } = {}) {
   w.jQuery = () => ({ bind() {} });
   w.__univerNative = () => {};
   if (local) Object.entries(local).forEach(([key, value]) => w.localStorage.setItem(key, value));
-  // What the extension's prelude.js sets before the page scripts.
-  if (extension) w.__univerOverviewKeep = false;
+  if (extension) w.eval(fs.readFileSync('src/Univer.Extension/scripts/prelude.js', 'utf8'));
   w.fetch = address => {
     requests.push(address);
     // Every other week of the schedule is the shown page again unless a test gives that week its own classes; null is a failed read.
@@ -104,8 +103,10 @@ const lessonOf = (p, subject, type) => Array.from(p.d.querySelectorAll('.univer-
 const topics = card => Array.from(card.querySelectorAll('.univer-app-syl-topic')).map(node => node.textContent);
 const click = (p, node) => node.dispatchEvent(new p.w.MouseEvent('click', { bubbles: true, cancelable: true }));
 const STORE = 'univer.desktop.syllabus.v1', PREFS = 'univer.desktop.syllabus-ui.v1';
+const OWN = 'univer.desktop.syllabus-own.v1', WEEK_CACHE = 'univer.desktop.syllabus-weeks.v1', ACCOUNT = 'univer.app.account.v1';
+const snapshot = p => Object.fromEntries([STORE, OWN, WEEK_CACHE, ACCOUNT].map(key => [key, p.w.localStorage.getItem(key)]).filter(([, value]) => value !== null));
 
-test('each class shows the topic of its week and kind from the syllabus of the student\'s own programme', async () => {
+test('each class shows the matching syllabus topic and a perfect first candidate avoids further reads', async () => {
   const p = page(schedule(lessons), { routes: routes() });
   apply(p); await until(done(p));
   assert.deepEqual(topics(lessonOf(p, 'Политология', 'лекция')), ['Политическая власть и её источники']);
@@ -120,10 +121,10 @@ test('each class shows the topic of its week and kind from the syllabus of the s
   assert.equal(panel.querySelector('.univer-app-syl-week'), null); assert.equal(panel.querySelector('.univer-app-syl-program'), null);
   assert.equal(p.d.querySelector('.univer-app-syl-label'), null);
   assert.deepEqual(Array.from(panel.querySelectorAll('.univer-app-syl-note')), []);
-  // Among the syllabi of the programme the one of this year, the student's division and the schedule's teacher wins;
+  // Among the syllabi of the programme the one of this year and the student's division wins;
   // the older and foreign ones behind it are never read.
-  assert.ok(p.requests.includes('/student/interactive/syllabus/print/9003/2') && p.requests.includes('/student/interactive/syllabus/print/9004/2'));
-  assert.ok(!p.requests.includes('/student/interactive/syllabus/print/9002/2') && !p.requests.includes('/student/interactive/syllabus/print/9001/2'));
+  assert.ok(p.requests.includes('/student/interactive/syllabus/print/9004/2'));
+  assert.ok(!p.requests.some(address => /\/print\/900[123]\//.test(address)));
   assert.equal(lessonOf(p, 'Политология', 'лекция').querySelector('.univer-app-syl-source').getAttribute('href'), '/student/interactive/syllabus/print/9004/2');
   assert.deepEqual(p.errors, []);
   apply(p, false); p.close();
@@ -180,7 +181,9 @@ test('the current week\'s independent work is kept for the home page only from a
   // The browser extension keeps nothing.
   const extension = page(schedule(lessons), { routes: routes(), local: mark, now: WEDNESDAY, extension: true });
   apply(extension); await until(done(extension));
-  assert.equal(work(extension), null); extension.close();
+  assert.equal(work(extension), null);
+  for (const key of [STORE, OWN, WEEK_CACHE]) assert.equal(extension.w.localStorage.getItem(key), null);
+  extension.close();
 });
 
 test('long topics are cut and expand on demand, and extra entries of one class wait behind a button', async () => {
@@ -290,6 +293,27 @@ test('schedule and lesson disclosures keep their body while closing and can reve
   } finally { p.close(); }
 });
 
+test('every week of the timetable is read before the first printed syllabus, since no topic shows without them', async () => {
+  const weeks = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+  const p = page(schedule(lessons, 4, '2026/1', weeks), { routes: routes() });
+  apply(p); await until(done(p));
+  const isWeek = address => /^\/student\/myschedule\/2026\//.test(address);
+  const lastWeek = p.requests.map(isWeek).lastIndexOf(true), firstPrint = p.requests.findIndex(address => /\/print\//.test(address));
+  assert.equal(p.requests.filter(isWeek).length, 12);
+  assert.ok(lastWeek < firstPrint, 'weeks ' + lastWeek + ', first syllabus ' + firstPrint);
+  apply(p, false); p.close();
+});
+test('a week the site leaves unanswered once is asked again at once and the topics take the timetable', async () => {
+  const p = page(schedule(lessons), { routes: routes() }), answer = p.w.fetch; let dropped = '';
+  p.w.fetch = address => {
+    if (!dropped && /^\/student\/myschedule\/2026\//.test(address)) { dropped = address; p.requests.push(address); return Promise.reject(new Error('unanswered')); }
+    return answer(address);
+  };
+  apply(p); await until(done(p));
+  assert.equal(p.requests.filter(address => address === dropped).length, 2);
+  assert.equal(JSON.parse(p.w.localStorage.getItem(WEEK_CACHE)).terms['ru|/2026/1'].pages[dropped] !== undefined, true);
+  apply(p, false); p.close();
+});
 test('another student signing in on the same profile does not get the previous student\'s programme, course list or weeks', async () => {
   const first = page(schedule(lessons, 4), { routes: routes(), local: { 'univer.app.account.v1': 'a1' } });
   apply(first); await until(done(first));
@@ -310,15 +334,15 @@ test('another student signing in on the same profile does not get the previous s
   apply(other, false); other.close();
 });
 
-test('a plan found once is kept for the semester: a day-old programme and a month-old plan cause no request, a changed programme reads them again', async () => {
-  const first = page(schedule(lessons, 4), { routes: routes() });
+test('a plan found once is kept for the semester and a changed programme invalidates the course plan', async () => {
+  const first = page(schedule(lessons, 4), { routes: routes(), local: { [ACCOUNT]: 'a1' } });
   apply(first); await until(done(first));
-  const saved = JSON.parse(first.w.localStorage.getItem(STORE)); apply(first, false); first.close();
-  const day = 86400000, aged = (change) => { const copy = JSON.parse(JSON.stringify(saved)); change(copy); return { [STORE]: JSON.stringify(copy) }; };
+  const local = snapshot(first), saved = JSON.parse(local[STORE]); apply(first, false); first.close();
+  const day = 86400000, aged = (change) => { const copy = JSON.parse(JSON.stringify(saved)); change(copy); return { ...local, [STORE]: JSON.stringify(copy) }; };
   const reads = p => p.requests.filter(address => /syllabus|\/umkd\/\d|\/student\/bachelor\//.test(address));
   // A month on: the plans, the course list and the programme (a few hours old) are all taken from the store.
   const month = page(schedule(lessons, 4), { routes: routes(), local: aged(copy => {
-    Object.values(copy.courses).forEach(course => { course.at -= course.status === 'ready' ? 30 * day : 3600000; }); copy.list.at -= 2 * day; copy.program.at -= 3600000; copy.pattern.at -= 3 * day;
+    Object.values(copy.courses).forEach(course => { course.at -= course.status === 'ready' ? 30 * day : 3600000; }); copy.list.at -= 2 * day; copy.program.at -= 3600000;
   }) });
   apply(month); await until(done(month));
   assert.deepEqual(reads(month), []);
@@ -335,7 +359,7 @@ test('a plan found once is kept for the semester: a day-old programme and a mont
   }) });
   apply(other); await until(done(other));
   assert.ok(other.requests.includes('/student/bachelor/'));
-  assert.ok(other.requests.some(address => /syllabus\/print/.test(address)));
+  assert.ok(!other.requests.some(address => /syllabus\/print/.test(address)), 'parsed syllabi can still be ranked for the newly read programme');
   assert.equal(topics(lessonOf(other, 'Политология', 'лекция')).length, 1);
   apply(other, false); other.close();
 });
@@ -487,7 +511,7 @@ test('a seminar held on other weeks than the syllabus says takes its topic by th
   // Every week of the site's list is read once.
   assert.deepEqual(p.requests.filter(address => /\/myschedule\//.test(address)).sort(), shiftedWeeks.map(n => weekHref(n)).sort());
   assert.deepEqual(p.errors, []);
-  const local = { [STORE]: p.w.localStorage.getItem(STORE) };
+  const local = snapshot(p);
   apply(p, false); p.close();
 
   // Week 4 from what is remembered: the group has no seminar, so the seminar row and its work are not shown here.
@@ -518,7 +542,7 @@ test('work is not moved into a week that has work of its own: two works of one c
   apply(p); await until(done(p));
   assert.deepEqual(listed(p), [['Политология', 'СРО 2 · макс. балл: 10', 'Доклад пятой недели']]);
   assert.deepEqual(topics(lessonOf(p, 'Политология', 'семинар')), ['Второй семинар курса', 'Доклад пятой недели']);
-  const local = { [STORE]: p.w.localStorage.getItem(STORE) };
+  const local = snapshot(p);
   apply(p, false); p.close();
   // The work of week 4 goes to the free seminar of week 3 instead.
   const third = page(shiftedSchedule(3), { routes: map, local });
@@ -536,9 +560,12 @@ test('when another week of the schedule cannot be read the topics stay on the sy
   assert.deepEqual(topics(lessonOf(p, 'Политология', 'лекция')), ['Лекция пятой недели']);
   assert.deepEqual(listed(p), []);
   const failed = Array.from(p.d.querySelectorAll('.univer-app-syl-note')).find(node => /^Не удалось прочитать расписание других недель, темы показаны по неделям силлабуса/.test(node.textContent));
-  assert.ok(failed); assert.equal(JSON.parse(p.w.localStorage.getItem(STORE)).pattern, undefined);
+  assert.ok(failed);
+  assert.equal(Object.keys(JSON.parse(p.w.localStorage.getItem(WEEK_CACHE)).terms['ru|/2026/1'].pages).length, shiftedWeeks.length - 1);
   map[weekHref(2)] = site(shiftedSchedule(2));
+  const before = p.requests.length;
   click(p, failed.querySelector('.univer-app-syl-note-retry')); await until(() => topics(lessonOf(p, 'Политология', 'семинар')).length === 2);
+  assert.deepEqual(p.requests.slice(before), [weekHref(2)]);
   assert.ok(!noteTexts(p).some(note => /Не удалось/.test(note)));
   apply(p, false); p.close();
 });
@@ -763,6 +790,17 @@ test('own(): with the programme unknown nothing is marked and no syllabus is rea
   p.close();
 });
 
+test('a printed syllabus uses the supplied trailing slash and shares its parsed data with the canonical link', async () => {
+  const [link] = prints([9004]), map = routes(), slash = new URL(link).pathname + '/';
+  map[slash] = map[new URL(link).pathname]; delete map[new URL(link).pathname];
+  const p = page('', { routes: map });
+  try {
+    assert.equal(await p.w.__univerSyllabusV1.own([link + '/']), link);
+    assert.equal(await p.w.__univerSyllabusV1.own([link], '/student/umkd/7001/2026/1'), link);
+    assert.deepEqual(p.requests.filter(path => path.includes('/print/')), [slash]);
+  } finally { p.close(); }
+});
+
 // A printed syllabus that never answers until its request is aborted (or fails after `fails` ms).
 const hanging = (p, fails) => {
   const started = [], fetch = p.w.fetch;
@@ -774,6 +812,206 @@ const hanging = (p, fails) => {
   return started;
 };
 const prints = ids => ids.map(id => 'https://univer.kaznu.kz/student/interactive/syllabus/print/' + id + '/2');
+
+test('a complete own-syllabus answer is immediate on a second visit and is scoped to the marked account', async () => {
+  const course = '/student/umkd/7001/2026/1', links = prints([9001, 9002, 9003, 9004]), local = { [ACCOUNT]: 'a1' };
+  const p = page('', { routes: routes(), local });
+  const api = p.w.__univerSyllabusV1;
+  assert.equal(await api.own(links, course), links[3]);
+  assert.ok(p.requests.includes('/student/interactive/syllabus/print/9004/2'));
+  assert.ok(!p.requests.some(r => /\/900[12]\//.test(r)), 'a perfect match stops the older candidates from being requested');
+  local[OWN] = p.w.localStorage.getItem(OWN);
+  p.close();
+
+  const warm = page(routes()[course], { local, path: course });
+  assert.equal(warm.w.__univerSyllabusV1.peekOwn([...links].reverse()), links[3]);
+  warm.w.__univerPagesV1.apply('ru');
+  assert.equal(warm.d.querySelector('.univer-app-own-tag')?.parentElement.href, links[3], 'UMKD tags a kept answer synchronously');
+  assert.equal(warm.d.querySelector('.univer-app-own-status'), null);
+  assert.equal(await warm.w.__univerSyllabusV1.own(links), links[3]);
+  assert.deepEqual(warm.requests, [], 'even the programme page is skipped');
+  warm.close();
+
+  for (const [other, extension] of [['b2', false], ['', false], ['a1', true]]) {
+    const profile = page('', { routes: routes(), local: { ...local, [ACCOUNT]: other }, extension, path: course });
+    assert.equal(profile.w.__univerSyllabusV1.peekOwn(links), undefined);
+    assert.equal(await profile.w.__univerSyllabusV1.own(links), links[3]);
+    assert.ok(profile.requests.includes('/student/bachelor/'));
+    if (extension) {
+      assert.equal(profile.w.localStorage.getItem(OWN), local[OWN]);
+      assert.equal(profile.w.localStorage.getItem(STORE), null);
+    } else if (!other) assert.equal(profile.w.localStorage.getItem(OWN), local[OWN], 'an unmarked visit does not write a personal answer');
+    profile.close();
+  }
+});
+
+test('unmarked visits reuse the parsed syllabus within the page without writing the own-syllabus cache', async () => {
+  const p = page('', { routes: routes() });
+  const api = p.w.__univerSyllabusV1, links = prints([9004]);
+  assert.equal(await api.own(links, '/student/umkd/7001/2026/1'), links[0]);
+  assert.equal(await api.own(links, '/student/umkd/7002/2026/1'), links[0]);
+  assert.equal(p.requests.filter(path => path.includes('/print/')).length, 1);
+  assert.equal(p.w.localStorage.getItem(OWN), null);
+});
+
+test('the candidate limit cannot turn a partial scan into a kept answer', async () => {
+  const course = '/student/umkd/7001/2026/1', map = routes();
+  const candidates = prints([9004, 9003]);
+  const p = page('', { routes: map, local: { [ACCOUNT]: 'a1' } });
+  const api = p.w.__univerSyllabusV1;
+  api.limits.candidates = 1;
+  map[new URL(candidates[0]).pathname] = map[new URL(candidates[1]).pathname];
+  map[new URL(candidates[1]).pathname] = politics;
+  await assert.rejects(api.own(candidates, course));
+  assert.equal(api.peekOwn(candidates, course), undefined);
+  assert.deepEqual(p.requests.filter(path => path.includes('/print/')), [new URL(candidates[0]).pathname]);
+  api.limits.candidates = 2;
+  assert.equal(await api.own(candidates, course), candidates[1]);
+});
+
+test('the schedule and own lookup share parsed syllabi with no programme codes and agree on the same source', async () => {
+  const map = routes(), course = '/student/umkd/7001/2026/1', links = prints([9006, 9007]);
+  const fallback = 'Группа №: 1000001 (Образовательная программа: Синтетическая безопасность, Языковое отделение: русское)';
+  map[course] = coursePage([['9006', 'Политология подходящая'], ['9007', 'Политология без программы']]);
+  map[new URL(links[0]).pathname] = syllabus({ groups: [fallback], weeks: [week(4, [entry('лекция', 'лекция 4', 'Та же тема', 1)])] });
+  map[new URL(links[1]).pathname] = syllabus({ groups: [], weeks: [] });
+  const own = page('', { routes: map, local: { [ACCOUNT]: 'a1' } });
+  assert.equal(await own.w.__univerSyllabusV1.own(links, course), links[0]);
+  const ownLocal = snapshot(own);
+  const schedulePage = page(schedule(lessons, 4), { routes: map, local: ownLocal });
+  own.close();
+  apply(schedulePage); await until(done(schedulePage));
+  assert.equal(lessonOf(schedulePage, 'Политология', 'лекция').querySelector('.univer-app-syl-source').href, links[0]);
+  assert.deepEqual(schedulePage.requests.filter(r => /\/900[67]\//.test(r)), []);
+
+  const local = snapshot(schedulePage); delete local[OWN];
+  const fromPlan = page('', { local, path: course });
+  assert.equal(await fromPlan.w.__univerSyllabusV1.own(links), links[0]);
+  assert.deepEqual(fromPlan.requests, [], 'the source of the saved course plan is enough');
+  fromPlan.close(); schedulePage.close();
+
+  const withoutAnswer = { ...local, [OWN]: JSON.stringify({ owner: 'a1', entries: JSON.parse(ownLocal[OWN]).entries }) };
+  const candidateOnly = page('', { routes: map, local: withoutAnswer });
+  assert.equal(await candidateOnly.w.__univerSyllabusV1.own(links, '/student/umkd/7010/2026/1'), links[0]);
+  assert.deepEqual(candidateOnly.requests, [], 'even a parsed candidate with zero programme codes is reused');
+  candidateOnly.close();
+});
+
+test('timetable reads share three slots with syllabus discovery, publish progress, and reuse completed past weeks', async () => {
+  const map = shiftedRoutes(), p = page(shiftedSchedule(5), { routes: map, now: [2026, 10, 10] });
+  const fetch = p.w.fetch, pending = new Map(), started = [];
+  let active = 0, peak = 0;
+  p.w.fetch = (path, options) => {
+    started.push(path);
+    active++; peak = Math.max(peak, active);
+    if (path !== weekHref(2)) return fetch(path, options).finally(() => { active--; });
+    return new Promise(resolve => pending.set(path, () => fetch(path, options).then(resolve))).finally(() => { active--; });
+  };
+  apply(p);
+  await until(() => p.w.__univerSyllabusV1.state().model === 'ready' &&
+    p.w.__univerSyllabusV1.state().jobs.every(job => !['queued', 'loading'].includes(job.status)) &&
+    p.d.querySelector('.univer-app-syl-progress').textContent.includes('5 из 6'));
+  assert.deepEqual(started.slice(0, 2).sort(), ['/student/bachelor/', '/student/umkd/']);
+  assert.equal(started.filter(path => path === '/student/umkd/').length, 1, 'the schedule and its subject links share course discovery');
+  assert.equal(peak, 3);
+  assert.match(p.d.querySelector('.univer-app-syl-progress').textContent, /5 из 6/);
+  assert.deepEqual(topics(lessonOf(p, 'Политология', 'семинар')), []);
+  assert.deepEqual(listed(p), []);
+  pending.get(weekHref(2))();
+  await until(done(p));
+  const local = snapshot(p); p.close();
+  const afterExpiry = page(shiftedSchedule(5), { local, routes: map, now: [2026, 10, 25] });
+  apply(afterExpiry); await until(done(afterExpiry));
+  assert.deepEqual(afterExpiry.requests.filter(r => r.includes('/myschedule/')), []);
+  afterExpiry.close();
+});
+
+test('a dated schedule uses the week already on screen and keeps it for the next visit', async () => {
+  const path = weekHref(5), content = shiftedSchedule(5), map = shiftedRoutes();
+  const p = page(content, { path, routes: { ...map, [path]: null }, now: [2026, 10, 10] });
+  apply(p); await until(done(p));
+  assert.equal(p.w.__univerSyllabusV1.state().weeks, 'ready');
+  assert.equal(p.requests.filter(route => route === path).length, 0);
+  const saved = snapshot(p);
+  const again = page(shiftedSchedule(4), { path: weekHref(4), local: saved, routes: map, now: [2026, 10, 25] });
+  apply(again); await until(done(again));
+  assert.deepEqual(again.requests.filter(route => route.includes('/myschedule/')), []);
+});
+
+test('expired legacy timetables still supply weeks that were already past when read', async () => {
+  const content = shiftedSchedule(5), map = shiftedRoutes(), path = weekHref(5), mark = { [ACCOUNT]: 'a1' };
+  const p = page(content, { path, routes: map, local: mark, now: [2026, 10, 10] });
+  apply(p); await until(done(p));
+  const local = snapshot(p), store = JSON.parse(local[STORE]);
+  const old = { at: p.w.Date.now(), signature: '/2026/1|' + shiftedWeeks.join(','), weeks: {} };
+  for (const [href, week] of Object.entries(JSON.parse(local[WEEK_CACHE]).terms['ru|/2026/1'].pages)) {
+    const number = shiftedWeeks.find(n => weekHref(n) === href);
+    for (const item of week.items) (old.weeks[item.key + '|' + item.kind] ??= []).push(number);
+  }
+  store.pattern = old;
+  const again = page(content, { path, routes: map, local: { ...mark, [STORE]: JSON.stringify(store) }, now: [2026, 10, 25] });
+  apply(again); await until(done(again));
+  assert.deepEqual(again.requests.filter(route => route.includes('/myschedule/')), []);
+  assert.deepEqual(topics(lessonOf(again, 'Политология', 'семинар')), topics(lessonOf(p, 'Политология', 'семинар')));
+  assert.equal(Object.keys(JSON.parse(again.w.localStorage.getItem(WEEK_CACHE)).terms['ru|/2026/1'].pages).length, shiftedWeeks.length);
+});
+
+test('an expired future reading is refreshed once before being kept as a past week', async () => {
+  const content = shiftedSchedule(5), map = shiftedRoutes(), now = [2026, 10, 10];
+  const p = page(content, { routes: map, now });
+  apply(p); await until(done(p));
+  const local = snapshot(p), data = JSON.parse(local[WEEK_CACHE]), path = weekHref(2);
+  data.terms['ru|/2026/1'].pages[path].at = +new Date(2026, 8, 1);
+  const again = page(content, { routes: map, now, local: { ...local, [WEEK_CACHE]: JSON.stringify(data) } });
+  apply(again); await until(done(again));
+  assert.deepEqual(again.requests.filter(route => route.includes('/myschedule/')), [path]);
+  const last = page(content, { routes: map, now: [2026, 10, 25], local: snapshot(again) });
+  apply(last); await until(done(last));
+  assert.deepEqual(last.requests.filter(route => route.includes('/myschedule/')), []);
+});
+
+test('Original aborts all schedule discovery, including the shared course list', async () => {
+  const p = page(shiftedSchedule(5)), reads = new Map();
+  p.w.fetch = (address, options) => { reads.set(address, options.signal); return new Promise(() => {}); };
+  apply(p);
+  assert.deepEqual([...reads.keys()].sort(), ['/student/bachelor/', weekHref(1), '/student/umkd/']);
+  apply(p, false);
+  assert.ok([...reads.values()].every(signal => signal.aborted));
+  await new Promise(resolve => setTimeout(resolve, 20));
+  assert.equal(reads.size, 3, 'release does not start queued reads');
+  p.close();
+});
+
+test('the journal preloads one course at a time and tags the first opening, including a zero-request revisit', async () => {
+  const journal = '<table>' + ['Политология', 'Культурология'].map(name =>
+    '<tr><td class="ct">' + name + ' ([РК1 + РК2 + Экз] (100)) 01.09.2026 - 12.12.2026</td></tr>').join('') + '</table>';
+  const path = '/student/attendance/full/2026/1', firstCourse = '/student/umkd/7001/2026/1', secondCourse = '/student/umkd/7002/2026/1';
+  const map = routes(), p = page(journal, { path, routes: { ...map, '/student/umkd/0/2026/1': map['/student/umkd/'] }, local: { [ACCOUNT]: 'a1' } });
+  const fetch = p.w.fetch, delayed = '/student/interactive/syllabus/print/9004/2';
+  let finish;
+  p.w.fetch = (address, options) => address === delayed ? new Promise(resolve => { finish = () => resolve(fetch(address, options)); }) : fetch(address, options);
+  p.w.__univerStudyV1.apply('ru');
+  await until(() => !!finish);
+  assert.ok(p.requests.includes(firstCourse));
+  assert.ok(!p.requests.includes(secondCourse));
+  assert.equal(p.d.querySelector('.univer-app-syllabi'), null);
+  finish();
+  await until(() => p.w.__univerSyllabusV1.peekOwn(prints([9010]), secondCourse) === prints([9010])[0]);
+  const before = p.requests.length;
+  p.d.querySelector('.univer-app-course-syllabus').click();
+  await until(() => !!p.d.querySelector('.univer-app-own-tag'));
+  assert.equal(p.d.querySelector('.univer-app-own-tag').previousElementSibling.href, prints([9004])[0]);
+  assert.equal(p.d.querySelector('.univer-app-own-status'), null);
+  assert.equal(p.requests.length, before);
+  const local = snapshot(p); p.close();
+
+  const again = page(journal, { path, local });
+  again.w.__univerStudyV1.apply('ru');
+  again.d.querySelector('.univer-app-course-syllabus').click();
+  await until(() => !!again.d.querySelector('.univer-app-own-tag'));
+  assert.deepEqual(again.requests, []);
+  again.close();
+});
 
 test('own(): concurrent lookups share a failed programme read, then retry it on the same page', async () => {
     const map = routes(), p = page(site('<p>x</p>'), { routes: map });
@@ -789,12 +1027,15 @@ test('own(): concurrent lookups share a failed programme read, then retry it on 
     } finally { p.close(); }
 });
 
-test('own(): the best readable match wins when another printed candidate is unavailable', async () => {
+test('own(): an unread candidate leaves the match unresolved until the best possible match is found', async () => {
     const map = routes(), p = page(site('<p>x</p>'), { routes: map }), path = '/student/interactive/syllabus/print/9004/2';
     try {
-        const own = p.w.__univerSyllabusV1.own, links = prints([9003, 9004, 9002]);
+        const own = p.w.__univerSyllabusV1.own, links = prints([9003, 9004, 9002]), course = '/student/umkd/7001/2026/1';
         map[path] = site('<p>Printing unavailable</p>');
-        assert.equal(await own(links), links[2]);
+        await assert.rejects(own(links, course));
+        map[path] = politics;
+        assert.equal(await own(links, course), links[1]);
+        assert.equal(p.requests.filter(r => r === path).length, 2);
     } finally { p.close(); }
 });
 
@@ -839,6 +1080,8 @@ test('own(): a lookup released while the programme is read queues nothing', asyn
 
 test('own(): queued syllabi whose caller stopped waiting are dropped before they start', async () => {
   const p = page(site('<p>x</p>'), { routes: routes() }), started = hanging(p, 80);
+  const scheduleTimeout = p.w.setTimeout.bind(p.w);
+  p.w.setTimeout = (callback, ms, ...args) => scheduleTimeout(callback, ms === 40 ? 20 : ms, ...args);
   p.w.__univerSyllabusV1.limits.ownWait = 40;
   await assert.rejects(p.w.__univerSyllabusV1.own(prints([9001, 9002, 9003, 9004])), 'the deadline leaves the lookup eligible for retry');
   assert.equal(started.length, 2);

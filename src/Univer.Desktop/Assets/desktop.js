@@ -82,7 +82,7 @@
             if (!node?.isConnected || !allowed() || reduce() || !node.animate) return;
             var wanted = options(settings), start = scrollStart(wanted.follow);
             retire(layouts, node);
-            var after = node.getBoundingClientRect().height;
+            var after = wanted.target > 0 ? wanted.target : node.getBoundingClientRect().height;
             if (before < 0 || after <= 0 || Math.abs(before - after) < 1) return;
             node.setAttribute('data-univer-resizing', '');
             // max-height moves too: a box whose height a stylesheet holds at auto with !important (which an animation cannot
@@ -128,18 +128,34 @@
             var before = node?.getBoundingClientRect().height || 0; stop(node); mutate();
             resize(node, before); reveal(node, kind || 'content');
         };
-        var reflow = function (parent, mutate) {
+        var reflow = function (parent, mutate, settings) {
+            var wanted = options(settings);
             var focus = parent.contains(document.activeElement) ? document.activeElement : null;
+            var anchor = wanted.anchor?.isConnected ? wanted.anchor : null;
+            var anchorTop = anchor ? anchor.getBoundingClientRect().top : null;
             var before = new Map(); Array.from(parent.children).forEach(function (node) { before.set(node, node.getBoundingClientRect()); });
             stop(parent); mutate();
             if (focus?.isConnected && document.activeElement !== focus) focus.focus({preventScroll:true});
+            if (anchor?.isConnected && anchorTop !== null) {
+                var delta = anchor.getBoundingClientRect().top - anchorTop;
+                if (Math.abs(delta) >= 1) {
+                    var y = Math.max(0, (window.scrollY || window.pageYOffset || 0) + delta);
+                    try { window.scrollTo?.({top:Math.round(y), left:window.scrollX || 0, behavior:'instant'}); } catch (_) {}
+                }
+            }
             if (!allowed() || reduce()) return;
             before.forEach(function (rect, node) {
                 if (!node.isConnected || !node.animate || !rect.width || !rect.height) return;
-                var after = node.getBoundingClientRect(), x = rect.left - after.left, y = rect.top - after.top;
-                if (!after.width || !after.height || Math.abs(x) + Math.abs(y) < 1) return;
-                var a = node.animate([{transform:'translate(' + x + 'px,' + y + 'px)'}, {transform:'none'}],
-                    {duration:300, easing:'cubic-bezier(.45,0,.1,1)', fill:'backwards'});
+                var after = node.getBoundingClientRect(), x = rect.left - after.left, y = rect.top - after.top, dw = Math.abs(rect.width - after.width);
+                if (!after.width || !after.height || (Math.abs(x) + Math.abs(y) < 1 && dw < 1)) return;
+                var from = {transform:Math.abs(x) + Math.abs(y) >= 1 ? 'translate(' + x + 'px,' + y + 'px)' : 'none'};
+                var to = {transform:'none'};
+                if (dw >= 1) {
+                    if (rect.width < after.width) { from.maxWidth = rect.width + 'px'; to.maxWidth = after.width + 'px'; }
+                    else { from.minWidth = rect.width + 'px'; to.minWidth = after.width + 'px'; from.position = to.position = 'relative'; from.zIndex = to.zIndex = '2'; }
+                }
+                var a = node.animate([from, to],
+                    {duration:wanted.duration || 300, easing:wanted.easing || foldEase, fill:'backwards'});
                 motions.set(node, a); a.onfinish = a.oncancel = function () { if (motions.get(node) === a) motions.delete(node); };
             });
         };
@@ -1314,93 +1330,109 @@
 :root:root:root.univer-mobile #l4 .univer-app-score-total [data-univer-band] .univer-app-score-bar::before { content:''; position:absolute; inset:0; z-index:1; background:linear-gradient(90deg,transparent calc(50% - 1px),var(--u-surface) calc(50% - 1px) 50%,transparent 50% calc(70% - 1px),var(--u-surface) calc(70% - 1px) 70%,transparent 70% calc(90% - 1px),var(--u-surface) calc(90% - 1px) 90%,transparent 90%); }
 /* Kazakh and English say what is left in longer words than the column is wide: the note wraps inside its cell. */
 :root:root:root.univer-mobile #l4 .univer-app-score-next { display:block; margin-top:3px; color:var(--univer-band-ink); font-size:12px; font-weight:500; line-height:1.3; white-space:normal; overflow-wrap:break-word; text-align:right; }
-:root:root:root.univer-mobile #l4 p.univer-app-attendance-nothing, :root:root:root.univer-mobile #l4 .univer-app-attendance-summary>.univer-app-type-row, :root:root:root.univer-mobile #l4 p.univer-app-attendance-overall-value { margin:0!important; padding:10px 16px!important; color:var(--u-muted); font-size:14px!important; }
-:root:root:root:root.univer-mobile #l4 button.univer-app-attendance-details-toggle { display:flex!important; align-items:center; width:100%; height:38px!important; min-height:38px!important; margin:0!important; padding:0 16px!important; border:0!important; border-top:1px solid var(--u-line)!important; border-radius:0!important; background:transparent!important; box-shadow:none!important; color:var(--u-brand)!important; font-size:13px!important; font-weight:600!important; outline:none; }
-:root:root:root:root.univer-mobile #l4 button.univer-app-attendance-details-toggle:hover { background:var(--u-brand-soft)!important; }
-:root:root:root:root.univer-mobile #l4 button.univer-app-attendance-details-toggle:focus-visible { box-shadow:inset 0 0 0 2px var(--u-brand)!important; }
+:root:root:root.univer-mobile #l4 p.univer-app-attendance-nothing, :root:root:root.univer-mobile #l4 .univer-app-summary-body>.univer-app-type-row, :root:root:root.univer-mobile #l4 p.univer-app-attendance-overall-value { margin:0!important; padding:10px 16px!important; color:var(--u-muted); font-size:14px!important; }
+:root:root:root:root:root.univer-mobile #l4 button.univer-app-attendance-details-toggle { display:flex!important; align-items:center; width:100%; height:38px!important; min-height:38px!important; margin:0!important; padding:0 16px!important; border:0!important; border-top:1px solid var(--u-line)!important; border-radius:0!important; background:transparent!important; box-shadow:none!important; color:var(--u-brand)!important; font-size:13px!important; font-weight:600!important; outline:none; }
+:root:root:root:root:root.univer-mobile #l4 button.univer-app-attendance-details-toggle:hover { background:var(--u-brand-soft)!important; }
+:root:root:root:root:root.univer-mobile #l4 button.univer-app-attendance-details-toggle:focus-visible { outline:none!important; box-shadow:inset 0 0 0 2px var(--u-brand)!important; }
 :root:root:root:root.univer-mobile #l4 tr.univer-app-attendance-part>td { padding-top:0!important; padding-bottom:0!important; }
 :root:root:root:root.univer-mobile #l4 tr.univer-app-attendance-part:has(>td.pd), :root:root:root:root.univer-mobile #l4 tr:has(>td.pd):has(+tr.univer-app-attendance-part) { display:none!important; }
-/* Course cards. A closed course is a card as wide as its totals, and the cards stand two or three in a row, so the
-   column is filled instead of leaving a narrow table beside an empty field. Its rows are the site's own table rows:
-   the body becomes a grid, a closed course takes one track, everything else (the title, the filters, an open course
-   and its class log) spans the row. Inside a card the heading and the totals dissolve into one grid, which puts the
-   log switch and the syllabus button on one footer line and lines the numbers up across the cards of a row. */
-:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary) { display:grid; grid-template-columns:repeat(auto-fill,minmax(min(100%,440px),1fr)); column-gap:16px; align-items:stretch; }
+/* Course cards. A closed course takes one column of a dense grid; opening either its syllabus list or its class log
+   spans the whole row while other closed cards backfill any gap so no empty column stays behind. Every course card
+   keeps the exact same header, totals and footer layout whether closed or open: the syllabus list and the lesson
+   journal unfold cleanly below the footer inside the same card. */
+:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary) { display:grid; grid-template-columns:repeat(auto-fill,minmax(min(100%,440px),1fr)); grid-auto-flow:dense; column-gap:16px; align-items:stretch; }
 :root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr { display:table; grid-column:1/-1; width:100%; min-width:0; }
-:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr:has(>td.ct>.univer-app-attendance-summary[data-open=false]) { display:flex; grid-column:auto; }
-:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr:has(>td.ct>.univer-app-attendance-summary[data-open=false])>td.ct { display:grid; grid-template-columns:minmax(0,1fr) auto; grid-template-rows:auto 1fr; grid-auto-rows:auto; flex:1; min-width:0; height:auto!important; box-sizing:border-box; margin:0 0 16px; padding:0!important; overflow:hidden; border:1px solid var(--u-line); border-radius:12px; background:var(--u-surface)!important; text-align:left; font-weight:400; }
-:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr:has(>td.ct>.univer-app-attendance-summary[data-open=false])>td.ct>.univer-app-course-heading, :root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr:has(>td.ct>.univer-app-attendance-summary[data-open=false])>td.ct>.univer-app-attendance-summary { display:contents; }
-:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr:has(>td.ct>.univer-app-attendance-summary[data-open=false])>td.ct .univer-app-course-title { grid-column:1/-1; padding:12px 16px; }
-:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr:has(>td.ct>.univer-app-attendance-summary[data-open=false])>td.ct :is(.univer-app-score-table,.univer-app-type-row,p) { grid-column:1/-1; order:1; align-self:start; }
-:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr:has(>td.ct>.univer-app-attendance-summary[data-open=false])>td.ct p { border-top:1px solid var(--u-line); }
-:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr:has(>td.ct>.univer-app-attendance-summary[data-open=false])>td.ct button.univer-app-attendance-details-toggle { grid-column:1; order:2; min-width:0; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
-:root:root:root:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr:has(>td.ct>.univer-app-attendance-summary[data-open=false])>td.ct button.univer-app-course-syllabus { grid-column:2; order:3; justify-content:flex-end; height:38px!important; min-height:38px!important; padding:0 16px!important; border:0!important; border-top:1px solid var(--u-line)!important; border-radius:0!important; background:transparent!important; color:var(--u-muted)!important; }
-:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr:has(>td.ct>.univer-app-attendance-summary[data-open=false])>td.ct:not(:has(.univer-app-attendance-details-toggle)) button.univer-app-course-syllabus { grid-column:1/-1; }
-:root:root:root:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr:has(>td.ct>.univer-app-attendance-summary[data-open=false])>td.ct button.univer-app-course-syllabus:is(:hover,[aria-expanded=true]) { background:var(--u-brand-soft)!important; color:var(--u-ink)!important; }
-:root:root:root:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr:has(>td.ct>.univer-app-attendance-summary[data-open=false])>td.ct button.univer-app-course-syllabus:focus-visible { box-shadow:inset 0 0 0 2px var(--u-brand)!important; }
-:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr:has(>td.ct>.univer-app-attendance-summary[data-open=false])>td.ct .univer-app-syllabi { grid-column:1/-1; order:4; margin:0; border:0; border-top:1px solid var(--u-line); border-radius:0; }
-:root:root:root.univer-mobile #l4 .univer-app-lesson-label { gap:2px 10px; margin:12px 0 6px; }
+:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr:has(>td.ct>.univer-app-attendance-summary) { display:flex; grid-column:auto; }
+:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr:is([data-univer-syllabi-open],[data-univer-journal=top],:has(>td.ct>.univer-app-syllabi:not([hidden])),:has(>td.ct>.univer-app-attendance-summary[data-open=true])) { grid-column:1/-1; }
+:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr:has(>td.ct>.univer-app-attendance-summary)>td.ct { display:grid; grid-template-columns:minmax(0,1fr) auto; grid-template-rows:auto 1fr; grid-auto-rows:auto; flex:1; min-width:0; height:auto!important; box-sizing:border-box; margin:0 0 16px; padding:0!important; overflow:hidden; border:1px solid var(--u-line); border-radius:12px; background:var(--u-surface)!important; text-align:left; font-weight:400; }
+:root:root:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr:is([data-univer-syllabi-open],:has(>td.ct>.univer-app-syllabi:not([hidden]))):not([data-univer-journal=top])>td.ct { margin-bottom:24px; }
+:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr:has(>td.ct>.univer-app-attendance-summary)>td.ct>.univer-app-course-heading, :root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr:has(>td.ct>.univer-app-attendance-summary)>td.ct>.univer-app-attendance-summary { display:contents; }
+:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr:has(>td.ct>.univer-app-attendance-summary)>td.ct .univer-app-course-title { grid-column:1/-1; padding:12px 16px; }
+:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr:has(>td.ct>.univer-app-attendance-summary)>td.ct .univer-app-summary-body { grid-column:1/-1; order:1; align-self:start; }
+:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr:has(>td.ct>.univer-app-attendance-summary)>td.ct .univer-app-summary-body>p:not(.univer-app-attendance-absences) { border-top:1px solid var(--u-line); }
+:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr:has(>td.ct>.univer-app-attendance-summary)>td.ct button.univer-app-attendance-details-toggle { grid-column:1; order:2; min-width:0; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+:root:root:root:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr:has(>td.ct>.univer-app-attendance-summary)>td.ct button.univer-app-course-syllabus { grid-column:2; order:3; justify-content:flex-end; height:38px!important; min-height:38px!important; padding:0 16px!important; border:0!important; border-top:1px solid var(--u-line)!important; border-radius:0!important; background:transparent!important; color:var(--u-muted)!important; }
+:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr:has(>td.ct>.univer-app-attendance-summary)>td.ct:not(:has(.univer-app-attendance-details-toggle)) button.univer-app-course-syllabus { grid-column:1/-1; }
+:root:root:root:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr:has(>td.ct>.univer-app-attendance-summary)>td.ct button.univer-app-course-syllabus:is(:hover,[aria-expanded=true]) { background:var(--u-brand-soft)!important; color:var(--u-ink)!important; }
+:root:root:root:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr:has(>td.ct>.univer-app-attendance-summary)>td.ct button.univer-app-course-syllabus:focus-visible { outline:none!important; box-shadow:inset 0 0 0 2px var(--u-brand)!important; }
+:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr:has(>td.ct>.univer-app-attendance-summary)>td.ct .univer-app-syllabi { grid-column:1/-1; order:4; margin:0; padding:14px 16px 16px; border:0; border-top:1px solid var(--u-line); border-radius:0; background:var(--u-surface-2); }
+:root:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr:has(>td.ct>.univer-app-attendance-summary)>td.ct .univer-app-syllabi>a { display:inline-flex; align-items:center; min-height:28px; color:var(--u-brand); font-size:13px!important; font-weight:500; text-decoration:none; }
+:root:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr:has(>td.ct>.univer-app-attendance-summary)>td.ct .univer-app-syllabi>a:hover { text-decoration:underline; text-underline-offset:3px; }
+:root:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr:has(>td.ct>.univer-app-attendance-summary)>td.ct .univer-app-syllabi ul { display:grid; grid-template-columns:repeat(auto-fill,minmax(min(100%,420px),1fr)); gap:8px 12px; margin:0 0 12px!important; padding:0!important; list-style:none; }
+:root:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr:has(>td.ct>.univer-app-attendance-summary)>td.ct .univer-app-syllabi li { display:flex; align-items:center; flex-wrap:wrap; gap:6px 10px; box-sizing:border-box; margin:0!important; padding:10px 14px!important; border:1px solid var(--u-line); border-radius:8px; background:var(--u-surface); }
+:root:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr:has(>td.ct>.univer-app-attendance-summary)>td.ct .univer-app-syllabi li:only-child { grid-column:1/-1; }
+:root:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr:has(>td.ct>.univer-app-attendance-summary)>td.ct .univer-app-syllabi li>a { flex:1 1 200px; min-width:0; color:var(--u-ink); font-weight:500; text-decoration:none; }
+:root:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr:has(>td.ct>.univer-app-attendance-summary)>td.ct .univer-app-syllabi li>a:hover { color:var(--u-brand); text-decoration:underline; }
+:root:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr:has(>td.ct>.univer-app-attendance-summary)>td.ct .univer-app-syllabi .univer-app-syllabus-type { flex:none; font-size:12px; white-space:nowrap; }
+:root:root:root.univer-mobile #l4 .univer-app-lesson-label { gap:4px 10px; margin:12px 0 6px; }
 :root:root:root.univer-mobile #l4 .univer-app-lesson-label strong { font-size:14px!important; font-weight:600; }
 :root:root:root.univer-mobile #l4 .univer-app-table-scroll:has(>table.univer-app-matrix) { margin:0!important; }
 :root:root:root.univer-mobile #l4 .univer-app-table-scroll .univer-app-matrix :is(td,th) { padding:5px 10px!important; }
-/* A card beside an open syllabus list keeps its own height (study-links.js marks the cards of that grid row). */
-:root:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr[data-univer-own-height] { align-self:start; }
-/* An open course and its class log are one card (attendance.js marks the rows): the course row is its top, each class
-   type is a block under a hairline with its name and teacher over the marks, and the last row closes the card with room
-   before the next course. The rows are blocks, so their height can move when the log opens and folds. */
-:root:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr[data-univer-journal] { display:block!important; grid-column:1/-1; box-sizing:border-box; width:100%!important; min-width:0; margin:0; padding:0 20px!important; overflow:hidden; border:1px solid var(--u-line)!important; border-top:0!important; border-bottom:0!important; border-radius:0!important; background:var(--u-surface)!important; box-shadow:none!important; }
-:root:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr[data-univer-journal]>td { display:block; box-sizing:border-box; width:auto!important; min-width:0; height:auto!important; padding:0!important; border:0!important; background:none!important; text-align:left; }
-:root:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr[data-univer-journal]>td:is(.lt,.rt):empty { display:none!important; }
-:root:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr[data-univer-journal=top] { margin-top:4px; border-top:1px solid var(--u-line)!important; border-radius:12px 12px 0 0!important; }
-:root:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr[data-univer-journal=top]>td.ct { padding:0 0 14px!important; font-weight:400; }
-:root:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr[data-univer-journal=top]>td.ct>.univer-app-course-heading { margin:0 0 10px; padding-top:14px; border-top:0; }
-:root:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr[data-univer-journal=top]>td.ct>.univer-app-attendance-summary { max-width:none; }
+:root:root:root:root:root.univer-mobile #l4 .univer-app-matrix .univer-app-empty-col { display:none!important; }
+/* An open course and its class log are one card (attendance.js marks the rows): the course row keeps the card's exact
+   header, totals and footer, each class type unfolds below as a clearly titled block of date-above-mark chips, and the
+   last row closes the card with at least 24 px before the next course. */
+:root:root:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr:has(>td.ct>.univer-app-attendance-summary)[data-univer-journal=top]>td.ct { margin-bottom:0; border-bottom:0; border-radius:12px 12px 0 0; }
+:root:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr[data-univer-journal]:not([data-univer-journal=top]) { display:block!important; grid-column:1/-1; box-sizing:border-box; width:100%; min-width:0; margin:0; padding:0 16px!important; overflow:hidden; border:1px solid var(--u-line)!important; border-top:0!important; border-bottom:0!important; border-radius:0!important; background:var(--u-surface)!important; box-shadow:none!important; }
+:root:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr[data-univer-journal]:not([data-univer-journal=top])>td { display:block; box-sizing:border-box; width:auto!important; min-width:0; height:auto!important; padding:0!important; border:0!important; background:none!important; text-align:left; }
+:root:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr[data-univer-journal]:not([data-univer-journal=top])>td:is(.lt,.rt):empty { display:none!important; }
 :root:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr[data-univer-journal=head]>td:not(:empty) { padding:14px 0 8px!important; border-top:1px solid var(--u-line)!important; }
-:root:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr[data-univer-journal=body]>td:not(:empty) { padding:0 0 6px!important; }
-:root:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr[data-univer-journal-end] { margin-bottom:24px; border-bottom:1px solid var(--u-line)!important; border-radius:0 0 12px 12px!important; }
-:root:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr[data-univer-journal-end]>td:not(:empty) { padding-bottom:18px!important; }
+:root:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr[data-univer-journal=body]>td:not(:empty) { padding:0 0 12px!important; }
+:root:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr[data-univer-journal][data-univer-journal-end] { margin-bottom:24px; border-bottom:1px solid var(--u-line)!important; border-radius:0 0 12px 12px!important; }
+:root:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr[data-univer-journal][data-univer-journal-end]>td:not(:empty) { padding-bottom:16px!important; }
 /* The rows' margins carry no !important: Chromium keeps an !important value through an animation, and the card's room
    before the next course grows and folds with its rows. */
-:root:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr[data-univer-journal] .univer-app-lesson-label { display:flex; align-items:baseline; flex-wrap:wrap; gap:2px 12px; margin:0!important; }
+:root:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr[data-univer-journal] .univer-app-lesson-label { display:flex; align-items:center; flex-wrap:wrap; gap:4px 10px; margin:0!important; }
+:root:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr[data-univer-journal] .univer-app-lesson-label[data-kind]::before { content:''; flex:none; width:10px; height:10px; border-radius:3px; background:var(--u-brand); }
+:root:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr[data-univer-journal] .univer-app-lesson-label[data-kind=seminar]::before { background:var(--u-teal); }
+:root:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr[data-univer-journal] .univer-app-lesson-label[data-kind=sro]::before { background:#b45309; }
 :root:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr[data-univer-journal] .univer-app-lesson-label strong { color:var(--u-ink); font-size:15px!important; font-weight:600; }
 :root:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr[data-univer-journal] .univer-app-lesson-label>span { color:var(--u-muted); font-size:13px!important; }
 :root:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr[data-univer-journal] div.inner { margin:0!important; padding:0!important; border:0!important; background:none!important; overflow:visible!important; }
-/* The marks: dates over marks in even columns that scroll sideways inside their block, never past the card. */
-:root:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr[data-univer-journal] .univer-app-table-scroll { width:fit-content; max-width:100%; margin:0!important; overflow-x:auto!important; overflow-y:hidden; border:1px solid var(--u-line)!important; border-radius:10px!important; background:var(--u-surface)!important; box-shadow:none!important; }
-:root:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr[data-univer-journal] .univer-app-matrix :is(td,th) { min-width:44px!important; padding:6px 8px!important; font-variant-numeric:tabular-nums; white-space:nowrap!important; }
-:root:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr[data-univer-journal] .univer-app-matrix th { background:var(--u-surface-2)!important; color:var(--u-muted)!important; font-size:12px!important; font-weight:600!important; }
-:root:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr[data-univer-journal] .univer-app-matrix td { color:var(--u-ink); font-size:14px!important; }
-:root:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr[data-univer-journal] .univer-app-matrix tr>:first-child:not(th) { min-width:44px!important; text-align:center!important; }
-:root:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr[data-univer-journal] .univer-app-matrix tr>th:first-child { min-width:72px!important; text-align:start!important; }
+:root:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr[data-univer-journal] .univer-app-scroll-hint { margin:0 0 4px!important; font-size:12px!important; }
+/* The marks: date-above-mark chips with rounded borders, coloured absences and an emphasised sum; long rows scroll inside the card. */
+:root:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr[data-univer-journal] .univer-app-table-scroll { width:calc(100% + 12px); max-width:calc(100% + 12px); margin:0 -6px!important; padding:2px 0 4px; overflow-x:auto!important; overflow-y:hidden; border:0!important; border-radius:0!important; background:transparent!important; box-shadow:none!important; }
+:root:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr[data-univer-journal] .univer-app-table-scroll>table.univer-app-matrix { border-collapse:separate!important; border-spacing:6px 8px!important; margin:-6px 0 -10px!important; width:auto!important; min-width:0!important; }
+:root:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr[data-univer-journal] .univer-app-matrix :is(td,th) { min-width:48px!important; font-variant-numeric:tabular-nums; white-space:nowrap!important; text-align:center!important; }
+:root:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr[data-univer-journal] .univer-app-matrix th { padding:5px 10px 4px!important; border:1px solid var(--u-line)!important; border-radius:10px 10px 0 0!important; background:var(--u-surface-2)!important; color:var(--u-muted)!important; font-size:11px!important; font-weight:600!important; line-height:1.3; }
+:root:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr[data-univer-journal] .univer-app-matrix td { padding:7px 10px!important; border:1px solid var(--u-line)!important; border-radius:0 0 10px 10px!important; background:var(--u-surface)!important; color:var(--u-ink)!important; font-size:15px!important; font-weight:600!important; line-height:1.35; }
+:root:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr[data-univer-journal] .univer-app-matrix tr:has(>th)+tr>td { transform:translateY(-9px); }
+:root:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr[data-univer-journal] .univer-app-matrix tr>:first-child:not(th) { min-width:48px!important; text-align:center!important; }
+:root:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr[data-univer-journal] .univer-app-matrix tr>th:first-child[rowspan] { min-width:78px!important; padding:4px 8px 13px 0!important; border:0!important; border-radius:0!important; background:transparent!important; color:var(--u-ink)!important; font-size:13px!important; font-weight:600!important; text-align:start!important; vertical-align:middle!important; }
+:root:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr[data-univer-journal] .univer-app-matrix th.univer-app-sum { min-width:68px!important; padding:5px 14px 4px!important; border:1px solid var(--u-brand-line)!important; border-radius:10px 10px 0 0!important; background:var(--u-brand-soft)!important; color:var(--u-brand)!important; font-size:11px!important; font-weight:700!important; }
+:root:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr[data-univer-journal] .univer-app-matrix td.univer-app-sum { min-width:68px!important; padding:7px 14px!important; border:1px solid var(--u-brand-line)!important; border-radius:0 0 10px 10px!important; background:var(--u-brand-soft)!important; color:var(--u-brand)!important; font-size:17px!important; font-weight:700!important; }
 /* An absence without a valid reason stands out in the low band's tint; one with a valid reason in the fair band's. */
-:root:root:root:root:root.univer-mobile #l4 .univer-app-matrix td.univer-app-absent { background:var(--univer-band-low-soft)!important; color:var(--univer-band-low-ink)!important; font-weight:700!important; }
-:root:root:root:root:root.univer-mobile #l4 .univer-app-matrix td.univer-app-excused { background:var(--univer-band-fair-soft)!important; color:var(--univer-band-fair-ink)!important; font-weight:600!important; }
+:root:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr[data-univer-journal] .univer-app-matrix td.univer-app-absent,
+:root:root:root:root:root:root.univer-mobile #l4 .univer-app-matrix td.univer-app-absent { background:var(--univer-band-low-soft)!important; border-color:var(--univer-band-low-line)!important; color:var(--univer-band-low-ink)!important; font-weight:700!important; }
+:root:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr[data-univer-journal] .univer-app-matrix td.univer-app-excused,
+:root:root:root:root:root:root.univer-mobile #l4 .univer-app-matrix td.univer-app-excused { background:var(--univer-band-fair-soft)!important; border-color:var(--univer-band-fair-line)!important; color:var(--univer-band-fair-ink)!important; font-weight:700!important; }
 @media (max-width:600px) {
- :root:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr[data-univer-journal] { padding:0 12px!important; }
- :root:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr[data-univer-journal=top]>td.ct>.univer-app-course-heading { flex-wrap:wrap; gap:10px; }
+ :root:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr[data-univer-journal]:not([data-univer-journal=top]) { padding:0 12px!important; }
 }
 /* A phone-wide course card: the totals' columns narrow so РК2 stays inside the card instead of being cut off. */
 @media (max-width:420px) {
  :root:root:root:root.univer-mobile #l4 .univer-app-score-table>div { grid-template-columns:minmax(88px,1fr) repeat(var(--univer-columns,2),minmax(72px,auto)); padding:4px 10px; column-gap:6px; }
 }
-/* Absences: two labelled numbers per course, and the term's own pair above the courses. */
-:root:root:root:root:root.univer-mobile #l4 p.univer-app-attendance-absences { display:flex; flex-wrap:wrap; align-items:flex-start; gap:4px 32px; }
-:root:root:root:root:root.univer-mobile #l4 .univer-app-attendance-absences-label { flex:1 0 100%; color:var(--u-ink); font-size:13px; font-weight:600; }
-:root:root:root:root:root.univer-mobile #l4 .univer-app-absence { display:inline-grid; grid-template-columns:auto auto; align-items:baseline; justify-content:start; gap:0 6px; color:var(--u-muted); font-size:13px; }
-:root:root:root:root:root.univer-mobile #l4 .univer-app-absence>b { color:var(--u-ink); font-size:15px; font-weight:700; font-variant-numeric:tabular-nums; }
-:root:root:root:root:root.univer-mobile #l4 .univer-app-absence>b.univer-app-absence-zero { color:var(--u-muted); font-weight:500; }
-:root:root:root:root:root.univer-mobile #l4 .univer-app-absence>small { grid-column:1/-1; color:var(--u-muted); font-size:12px; }
-:root:root:root:root:root.univer-mobile #l4 p.univer-app-attendance-term { display:flex; flex-wrap:wrap; align-items:baseline; gap:6px 24px; margin:0 0 12px!important; padding:12px 16px!important; border:1px solid var(--u-line); border-radius:12px; background:var(--u-surface); color:var(--u-text); font-size:14px!important; line-height:1.4!important; text-align:start; }
+/* Absences: compact tinted pills for non-zero kinds only (red for unexcused, amber for excused), tucked cleanly under the totals. */
+:root:root:root:root:root.univer-mobile #l4 p.univer-app-attendance-absences { display:flex; flex-wrap:wrap; align-items:center; gap:6px 8px; margin:0!important; padding:6px 16px 12px!important; border:0!important; font-size:13px!important; }
+:root:root:root:root:root.univer-mobile #l4 .univer-app-attendance-absences-label { flex:0 0 auto; margin-right:2px; color:var(--u-muted); font-size:12px; font-weight:600; }
+:root:root:root:root:root.univer-mobile #l4 .univer-app-absence { display:inline-flex; flex-wrap:wrap; align-items:baseline; gap:2px 6px; padding:3px 10px; border:1px solid var(--u-line); border-radius:14px; font-size:12.5px; font-weight:500; line-height:1.4; }
+:root:root:root:root:root.univer-mobile #l4 .univer-app-absence[data-kind=unexcused] { background:var(--univer-band-low-soft); border-color:var(--univer-band-low-line); color:var(--univer-band-low-ink); }
+:root:root:root:root:root.univer-mobile #l4 .univer-app-absence[data-kind=excused] { background:var(--univer-band-fair-soft); border-color:var(--univer-band-fair-line); color:var(--univer-band-fair-ink); }
+:root:root:root:root:root.univer-mobile #l4 .univer-app-absence>b { color:inherit; font-size:13.5px; font-weight:700; font-variant-numeric:tabular-nums; }
+:root:root:root:root:root.univer-mobile #l4 .univer-app-absence>small { color:inherit; font-size:12px; font-weight:400; }
+:root:root:root:root:root.univer-mobile #l4 .univer-app-absence>small::before { content:'· '; }
+:root:root:root:root:root.univer-mobile #l4 p.univer-app-attendance-term { display:flex; flex-wrap:wrap; align-items:center; gap:6px 10px; margin:0 0 12px!important; padding:10px 16px!important; border:1px solid var(--u-line); border-radius:12px; background:var(--u-surface); color:var(--u-text); font-size:14px!important; line-height:1.4!important; text-align:start; }
 :root:root:root:root:root.univer-mobile #l4 p.univer-app-attendance-term[hidden] { display:none!important; }
-:root:root:root:root:root.univer-mobile #l4 .univer-app-attendance-term-title { color:var(--u-ink); font-weight:600; }
-:root:root:root:root:root.univer-mobile #l4 .univer-app-attendance-term .univer-app-absence>b { font-size:17px; }
+:root:root:root:root:root.univer-mobile #l4 .univer-app-attendance-term-title { margin-right:2px; color:var(--u-ink); font-size:13px; font-weight:600; }
+:root:root:root:root:root.univer-mobile #l4 .univer-app-attendance-term .univer-app-absence>b { font-size:14px; }
 /* The student's own syllabus: a tinted chip with a tag that says why, on the course page and in a card's syllabus list. */
 :root:root:root:root:root.univer-mobile #l4 [data-univer-empty-section] { display:none!important; }
 :root:root:root:root:root:root.univer-mobile #l4 .univer-app-own-tag { display:inline-flex; align-items:center; flex:none; height:20px; margin:0 0 0 8px; padding:0 8px; box-sizing:border-box; border-radius:6px; background:var(--u-brand); color:#fff!important; font-size:12px!important; font-weight:600!important; line-height:1; white-space:nowrap; vertical-align:middle; text-decoration:none; }
 :root:root:root:root:root:root.univer-mobile #l4 div.inner>div:has(>h4)>a.univer-app-syllabus-own { border-color:var(--u-brand)!important; background:var(--u-brand-soft)!important; color:var(--u-ink)!important; font-weight:600!important; }
-:root:root:root:root:root.univer-mobile #l4 .univer-app-syllabi li.univer-app-syllabus-own { margin:4px 0; padding:10px 12px; border:1px solid var(--u-brand-line); border-radius:8px; background:var(--u-brand-soft); }
-:root:root:root:root:root.univer-mobile #l4 .univer-app-syllabi li>.univer-app-own-tag { margin:0; }
-:root:root:root:root:root.univer-mobile #l4 .univer-app-syllabi li.univer-app-syllabus-own>a { color:var(--u-ink)!important; font-weight:600!important; }
+:root:root:root:root:root:root.univer-mobile #l4 .univer-app-syllabi li:is(.univer-app-syllabus-own,:has(.univer-app-own-tag)) { margin:0!important; padding:10px 14px!important; border:1px solid var(--u-brand-line)!important; border-radius:8px; background:var(--u-brand-soft)!important; }
+:root:root:root:root:root:root.univer-mobile #l4 .univer-app-syllabi li>.univer-app-own-tag { margin:0; }
+:root:root:root:root:root:root.univer-mobile #l4 .univer-app-syllabi li:is(.univer-app-syllabus-own,:has(.univer-app-own-tag))>a { color:var(--u-ink)!important; font-weight:600!important; }
 /* News: a search field and two quiet filters; what they found is said only when something is filtered. */
 :root:root:root:root.univer-mobile #l4 .univer-app-news-tools { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin:-4px -4px 10px!important; padding:4px!important; border:0!important; border-radius:0!important; background:none!important; box-shadow:none!important; }
 :root:root:root:root.univer-mobile #l4 input.univer-app-news-query { flex:1 1 300px; min-width:200px; background-color:var(--u-surface)!important; }

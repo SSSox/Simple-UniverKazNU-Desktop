@@ -28,7 +28,7 @@ namespace Univer.Desktop.UI
         {
             var absences = await FixesEvalAsync("(function(){var a=document.querySelectorAll('.univer-app-attendance-absences');return a.length+'|'+(a[0]?a[0].textContent:'')})()");
             QaTrace("report-absences " + absences);
-            Check(absences == "1|Пропуски2", "a course card counts the journal's «н» marks, a course without one shows none (" + absences + ")", results);
+            Check(absences == "1|ПропускиБез уважительной причины2", "a course card counts the journal's «н» marks, a course without one shows none (" + absences + ")", results);
             await FixesEvalAsync("document.querySelector('.univer-app-attendance-actions .univer-app-goal button[data-goal=top]').click();'goal'"); await Task.Delay(300);
             // The goal's buttons and the summary's button share the filter row: none overlaps another or runs out of the window.
             const string row = "(function(){var b=Array.from(document.querySelectorAll('.univer-app-attendance-filter-row button')).filter(function(n){return n.offsetWidth}).map(function(n){return n.getBoundingClientRect()});" +
@@ -65,7 +65,7 @@ namespace Univer.Desktop.UI
             var sheet = await FixesEvalAsync("(function(){var h=" + ReportQaHost + ",r=h.shadowRoot,a=r.querySelector('.aim'),g=r.querySelector('.goal-row');h.setAttribute('data-mode','capture');var off=getComputedStyle(g).display;h.removeAttribute('data-mode');" +
                 "return (a?a.textContent:'')+'|'+r.querySelectorAll('.note .left').length+'|'+off+'|'+r.querySelectorAll('.missed').length+'|'+(r.querySelector('.goal-row button[aria-pressed=true]')||{}).textContent})()");
             QaTrace("report-goal-sheet " + sheet);
-            Check(sheet.StartsWith("Цель: «Отлично» — от 90 баллов.", StringComparison.Ordinal) && sheet.EndsWith("|5|none|1|Отлично", StringComparison.Ordinal), "the sheet names the goal, highlights what is left, counts absences and keeps its switch off the picture (" + sheet + ")", results);
+            Check(sheet.StartsWith("Цель: «Отлично» — от 90 баллов.", StringComparison.Ordinal) && sheet.EndsWith("|5|none|2|Отлично", StringComparison.Ordinal), "the sheet names the goal, highlights what is left, counts absences and keeps its switch off the picture (" + sheet + ")", results);
             using (var client = main.GetDevToolsClient()) File.WriteAllBytes(Path.Combine(qa, "report-goal-sheet.png"), (await client.Page.CaptureScreenshotAsync()).Data);
             await ReportAsync(main, GradeReport.Png);
             var picture = Directory.GetFiles(folder, "*.png").FirstOrDefault();

@@ -398,7 +398,7 @@ test('news page cache never evicts pages with active-filter matches when more th
   assert.ok(fetched.includes(2), 'evicted non-matching page 2 is fetched again after cache shrinks back to 60');
   assert.deepEqual(results(p), ['Общая новость #2']);
 });
-test('the student\'s own syllabus in a card\'s list: tagged once the list is shown, then first; the tag is spoken with the link',async()=>{
+test('a journal list shows lookup progress, then a localized own syllabus tag spoken with the link',async()=>{
   const p=context(attendance,'/student/attendance/full/',study);let answer;
   p.w.__univerSyllabusV1={own:list=>{p.asked=[...list];return new Promise(r=>answer=r);}};
   p.w.fetch=async path=>response(path,path.includes('/0/')?courseList:'<div id="l4"><a href="/student/interactive/syllabus/print/22/1">История (каз.)</a><a href="/student/interactive/syllabus/print/22/2">История</a></div>');
@@ -406,11 +406,17 @@ test('the student\'s own syllabus in a card\'s list: tagged once the list is sho
   const panel=p.d.querySelector('.univer-app-syllabi'),names=()=>Array.from(panel.querySelectorAll('li>a'),a=>a.textContent);
   assert.deepEqual(names(),['История (каз.)','История'],'the list is shown at once, before the answer');
   assert.deepEqual(p.asked,['https://univer.kaznu.kz/student/interactive/syllabus/print/22/1','https://univer.kaznu.kz/student/interactive/syllabus/print/22/2']);
+  const pending=panel.querySelector('.univer-app-own-status[role=status]');
+  assert.equal(pending.textContent,'Ищу ваш силлабус…');
+  p.w.__univerStudyV1.apply('kz');assert.equal(pending.textContent,'Силлабусыңыз ізделуде…');
+  p.w.__univerStudyV1.apply('ru');
   answer('https://univer.kaznu.kz/student/interactive/syllabus/print/22/2');await wait(10);
   const li=panel.querySelector('li.univer-app-syllabus-own'),tag=li.querySelector('.univer-app-own-tag');
-  assert.equal(tag.textContent,'Ваша специальность');assert.equal(li.querySelector('a').getAttribute('aria-describedby'),tag.id);
+  assert.equal(tag.textContent,'Ваш силлабус');assert.equal(li.querySelector('a').getAttribute('aria-describedby'),tag.id);
+  assert.equal(panel.querySelector('.univer-app-own-status'),null);
   assert.deepEqual(names(),['История','История (каз.)'],'first in the list');
-  p.w.__univerStudyV1.apply('en');assert.equal(tag.textContent,'Your programme');
+  p.w.__univerStudyV1.apply('en');assert.equal(tag.textContent,'Your syllabus');
+  p.w.__univerStudyV1.apply('kz');assert.equal(tag.textContent,'Сіздің силлабусыңыз');
   p.w.__univerStudyV1.release();assert.equal(p.d.querySelector('.univer-app-own-tag'),null);p.close();
 });
 test('a list in use is not reordered under the pointer; it is first when the list opens again',async()=>{
@@ -423,28 +429,158 @@ test('a list in use is not reordered under the pointer; it is first when the lis
   assert.ok(panel.querySelector('.univer-app-own-tag'),'tagged at once');assert.deepEqual(names(),['А','Б'],'but not moved while in use');
   button.click();button.click();assert.deepEqual(names(),['Б','А']);p.close();
 });
+
+test('a failed journal own-syllabus lookup clears its progress and retries on only one reopening',async()=>{
+  const p=context(attendance,'/student/attendance/full/',study);let calls=0;
+  p.w.__univerSyllabusV1={own:async()=>{calls++;throw new Error('unavailable');}};
+  p.w.fetch=async path=>response(path,path.includes('/0/')?courseList:'<div id="l4"><a href="/student/interactive/syllabus/print/22/1">А</a></div>');
+  p.w.__univerStudyV1.apply('ru');await wait(20);
+  const button=p.d.querySelector('.univer-app-course-syllabus');
+  button.click();await wait(20);
+  assert.equal(calls,1);
+  assert.equal(p.d.querySelector('.univer-app-own-status'),null);
+  for(let i=0;i<4;i++){button.click();button.click();await wait(5);}
+  assert.equal(calls,2);
+  assert.equal(p.d.querySelector('.univer-app-own-status'),null);
+  p.close();
+});
 const twoCards=(()=>{
   const course=(id,name)=>`<tr><td class="ct" id="${id}">${name} ([РК1 + РК2 + Экз] (100)) 01.09.2026 - 12.12.2026</td></tr><tr><td class="ts"><a class="rt syllabus-info" href="#">Интерактивный силлабус</a></td></tr>`+
     `<tr><td class="ts"><a class="lt" href="/student/attendance/show/1/2026/1">лекция - Преподаватель</a></td></tr><tr><td><div class="inner"><table class="inner"><tr><th rowspan="2">РК1 (100)</th><th>01.10</th><th>Сумма</th></tr><tr><td>5</td><td>5</td></tr></table></div></td></tr>`+
     `<tr><td class="ct"><b>РК1 (100): </b>50 <b>РК2 (100): </b></td></tr>`;
   return `<table><tr id="l4"><td><table class="mt">${course('course-a','История Казахстана')}${course('course-b','Философия')}${course('course-c','Политология')}</table></td></tr></table>`;
 })();
-test('an open syllabus list leaves the card beside it at its own height; cards of other grid rows are not touched',async()=>{
+test('an open syllabus list spans the full row, animates via reflow, compensates scroll, and restores on close and Original',async()=>{
   const p=context(twoCards,'/student/attendance/full/',common+'\n'+fs.readFileSync('src/Univer.Desktop/Assets/attendance.js','utf8')+'\n'+fs.readFileSync('src/Univer.Desktop/Assets/study-links.js','utf8'));
-  // Two cards a grid row: a and b side by side, c below.
-  const rect=p.w.HTMLElement.prototype.getBoundingClientRect;
-  p.w.HTMLElement.prototype.getBoundingClientRect=function(){ const id=this.tagName==='TR'&&this.querySelector(':scope>td.ct')?.id; return id?{top:id==='course-c'?300:0,height:200,width:400}:rect.call(this); };
+  const reflows=[], scrolls=[]; let finishCollapse=null, y=400;
+  Object.defineProperty(p.w,'scrollY',{configurable:true,get:()=>y});
+  p.w.scrollTo=o=>{scrolls.push(o.top);y=o.top;};
   p.w.fetch=async path=>response(path,path.includes('/0/')?'<table><tr id="l4"><td><table class="inner"><tr class="link" id="321"><td>1</td><td>История Казахстана</td><td>Обязательная</td></tr></table></td></tr></table>':'<div id="l4"><a href="/student/interactive/syllabus/print/22/2">История</a></div>');
+  p.w.__univerMotionUI={
+    reduced:()=>false, stop(){}, resize(){}, reveal(){},
+    collapse(node,done){finishCollapse=()=>{finishCollapse=null;done();};},
+    reflow(parent,mutate,settings){reflows.push([parent,settings?.anchor]);mutate();}
+  };
   p.w.__univerStudyV1.apply('ru');p.w.__univerAttendanceV1.apply('ru');await wait(20);
-  const row=id=>p.d.getElementById(id).closest('tr'),kept=()=>['course-a','course-b','course-c'].filter(id=>row(id).hasAttribute('data-univer-own-height'));
+  const row=id=>p.d.getElementById(id).closest('tr'),wide=()=>['course-a','course-b','course-c'].filter(id=>row(id).hasAttribute('data-univer-syllabi-open'));
   const button=row('course-a').querySelector('.univer-app-course-syllabus');assert.ok(button,'the card has its syllabus button');
-  button.click();await wait(20);
-  assert.deepEqual(kept(),['course-b'],'only the neighbour in the same row');
-  button.click();assert.deepEqual(kept(),[],'closing lets the row line up again');
-  button.click();assert.deepEqual(kept(),['course-b']);
-  p.w.__univerStudyV1.release();assert.deepEqual(kept(),[]);p.close();
+  button.dispatchEvent(new p.w.MouseEvent('click',{bubbles:true,detail:1}));await wait(20);
+  assert.deepEqual(wide(),['course-a'],'opening marks the card to span the full row');
+  assert.equal(reflows.length,1,'pointer opening animates through reflow');
+  assert.equal(reflows[0][1],button,'reflow receives the clicked button as scroll anchor');
+  // Closing folds first, then slides the card back into its column.
+  button.dispatchEvent(new p.w.MouseEvent('click',{bubbles:true,detail:1}));
+  assert.deepEqual(wide(),['course-a'],'stays full width while folding shut');
+  assert.equal(typeof finishCollapse,'function');
+  finishCollapse();
+  assert.deepEqual(wide(),[],'returns to its column once folded');
+  assert.equal(reflows.length,2,'closing reflows back into the grid');
+  // Keyboard activation skips reflow animation but still compensates scroll if the button moved.
+  let btnTop=120; button.getBoundingClientRect=()=>({top:row('course-a').hasAttribute('data-univer-syllabi-open')?btnTop+180:btnTop,left:0,width:140,height:38});
+  reflows.length=0; scrolls.length=0;
+  button.click();
+  assert.deepEqual(wide(),['course-a']);
+  assert.equal(reflows.length,0,'keyboard opening does not animate via reflow');
+  assert.deepEqual(scrolls,[580],'keyboard opening still keeps the button in place');
+  p.w.__univerStudyV1.release();assert.deepEqual(wide(),[],'Original clears the open-row marker');p.close();
 });
-test('the neighbour card keeps its height through its own grid item rule',()=>{
+test('re-opening a closing syllabus list keeps the card full width and grows from its live height, and opening measures target height before reflow widens',async()=>{
+  const p=context(twoCards,'/student/attendance/full/',common+'\n'+fs.readFileSync('src/Univer.Desktop/Assets/attendance.js','utf8')+'\n'+fs.readFileSync('src/Univer.Desktop/Assets/study-links.js','utf8'));
+  const reflows=[], resizes=[]; let finishCollapse=null, panelH=180;
+  p.w.fetch=async path=>response(path,path.includes('/0/')?'<table><tr id="l4"><td><table class="inner"><tr class="link" id="321"><td>1</td><td>История Казахстана</td><td>Обязательная</td></tr></table></td></tr></table>':'<div id="l4"><a href="/student/interactive/syllabus/print/22/2">История</a></div>');
+  p.w.__univerMotionUI={
+    reduced:()=>false,
+    stop(){ if(finishCollapse){ const fn=finishCollapse; finishCollapse=null; fn(); } },
+    resize(node,before,opts){ resizes.push([before,opts?.target]); },
+    reveal(){},
+    collapse(node,done){ finishCollapse=()=>{ finishCollapse=null; done(); }; },
+    reflow(parent,mutate){ reflows.push(true); mutate(); }
+  };
+  p.w.__univerStudyV1.apply('ru');p.w.__univerAttendanceV1.apply('ru');await wait(20);
+  const row=p.d.getElementById('course-a').closest('tr');
+  const button=row.querySelector('.univer-app-course-syllabus');
+  const click=()=>button.dispatchEvent(new p.w.MouseEvent('click',{bubbles:true,detail:1}));
+  click(); await wait(20);
+  const panel=row.querySelector('.univer-app-syllabi');
+  panel.getBoundingClientRect=()=>({height:panelH,width:1100,top:0,left:0});
+  // Close fully, then re-open: full-width target height is passed to resize.
+  click(); finishCollapse();
+  resizes.length=0; reflows.length=0;
+  click();
+  assert.deepEqual(resizes,[[1,180]],'re-opening passes measured full-width target height to resize');
+  // Start closing, then click mid-close: stop() must NOT narrow the card or hide the panel; grows back from live height (72 px).
+  reflows.length=0; resizes.length=0; panelH=72;
+  click();
+  assert.equal(typeof finishCollapse,'function');
+  click();
+  assert.equal(reflows.length,0,'mid-close reversal does not narrow and re-widen the card');
+  assert.equal(panel.hidden,false,'panel stays visible');
+  assert.equal(row.hasAttribute('data-univer-syllabi-open'),true,'card stays full width');
+  assert.deepEqual(resizes,[[72,undefined]],'grows smoothly from live mid-close height');
+  p.w.__univerStudyV1.release();p.close();
+});
+test('course cards use a dense grid with full-row open syllabi, no dead own-height rules, and padded own syllabus row',()=>{
   const css=fs.readFileSync('src/Univer.Desktop/Assets/desktop.js','utf8');
-  assert.match(css,/tbody:has\(>tr>td\.ct>\.univer-app-attendance-summary\)>tr\[data-univer-own-height\] \{ align-self:start; \}/);
+  const studySrc=fs.readFileSync('src/Univer.Desktop/Assets/study-links.js','utf8');
+  assert.match(css,/grid-auto-flow:dense/);
+  assert.match(css,/data-univer-syllabi-open/);
+  assert.doesNotMatch(css,/data-univer-own-height/);
+  assert.doesNotMatch(studySrc,/ownHeight|data-univer-own-height/);
+  assert.match(css,/\.univer-app-syllabi li:is\(\.univer-app-syllabus-own,:has\(\.univer-app-own-tag\)\) \{[^}]*padding:10px 14px!important;[^}]*border:1px solid var\(--u-brand-line\)!important;[^}]*background:var\(--u-brand-soft\)!important;/);
+  assert.match(css,/button\.univer-app-attendance-details-toggle:focus-visible \{ outline:none!important;/);
+  assert.match(css,/button\.univer-app-course-syllabus:focus-visible \{ outline:none!important;/);
+  assert.match(css,/table\.univer-app-matrix \{ border-collapse:separate!important; border-spacing:6px 8px!important;/);
+});
+test('first syllabus open and reopen animate width, slide neighbours and compensate scroll via real reflow',async()=>{
+  const desktop=fs.readFileSync('src/Univer.Desktop/Assets/desktop.js','utf8');
+  const p=context(twoCards,'/student/attendance/full/',common+'\n'+desktop+'\n'+fs.readFileSync('src/Univer.Desktop/Assets/attendance.js','utf8')+'\n'+fs.readFileSync('src/Univer.Desktop/Assets/study-links.js','utf8'));
+  p.d.documentElement.classList.add('univer-mobile');
+  p.w.matchMedia=()=>({matches:false,addEventListener(){},removeEventListener(){}});
+  let y=400; const scrolls=[], anims=[];
+  Object.defineProperty(p.w,'scrollY',{configurable:true,get:()=>y});
+  p.w.scrollTo=o=>{scrolls.push(o.top);y=o.top;};
+  p.w.HTMLElement.prototype.animate=function(frames,options){
+    const rec={node:this,frames:JSON.parse(JSON.stringify(frames)),options,playState:'running',
+      cancel(){this.playState='idle';this.oncancel?.();},
+      finish(){this.playState='finished';this.onfinish?.();}};
+    anims.push(rec); return rec;
+  };
+  p.w.fetch=async path=>response(path,path.includes('/0/')?'<table><tr id="l4"><td><table class="inner"><tr class="link" id="321"><td>1</td><td>История Казахстана</td><td>Обязательная</td></tr><tr class="link" id="322"><td>2</td><td>Философия</td><td>Обязательная</td></tr></table></td></tr></table>':'<div id="l4"><a href="/student/interactive/syllabus/print/22/2">Силлабус</a></div>');
+  p.w.__univerStudyV1.apply('ru');p.w.__univerAttendanceV1.apply('ru');await wait(20);
+  const rowA=p.d.getElementById('course-a').closest('tr'), rowB=p.d.getElementById('course-b').closest('tr'), rowC=p.d.getElementById('course-c').closest('tr');
+  const btnA=rowA.querySelector('.univer-app-course-syllabus'), btnB=rowB.querySelector('.univer-app-course-syllabus');
+  // Mirror desktop.js CSS: a visible .univer-app-syllabi or [data-univer-syllabi-open] immediately widens the row.
+  const isWide=tr=>tr.hasAttribute('data-univer-syllabi-open')||!!tr.querySelector('.univer-app-syllabi:not([hidden])');
+  rowA.getBoundingClientRect=()=>({left:0,top:200-(y-400),width:isWide(rowA)?1200:580,height:240});
+  rowB.getBoundingClientRect=()=>isWide(rowB)?{left:0,top:460-(y-400),width:1200,height:240}:{left:620,top:200-(y-400),width:580,height:240};
+  rowC.getBoundingClientRect=()=>isWide(rowB)?{left:620,top:200-(y-400),width:580,height:240}:{left:0,top:460-(y-400),width:580,height:240};
+  btnB.getBoundingClientRect=()=>({left:isWide(rowB)?1020:900,top:(isWide(rowB)?660:400)-(y-400),width:140,height:38});
+  btnA.getBoundingClientRect=()=>({left:420,top:(isWide(rowA)?520:400)-(y-400),width:140,height:38});
+  // First pointer open: panel must be inserted hidden before reflow measures geometry and anchor position.
+  btnB.dispatchEvent(new p.w.MouseEvent('click',{bubbles:true,detail:1}));
+  assert.deepEqual(scrolls,[660],'first open compensates scroll for the moved button');
+  const firstB=anims.find(a=>a.node===rowB), firstC=anims.find(a=>a.node===rowC);
+  assert.ok(firstB,'first open animates the widened card');
+  assert.equal(firstB.frames[0].maxWidth,'580px'); assert.equal(firstB.frames[1].maxWidth,'1200px');
+  assert.equal(firstB.frames[0].transform,'translate(620px,0px)');
+  assert.ok(firstC,'first open slides the backfilling neighbour');
+  await wait(20);
+  // Close fully, then reopen: reopening also animates width, slides neighbour, and compensates scroll.
+  anims.length=0; scrolls.length=0;
+  btnB.dispatchEvent(new p.w.MouseEvent('click',{bubbles:true,detail:1}));
+  const panelB=rowB.querySelector('.univer-app-syllabi');
+  anims.filter(a=>a.node===panelB).forEach(a=>a.finish());
+  assert.deepEqual(scrolls,[400],'closing restores scroll position');
+  anims.length=0; scrolls.length=0;
+  btnB.dispatchEvent(new p.w.MouseEvent('click',{bubbles:true,detail:1}));
+  assert.deepEqual(scrolls,[660],'reopening compensates scroll');
+  const reopenB=anims.find(a=>a.node===rowB), reopenC=anims.find(a=>a.node===rowC);
+  assert.ok(reopenB&&reopenB.frames[0].maxWidth==='580px'&&reopenB.frames[1].maxWidth==='1200px','reopening animates card width');
+  assert.ok(reopenC,'reopening slides neighbour');
+  // First keyboard open on a fresh card skips animation but still compensates scroll.
+  anims.length=0; scrolls.length=0; y=400;
+  btnA.click();
+  assert.equal(anims.length,0,'first keyboard open skips animation');
+  assert.deepEqual(scrolls,[520],'first keyboard open compensates scroll');
+  p.w.__univerStudyV1.release();p.w.__univerAttendanceV1.release();p.close();
 });

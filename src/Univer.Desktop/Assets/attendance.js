@@ -50,11 +50,10 @@
         }));
         return count;
     }
-    // One labelled number: «Без уважительной причины 3».
+    // One labelled pill: «Без уважительной причины 3».
     function absencePair(kind,label,value) {
         var pair=document.createElement('span'); pair.className='univer-app-absence'; pair.dataset.kind=kind;
         var name=document.createElement('span'); name.textContent=label; var number=document.createElement('b'); number.textContent=String(value);
-        if (!value) number.className='univer-app-absence-zero';
         pair.append(name,number); return pair;
     }
     // Every class counts, labs and practicals with no known type too; a type counts only its own.
@@ -69,14 +68,17 @@
         var hours=groups.reduce((n,group)=>n+missed(group),0), over=hours>MISSED_LIMIT, words=over?limitText(hours):'';
         if (state.limit.hidden===over) state.limit.hidden=!over;
         if (state.limit.textContent!==words) state.limit.textContent=words;
-        // The term's absences over every course, both kinds, above the courses.
-        var term=state.term, lessons=groups.some(group=>group.lessons.length), said=absenceText(), away=groups.reduce((n,group)=>n+excused(group),0);
-        if (term.hidden===lessons) term.hidden=!lessons;
+        // The term's absences over every course above the courses: hidden when both are zero, otherwise only non-zero kinds.
+        var term=state.term, said=absenceText(), away=groups.reduce((n,group)=>n+excused(group),0), has=hours>0||away>0;
+        if (term.hidden===has) term.hidden=!has;
         var signature=language+'|'+hours+'|'+away;
-        if (lessons && term.dataset.univerShown!==signature) {
+        if (has && term.dataset.univerShown!==signature) {
             term.dataset.univerShown=signature;
             var title=document.createElement('span'); title.className='univer-app-attendance-term-title'; title.textContent=said.term;
-            term.replaceChildren(title,absencePair('unexcused',said.unexcused,hours),absencePair('excused',said.excused,away));
+            var nodes=[title];
+            if (hours>0) nodes.push(absencePair('unexcused',said.unexcused,hours));
+            if (away>0) nodes.push(absencePair('excused',said.excused,away));
+            term.replaceChildren(...nodes);
         }
     }
     function missed(group,type) { return group.lessons.filter(l=>!type||l.type===type).reduce((sum,lesson)=>sum+lesson.tables.reduce((n,table)=>n+tableAbsences(table).missed,0),0); }
@@ -180,6 +182,12 @@
         if (!marked.has(cell)) marked.set(cell,!cell.hasAttribute('class'));
         cell.classList.add(name);
     }
+    function clearTableMarks(table) {
+        ownRows(table).forEach(row=>Array.from(row.cells).forEach(cell=>{
+            if (!marked.has(cell)) return;
+            cell.classList.remove('univer-app-sum','univer-app-absent','univer-app-excused','univer-app-empty-col');
+        }));
+    }
     function sums(table) {
         var rows=ownRows(table), entries=[], grid=[];
         // Logical columns account for the observed two-row RK label and any merged date headings.
@@ -195,15 +203,58 @@
                 column+=cell.colSpan;
             });
         });
+        var sumCells=new Set();
         rows.forEach((row,r)=>{
             var last=grid[r]?.length-1, header=grid[r]?.[last];
             if (!header || header.tagName!=='TH' || !/^(сумма|sum|total|жиыны|барлығы)$/i.test(clean(header))) return;
-            var period=clean(grid[r][0]); markSum(header);
+            var period=clean(grid[r][0]); markSum(header); sumCells.add(header);
             for (var n=r+1;n<rows.length;n++) {
                 var value=grid[n]?.[last];
                 if (!value || value.tagName!=='TD') break;
                 // A spanned value is a single server total, never count it twice.
-                markSum(value); if (!entries.some(e=>e.cell===value)) entries.push({period,value:clean(value),cell:value});
+                markSum(value); sumCells.add(value); if (!entries.some(e=>e.cell===value)) entries.push({period,value:clean(value),cell:value});
+            }
+        });
+        // Columns without a date or a mark are hidden reversibly per RK section (header row(s) + following mark rows),
+        // so an empty column in RK2 is hidden even when RK1 has a date at the same column index.
+        var sections=[];
+        for (var r=0;r<rows.length;r++) {
+            var hasTh=Array.from(rows[r].cells).some(cell=>cell.tagName==='TH');
+            var prevTd=r>0&&Array.from(rows[r-1].cells).some(cell=>cell.tagName==='TD');
+            if (!sections.length || (hasTh && prevTd)) sections.push({start:r,end:r+1});
+            else sections[sections.length-1].end=r+1;
+        }
+        sections.forEach(sec=>{
+            var width=0;
+            for (var y=sec.start;y<sec.end;y++) width=Math.max(width,grid[y]?.length||0);
+            var blank=new Array(width).fill(false);
+            for (var c=0;c<width;c++) {
+                var seen=false, empty=true;
+                for (var y=sec.start;y<sec.end;y++) {
+                    var cell=grid[y]?.[c];
+                    if (!cell) continue;
+                    seen=true;
+                    if (sumCells.has(cell) || clean(cell)) { empty=false; break; }
+                }
+                blank[c]=seen&&empty;
+            }
+            for (var c=0;c<width;c++) {
+                if (!blank[c]) continue;
+                var ok=true;
+                for (var y=sec.start;y<sec.end;y++) {
+                    var cell=grid[y]?.[c];
+                    if (!cell) continue;
+                    if (cell.colSpan>1) {
+                        for (var k=0;k<width;k++) if (grid[y][k]===cell && !blank[k]) { ok=false; break; }
+                        if (!ok) break;
+                    }
+                    if (cell.rowSpan>1) {
+                        for (var ry=0;ry<grid.length;ry++) if ((ry<sec.start||ry>=sec.end)&&grid[ry]?.[c]===cell) { ok=false; break; }
+                        if (!ok) break;
+                    }
+                }
+                if (!ok) continue;
+                for (var y=sec.start;y<sec.end;y++) { var cell=grid[y]?.[c]; if (cell) markCell(cell,'univer-app-empty-col'); }
             }
         });
         return entries;
@@ -228,6 +279,7 @@
     function ensureTable(table) {
         var facts=factsFor(table), shot=snapshot(table);
         if (facts.entries && facts.snapshot===shot) return facts;
+        clearTableMarks(table);
         facts.snapshot=shot; facts.entries=sums(table); facts.absences=absences(table); return facts;
     }
     function tableText(table) { return factsFor(table).text; }
@@ -242,9 +294,24 @@
     // An open course's class log reads as one card with its course: the course row is the top, each class type's rows
     // follow (a type's first row carries its name and teacher), and the last row closes the card. Only the site's own
     // rows beside the course row are marked; release removes the marks.
-    var journal=new Map(), closing=new Map(), shut=new Map();
+    var journal=new Map(), closing=new Map(), shut=new Map(), pendingOpen=new Map(), rowAnims=new Map(), openSeq=0;
+    // The height a closed card had (stretched to its neighbour): an open card keeps it, so its totals and footer stay put.
+    var keptHeight=new Map(), heldStyle=new Map();
+    function trackRowAnim(row,anim) {
+        if (!anim) return;
+        var set=rowAnims.get(row); if (!set) rowAnims.set(row,set=new Set());
+        set.add(anim);
+        var clear=()=>{ var cur=rowAnims.get(row); if (cur) { cur.delete(anim); if (!cur.size) rowAnims.delete(row); } };
+        var prevFinish=anim.onfinish, prevCancel=anim.oncancel;
+        anim.onfinish=function(){ clear(); prevFinish?.apply(this,arguments); };
+        anim.oncancel=function(){ clear(); prevCancel?.apply(this,arguments); };
+    }
+    function cancelRowAnims(rows) {
+        var list=rows||Array.from(rowAnims.keys());
+        list.forEach(row=>{ var set=rowAnims.get(row); if (!set) return; rowAnims.delete(row); set.forEach(anim=>{ try { anim.cancel?.(); } catch (_) {} }); });
+    }
     // A row about to grow, held shut by its own style (the row's style attribute as it was is kept and put back).
-    function shutRow(row) { if (!shut.has(row)) shut.set(row,row.getAttribute('style')); row.style.setProperty('max-height','1px'); row.style.setProperty('margin-bottom','0px'); }
+    function shutRow(row) { if (!shut.has(row)) shut.set(row,row.getAttribute('style')); row.style.setProperty('max-height','1px'); row.style.setProperty('margin-bottom','0px'); row.style.setProperty('visibility','hidden'); }
     function unshutRow(row) {
         if (!shut.has(row)) return;
         var was=shut.get(row); shut.delete(row);
@@ -258,13 +325,19 @@
         var starts=new Set(group.lessons.map(lesson=>lesson.start));
         [top].concat(shown).forEach(row=>{ row.setAttribute('data-univer-journal',row===top?'top':starts.has(row)?'head':'body'); journal.set(row,group.token); });
         shown[shown.length-1].setAttribute('data-univer-journal-end','');
+        if (keptHeight.has(group.token)) { heldStyle.set(top,top.getAttribute('style')); top.style.setProperty('min-height',keptHeight.get(group.token)+'px'); }
+    }
+    function freeHeight(row) {
+        if (!heldStyle.has(row)) return;
+        var was=heldStyle.get(row); heldStyle.delete(row);
+        if (was===null) row.removeAttribute('style'); else row.setAttribute('style',was);
     }
     function journalOf(token) { return Array.from(journal.keys()).filter(row=>journal.get(row)===token && row.getAttribute('data-univer-journal')!=='top'); }
     function unmarkJournal(token) {
-        journal.forEach((owner,row)=>{ if (token===undefined || owner===token) { unshutRow(row); row.removeAttribute('data-univer-journal'); row.removeAttribute('data-univer-journal-end'); journal.delete(row); } });
+        journal.forEach((owner,row)=>{ if (token===undefined || owner===token) { cancelRowAnims([row]); unshutRow(row); freeHeight(row); row.removeAttribute('data-univer-journal'); row.removeAttribute('data-univer-journal-end'); journal.delete(row); } });
     }
     // A fold still running is let go: its rows come back as they were, and its change is not made.
-    function stopClosing() { var runs=Array.from(closing.values()); closing.clear(); runs.forEach(rows=>rows.forEach(row=>window.__univerMotionUI?.stop(row))); }
+    function stopClosing() { pendingOpen.clear(); cancelRowAnims(); var runs=Array.from(closing.values()); closing.clear(); runs.forEach(rows=>rows.forEach(row=>window.__univerMotionUI?.stop(row))); }
     function resetVisibility() {
         unmarkJournal();
         hidden.forEach((record,node)=>{
@@ -282,9 +355,10 @@
         }
         var record=labels.get(link), signature=language+'|'+clean(link); if (record.signature===signature) return;
         record.signature=signature;record.caption.replaceChildren();
-        var parts=clean(link).match(/^(.+?)\s+[-–—]\s+(.+)$/), title=document.createElement('strong');
+        var parts=clean(link).match(/^(.+?)\s+[-–—]\s+(.+)$/), title=document.createElement('strong'), type=kind(clean(link));
+        if (type) record.caption.dataset.kind=type;
         if (!parts) {record.caption.textContent=clean(link);return;}
-        title.textContent=text()[kind(clean(link))+'Label'];record.caption.appendChild(title);
+        title.textContent=text()[type+'Label'];record.caption.appendChild(title);
         if (parts) {var teacher=document.createElement('span');teacher.textContent=parts[2];record.caption.appendChild(teacher);}
     }
     // Keep source links and their listeners for Original mode, but prevent programmatic activation in Reading mode too.
@@ -304,8 +378,21 @@
         if (!cell.querySelector('.univer-app-attendance-summary')) return clean(cell);
         var copy=cell.cloneNode(true); copy.querySelectorAll('.univer-app-attendance-summary').forEach(node=>node.remove()); return clean(copy);
     }
+    function compensate(anchor,mutate) {
+        var top=anchor?.isConnected?anchor.getBoundingClientRect().top:null;
+        var out=mutate();
+        if (anchor?.isConnected && top!==null) {
+            var delta=anchor.getBoundingClientRect().top-top;
+            if (Math.abs(delta)>=1) {
+                var y=Math.max(0,(window.scrollY||window.pageYOffset||0)+delta);
+                try { window.scrollTo?.({top:Math.round(y),left:window.scrollX||0,behavior:'instant'}); } catch (_) {}
+            }
+        }
+        return out;
+    }
     function summary(group,open) {
         var box=document.createElement('section'); box.className='univer-app-attendance-summary';
+        var body=document.createElement('div'); body.className='univer-app-summary-body';
         // A class-type filter is about the class log; the course total would only repeat what the filter hides.
         if (group.overall && selected!=='all') setHidden(boundary(group.overall),true);
         var periods=[];
@@ -337,85 +424,136 @@
         rows.forEach(row=>row.values.forEach((entry,key)=>{
             if (!columns.some(c=>c.key===key)) columns.push({key,label:key,max:entry.period.match(/\(\s*(\d+(?:[.,]\d+)?)\s*\)/)?.[1]||''});
         }));
-        if (columns.length) box.appendChild(scoreTable(columns,rows,periods));
+        if (columns.length) body.appendChild(scoreTable(columns,rows,periods));
         else rows.forEach(item=>{
             var row=document.createElement('div'); row.className='univer-app-type-row'; row.dataset.kind=item.type;
             var label=document.createElement('span'); label.className='univer-app-type-label'; label.textContent=text()[item.type]; row.appendChild(label);
             var value=document.createElement('span'); value.className='univer-app-type-empty'; value.textContent=text().ungraded; row.appendChild(value);
-            box.appendChild(row);
+            body.appendChild(row);
         });
         // Anything the server wrote that is not a recognised period stays readable as its own line.
-        if (group.overall && selected==='all' && !periods.length) { var value=document.createElement('p');value.className='univer-app-attendance-overall-value';value.textContent=clean(group.overall);box.appendChild(value); }
-        // Absences of the shown class types, both kinds as two labelled numbers; the unexcused ones by type when more
-        // than one type has them.
+        if (group.overall && selected==='all' && !periods.length) { var value=document.createElement('p');value.className='univer-app-attendance-overall-value';value.textContent=clean(group.overall);body.appendChild(value); }
+        // Absences of the shown class types: hidden when both are zero; otherwise only non-zero kinds as tinted pills.
         var gone=types.map(type=>({type,count:missed(group,type)})).filter(item=>item.count>0);
         var away=selected==='all'?excused(group):types.reduce((n,type)=>n+excused(group,type),0);
-        if (!any) { var empty=document.createElement('p'); empty.className='univer-app-attendance-nothing'; empty.textContent=selected==='all'?courseText().empty:text().empty; box.appendChild(empty); }
+        if (!any) { var empty=document.createElement('p'); empty.className='univer-app-attendance-nothing'; empty.textContent=selected==='all'?courseText().empty:text().empty; body.appendChild(empty); }
         var known=gone.reduce((n,item)=>n+item.count,0), sum=selected==='all'?missed(group):known;
-        var lost=document.createElement('p'), words=absenceText(); lost.className='univer-app-attendance-absences';
-        var lostLabel=document.createElement('span'); lostLabel.className='univer-app-attendance-absences-label'; lostLabel.textContent=words.label;
-        var unexcused=absencePair('unexcused',words.unexcused,sum);
-        lost.append(lostLabel,unexcused,absencePair('excused',words.excused,away));
-        // Classes of no known type (labs) are in the total; the breakdown names them too, so its parts add up.
-        if (sum>known&&gone.length) gone.push({type:'other',count:sum-known});
-        if (gone.length>1) { var parts=document.createElement('small'); parts.textContent=gone.map(item=>words[item.type]+' '+item.count).join(', '); unexcused.appendChild(parts); }
-        box.appendChild(lost);
+        if (sum>0 || away>0) {
+            var lost=document.createElement('p'), words=absenceText(); lost.className='univer-app-attendance-absences';
+            var lostLabel=document.createElement('span'); lostLabel.className='univer-app-attendance-absences-label'; lostLabel.textContent=words.label;
+            lost.appendChild(lostLabel);
+            if (sum>0) {
+                var unexcused=absencePair('unexcused',words.unexcused,sum);
+                // Classes of no known type (labs) are in the total; the breakdown names them too, so its parts add up.
+                if (sum>known&&gone.length) gone.push({type:'other',count:sum-known});
+                if (gone.length>1) { var parts=document.createElement('small'); parts.textContent=gone.map(item=>words[item.type]+' '+item.count).join(', '); unexcused.appendChild(parts); }
+                lost.appendChild(unexcused);
+            }
+            if (away>0) lost.appendChild(absencePair('excused',words.excused,away));
+            body.appendChild(lost);
+        }
+        box.appendChild(body);
         if (!any && !group.overall) box.classList.add('univer-app-attendance-summary-empty');
         if (group.heading && group.lessons.length && selected==='all') {
             var toggle=document.createElement('button'); toggle.type='button'; toggle.className='univer-app-attendance-details-toggle';
             toggle.setAttribute('aria-expanded',String(open)); toggle.textContent=open?text().hideDetails:text().showDetails;
-            // The log opens by growing its own rows (block boxes, so their height can move: a table's cannot) and closes by
-            // folding them shut first, so the courses below slide instead of jumping. A second click while it folds keeps it open.
-            // An open course spans the whole grid row and a closed one a column: the courses of the grid slide to their new
-            // places (reflow) as the course widens on opening and once its rows have folded on closing. The card's room before
-            // the next course (the last row's margin) grows with the rows and folds with them (collapse moves margins too).
+            // The card keeps its header, totals and footer in place while opening and closing. Opening widens the card and
+            // slides its neighbours in the grid (with scroll compensation so the button stays put) while the journal rows
+            // unfold below; closing folds the rows shut first, then narrows the card back into its column.
             toggle.addEventListener('click',event=>{
                 var motion=window.__univerMotionUI, animate=event.detail>0, token=group.token, leaving=closing.get(token);
-                var grid=group.start?.tagName==='TR'?group.start.parentElement:null, moving=animate&&!!motion&&window.__univerMotion!==false&&!motion.reduced?.();
-                var place=mutate=>{ if (moving&&grid&&motion.reflow) { var made; motion.reflow(grid,()=>{ made=mutate(); }); return made; } return mutate(); };
-                if (leaving) { closing.delete(token); expanded.set(token,true); toggle.setAttribute('aria-expanded','true'); leaving.forEach(row=>motion?.stop(row)); return; }
-                var nextOpen=!open; expanded.set(token,nextOpen); focusToggle=token;
+                var card=group.start?.tagName==='TR'?group.start:null, grid=card?.parentElement||null;
+                var moving=animate&&!!motion&&window.__univerMotion!==false&&!motion.reduced?.();
+                var place=(mutate,settings)=>{
+                    if (moving&&grid&&motion.reflow) { var made; motion.reflow(grid,()=>{ made=mutate(); },Object.assign({anchor:toggle},settings)); return made; }
+                    return compensate(toggle,mutate);
+                };
+                if (leaving) {
+                    closing.delete(token); expanded.set(token,true); toggle.setAttribute('aria-expanded','true'); toggle.textContent=text().hideDetails;
+                    var heights=moving?leaving.map(row=>row.getBoundingClientRect().height):null;
+                    cancelRowAnims(leaving);
+                    leaving.forEach(row=>motion?.stop(row));
+                    if (moving && heights) {
+                        var full=leaving.map(row=>row.getBoundingClientRect().height);
+                        var leftDist=full.reduce((sum,h,i)=>sum+Math.max(0,h-heights[i]),0);
+                        leaving.forEach((row,i)=>motion.resize(row,heights[i],{distance:leftDist}));
+                    }
+                    return;
+                }
+                var nextOpen=box.dataset.open!=='true'; expanded.set(token,nextOpen);
+                var tall=nextOpen&&card?(card.querySelector(':scope>td.ct')||card).getBoundingClientRect().height:0;
+                if (tall>0) keptHeight.set(token,tall); else keptHeight.delete(token);
                 var change=()=>{
-                    var box=toggle.closest('.univer-app-attendance-summary'), host=box&&(box.closest('.univer-app-attendance-owned')||box);
-                    discard(host); unmarkJournal(token);
-                    var excludeCourse=selectedCourse!=='all'&&selectedCourse!==token, rows=[];
+                    unmarkJournal(token);
+                    var excludeCourse=selectedCourse!=='all'&&selectedCourse!==token, shownRows=[];
                     group.lessons.forEach(lesson=>{
                         var exclude=excludeCourse||!nextOpen||(selected!=='all'&&selected!==lesson.type);
-                        hideRange(lesson.start,lesson.end,exclude,null,exclude?null:rows);
+                        hideRange(lesson.start,lesson.end,exclude,null,exclude?null:shownRows);
                     });
-                    if (nextOpen&&!excludeCourse) markJournal(group,rows);
-                    var created=summary(group,nextOpen); focusSummary();
-                    return created;
+                    if (nextOpen&&!excludeCourse) markJournal(group,shownRows);
+                    box.dataset.open=String(nextOpen);
+                    toggle.setAttribute('aria-expanded',String(nextOpen));
+                    toggle.textContent=nextOpen?text().hideDetails:text().showDetails;
+                    if (toggle.focus) toggle.focus({preventScroll:true});
+                    return box;
                 };
                 if (!nextOpen) {
-                    var rows=journalOf(token).filter(row=>!row.hidden), left=rows.length;
+                    pendingOpen.delete(token);
+                    var shown=journalOf(token).filter(row=>!row.hidden), left=shown.length;
+                    cancelRowAnims(shown);
                     toggle.setAttribute('aria-expanded','false');
-                    if (!animate || !left || !motion?.collapse) { change(); return; }
-                    closing.set(token,rows);
+                    toggle.textContent=text().showDetails;
+                    if (!animate || !left || !motion?.collapse || shown.every(row=>shut.has(row))) { place(change); return; }
+                    closing.set(token,shown);
                     // The rows fold at one pace, set by the whole log's height (the shared fold pace).
-                    var distance=rows.reduce((sum,row)=>sum+row.getBoundingClientRect().height,0);
-                    rows.forEach(row=>motion.collapse(row,()=>{ if (--left===0 && closing.get(token)===rows) { closing.delete(token); place(change); } },{distance}));
+                    var distance=shown.reduce((sum,row)=>sum+row.getBoundingClientRect().height,0);
+                    shown.forEach(row=>motion.collapse(row,()=>{ if (--left===0 && closing.get(token)===shown) { closing.delete(token); place(change); } },{distance}));
                     return;
                 }
                 // The rows stay shut while the grid slides (so the courses below are not moved twice) and grow in the next
-                // frame after the layout adapter's pass, which the page's observers queue first (it shows a sideways-scroll
-                // hint under a wide table), so the height they grow to is final.
-                var created=place(()=>{ var made=change(); if (moving) journalOf(token).forEach(shutRow); return made; });
+                // frame after the layout adapter's pass, so the height they grow to is final and matches the card's width.
+                // Capture afterCard inside the layout mutation before reflow installs its backwards-filled width animation.
+                var beforeCard=moving&&card?card.getBoundingClientRect():null, afterCard=null;
+                var scrollBefore=window.scrollY||window.pageYOffset||0;
+                var ease=motion?.easing||'cubic-bezier(.45,0,.25,1)', widthDur=300;
+                place(()=>{
+                    change();
+                    if (moving) {
+                        journalOf(token).forEach(shutRow);
+                        if (card) afterCard=card.getBoundingClientRect();
+                    }
+                },{duration:widthDur,easing:ease});
+                var scrollAfter=window.scrollY||window.pageYOffset||0;
+                var cardAnim=moving&&card?.getAnimations?card.getAnimations().slice(-1)[0]:null;
                 if (moving) {
+                    var nonce=++openSeq; pendingOpen.set(token,nonce);
                     Promise.resolve().then(()=>(window.requestAnimationFrame||setTimeout)(()=>{
+                        if (pendingOpen.get(token)!==nonce || !expanded.get(token) || closing.has(token)) return;
+                        pendingOpen.delete(token);
                         var grow=journalOf(token).filter(row=>shut.has(row)); grow.forEach(unshutRow);
                         var distance=grow.reduce((sum,row)=>sum+row.getBoundingClientRect().height,0);
+                        var dur=motion.span?motion.span(distance):240;
+                        var widened=beforeCard&&afterCard&&beforeCard.width>0&&afterCard.width-beforeCard.width>=1;
+                        var dx=widened?beforeCard.left-afterCard.left:0;
+                        var bottomOf=r=>typeof r.bottom==='number'?r.bottom:r.top+r.height;
+                        var dy=widened?bottomOf(beforeCard)-(bottomOf(afterCard)-(scrollAfter-scrollBefore)):0;
                         grow.forEach(row=>{
-                            motion.resize(row,1,{distance}); motion.reveal(row,'content');
+                            motion.resize(row,1,{distance});
+                            if (widened && row.animate) {
+                                var shift=Math.abs(dx)>=1||Math.abs(dy)>=1?(Math.abs(dy)>=1?'translate('+dx+'px,'+dy+'px)':'translateX('+dx+'px)'):'none';
+                                var from={maxWidth:beforeCard.width+'px',transform:shift,opacity:0.2}, to={maxWidth:afterCard.width+'px',transform:'none',opacity:1};
+                                var anim=row.animate([from,to],{duration:widthDur,easing:ease,fill:'backwards'});
+                                if (anim && cardAnim && typeof cardAnim.startTime==='number') { try { anim.startTime=cardAnim.startTime; } catch (_) {} }
+                                trackRowAnim(row,anim);
+                            }
+                            else motion.reveal(row,'content');
                             var room=row.hasAttribute('data-univer-journal-end')&&row.animate?getComputedStyle(row).marginBottom:'';
-                            if (parseFloat(room)>0) row.animate([{marginBottom:'0px'},{marginBottom:room}],{duration:motion.span?motion.span(distance):240,easing:motion.easing||'cubic-bezier(.22,1,.36,1)'});
+                            if (parseFloat(room)>0) trackRowAnim(row,row.animate([{marginBottom:'0px'},{marginBottom:room}],{duration:dur,easing:ease}));
                         });
                     }));
-                    if (created&&!created.closest('[hidden]')) motion.reveal(created,'content');
                 }
                 else if (animate) {
                     journalOf(token).forEach(row=>{ motion?.resize(row,1); motion?.reveal(row,'content'); });
-                    if (created&&!created.closest('[hidden]')) motion?.reveal(created,'content');
                 }
             });
             box.appendChild(toggle);
@@ -606,7 +744,8 @@
     function release() {
         tableFacts=new WeakMap();
         window.__univerReportV1?.close();
-        marked.forEach((absent,cell)=>{cell.classList.remove('univer-app-sum','univer-app-absent','univer-app-excused');if(absent&&!cell.className)cell.removeAttribute('class');}); marked.clear();
+        keptHeight.clear();
+        marked.forEach((absent,cell)=>{cell.classList.remove('univer-app-sum','univer-app-absent','univer-app-excused','univer-app-empty-col');if(absent&&!cell.className)cell.removeAttribute('class');}); marked.clear();
         stopClosing(); resetVisibility(); owned.forEach(node=>{window.__univerMotionUI?.stop(node);node.remove();}); owned=[];
         labels.forEach((record,link)=>{record.caption.remove();record.attrs.forEach(a=>{if(a[1]===null)link.removeAttribute(a[0]);else link.setAttribute(a[0],a[1]);});}); labels.clear();
         state?.host.remove(); state=null;

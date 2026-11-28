@@ -370,21 +370,32 @@
     // while nobody is using the block (folded, or neither pointed at nor focused); otherwise it is first on the next visit,
     // when syllabus-tasks.js already knows the answer.
     var owns = new Map();
-    function ownText() { return language === 'en' ? 'Your programme' : language === 'kz' ? 'Сіздің мамандығыңыз' : 'Ваша специальность'; }
+    function ownText() { return language === 'en' ? 'Your syllabus' : language === 'kz' ? 'Сіздің силлабусыңыз' : 'Ваш силлабус'; }
+    function ownPendingText() { return language === 'en' ? 'Looking for your syllabus…' : language === 'kz' ? 'Силлабусыңыз ізделуде…' : 'Ищу ваш силлабус…'; }
     function ownSection(head, items) {
-        var own = window.__univerSyllabusV1?.own, links = items.filter(function (node) {
+        var syllabus = window.__univerSyllabusV1, record = owns.get(head);
+        var printed = function (node) {
             if (!node.matches('a[href]')) return false;
-            try { var url = new URL(node.getAttribute('href'), location.href); return url.origin === location.origin && /^\/student\/interactive\/syllabus\/print\/\d+\/\d+\/?$/.test(url.pathname); } catch (_) { return false; }
-        });
-        if (links.length < 1 || typeof own !== 'function') return;
+            try {
+                var url = new URL(node.href, location.href);
+                return url.origin === location.origin && !url.search && !url.hash && /^\/student\/interactive\/syllabus\/print\/\d+\/\d+\/?$/.test(url.pathname);
+            } catch (_) { return false; }
+        };
+        var links = items.filter(printed);
+        if (!links.length || typeof syllabus?.own !== 'function') {
+            if (record) { unmarkOwn(record); owns.delete(head); }
+            return;
+        }
         // The same links in another order are the same list: promoting one must not start the lookup again.
-        var key = links.map(function (a) { return a.href; }).sort().join(' '), record = owns.get(head);
-        // A lookup that failed (the programme could not be read) is asked again, at most every 20 s.
-        if (record && record.key === key && !(record.failed && Date.now() - record.failed > 20000)) { promoteOwn(record); return; }
+        var hrefs = Array.from(document.querySelectorAll('#l4 a[href]')).filter(printed).map(function (a) { return a.href; });
+        var key = hrefs.slice().sort().join(' ');
+        var attempts = record?.key === key ? record.attempts : 0;
+        if (record?.key === key && !(record.failed && attempts < 2 && Date.now() - record.failed >= 20000)) { promoteOwn(record); return; }
         if (record) unmarkOwn(record);
-        record = {key:key, head:head, link:null, tag:null, home:null, pending:false, box:null, later:null}; owns.set(head, record);
-        own(links.map(function (a) { return a.href; })).then(function (href) {
-            var link = href && links.find(function (a) { return a.href === href; });
+        record = {key:key, head:head, link:null, tag:null, home:null, pending:false, box:null, later:null, attempts:attempts + 1}; owns.set(head, record);
+        var finish = function (href) {
+            record.status?.remove(); record.status = null;
+            var link = href && links.find(function (a) { return a.href.replace(/\/$/, '') === href.replace(/\/$/, ''); });
             if (!enabled || owns.get(head) !== record || !link || !link.isConnected) return;
             var tag = document.createElement('span'); tag.className = 'univer-app-own-tag'; tag.textContent = ownText();
             link.appendChild(tag); link.classList.add('univer-app-syllabus-own'); record.link = link; record.tag = tag;
@@ -394,7 +405,13 @@
             record.later = function () { setTimeout(function () { if (owns.get(head) === record) promoteOwn(record); }, 0); };
             record.box.addEventListener('mouseleave', record.later); record.box.addEventListener('focusout', record.later);
             promoteOwn(record);
-        }, function () { record.failed = Date.now(); });
+        };
+        var course = location.pathname.replace(/\/$/, ''), cached = syllabus.peekOwn?.(hrefs, course);
+        if (cached !== undefined) { finish(cached); return; }
+        var status = record.status = document.createElement('p');
+        status.className = 'univer-app-pending univer-app-own-status'; status.setAttribute('role', 'status');
+        status.textContent = ownPendingText(); head.after(status);
+        syllabus.own(hrefs, course).then(finish, function () { finish(null); record.failed = Date.now(); });
     }
     function promoteOwn(record) {
         var link = record.link, head = record.head, box = record.box, closed = !!sections.get(head)?.closed;
@@ -414,7 +431,7 @@
     }
     function unmarkOwn(record) {
         record.pending = false; stopWaiting(record);
-        record.tag?.remove();
+        record.tag?.remove(); record.status?.remove();
         if (record.link) { record.link.classList.remove('univer-app-syllabus-own'); if (!record.link.getAttribute('class')) record.link.removeAttribute('class'); }
         var home = record.home;
         if (home && record.link && home.parent.isConnected) home.parent.insertBefore(record.link, home.next && home.next.parentNode === home.parent ? home.next : null);
@@ -439,7 +456,7 @@
                 return;
             }
             var items = [], node = h4.nextElementSibling;
-            while (node && node.tagName !== 'H4') { items.push(node); node = node.nextElementSibling; }
+            while (node && node.tagName !== 'H4') { if (!node.classList.contains('univer-app-own-status')) items.push(node); node = node.nextElementSibling; }
             if (items.length && clean(h4)) { section(h4, items, false); ownSection(h4, items); }
         });
         blanks.forEach(function (box) { if (!empty.has(box)) box.removeAttribute('data-univer-empty-section'); });
@@ -841,7 +858,10 @@
         enabled = true;
         if (!style || !style.isConnected) { style = document.createElement('style'); style.id = 'univer-pages-style'; style.textContent = css(); (document.head || document.documentElement).appendChild(style); }
         grades(); notes(); captions(); documents(); crumbs(); periods(); memos(); courses(); outside(); folds(); freshFiles(); contacts();
-        owns.forEach(function (record) { if (record.tag && record.tag.textContent !== ownText()) record.tag.textContent = ownText(); });
+        owns.forEach(function (record) {
+            if (record.tag && record.tag.textContent !== ownText()) record.tag.textContent = ownText();
+            if (record.status && record.status.textContent !== ownPendingText()) record.status.textContent = ownPendingText();
+        });
     }
     function release() {
         if (!enabled && !style) return;

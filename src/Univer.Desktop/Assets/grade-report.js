@@ -103,8 +103,13 @@
         // What is left to the mark is what a parent looks for first: a soft plate in the band's own tint.
         '.note .left{display:inline-block;margin-top:3px;padding:2px 8px;border-radius:6px;background:var(--soft,#eef2f6);color:var(--ink,#16283b);font-weight:600;white-space:nowrap}' +
         '.aim{margin:14px 0 0;font-size:13.5px}.aim b{font-weight:600}.row+.row{margin-top:6px}' +
-        '.missed{display:flex;flex-wrap:wrap;gap:2px 18px;margin:6px 0 0;color:#3d4f61;font-size:13px}.missed b{margin-left:6px;color:#16283b;font-weight:600}.missed b.zero{color:inherit;font-weight:400}' +
-        '.missed>span:first-child{color:#16283b;font-weight:500}.term{margin:0 0 4px;padding:10px 16px}.how+.term{margin-top:4px}.term+.course{padding-top:18px;border-top:0}' +
+        '.missed{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;margin:8px 0 0;color:#5b6b7c;font-size:13px}' +
+        '.missed>span:first-child{color:#16283b;font-weight:600;margin-right:2px}' +
+        '.missed .pill{display:inline-flex;align-items:baseline;gap:6px;padding:2px 10px;border-radius:14px;border:1px solid transparent;font-size:12.5px;font-weight:500;line-height:1.4}' +
+        '.missed .pill.unexcused{background:#fbe3e0;border-color:#f3cdc8;color:#a8473d}' +
+        '.missed .pill.excused{background:#fbedcd;border-color:#eed9a8;color:#7d5a17}' +
+        '.missed .pill b{font-weight:700;font-variant-numeric:tabular-nums}' +
+        '.term{margin:0 0 4px;padding:10px 16px;border-radius:10px;background:#f4f7fa}.how+.term{margin-top:4px}.term+.course{padding-top:18px;border-top:0}' +
         '.none{margin:0;color:#5b6b7c}' +
         '.source{margin:18px 0 0;padding-top:12px;border-top:1px solid #e3e8ee;color:#5b6b7c;font-size:12px}' +
         // The picture: the sheet alone, flat on the page, at its own width.
@@ -228,12 +233,14 @@
     // Courses go on a page until it grows past PAGE; the course that crosses it starts the next page (a course is never cut,
     // and one taller than a page has a page of its own). The sheet has its own width and no zoom yet, so the cut is the same
     // in any window and at any zoom. All courses are inserted once, measured in one batch, then partitioned into pages.
-    // Absences as the journal shows them: «н» without a valid reason, and those with one.
+    // Absences as the journal shows them: only non-zero kinds, as tinted pills; nothing when both are zero.
     function missedLine(w, label, missed, excused) {
+        if (!missed && !excused) return null;
         var line = element('p', 'missed'); line.appendChild(element('span', '', label));
-        [[w.unexcused, missed], [w.excused, excused]].forEach(function (part) {
-            var item = element('span', '', part[0]), value = part[1] || 0;
-            item.appendChild(element('b', value ? '' : 'zero', String(value)));
+        [['unexcused', w.unexcused, missed], ['excused', w.excused, excused]].forEach(function (part) {
+            if (!part[2]) return;
+            var item = element('span', 'pill ' + part[0], part[1]);
+            item.appendChild(element('b', '', String(part[2])));
             line.appendChild(item);
         });
         return line;
@@ -243,14 +250,16 @@
         Object.keys(buttons).forEach(function (key) { if (key.indexOf('copy:') === 0) delete buttons[key]; });
         var when = made.toLocaleString(w.locale, { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' });
         var first = page(true, w, when);
-        // The term's absences over every course, under the legend.
+        // The term's absences over every course, under the legend, only when non-zero.
         var missed = courses.reduce(function (n, c) { return n + (c.absences || 0); }, 0), excused = courses.reduce(function (n, c) { return n + (c.excused || 0); }, 0);
-        var term = missedLine(w, w.term, missed, excused); term.classList.add('term'); first.insertBefore(term, first.lastChild);
+        var term = missedLine(w, w.term, missed, excused);
+        if (term) { term.classList.add('term'); first.insertBefore(term, first.lastChild); }
         var blocks = courses.map(function (course) {
             var block = element('section', 'course'); block.appendChild(element('h3', '', course.name));
             if (course.periods.length) course.periods.forEach(function (period) { block.appendChild(row(period)); });
             else block.appendChild(element('p', 'none', course.note || w.none));
-            block.appendChild(missedLine(w, w.absences, course.absences, course.excused));
+            var lost = missedLine(w, w.absences, course.absences, course.excused);
+            if (lost) block.appendChild(lost);
             return block;
         });
         if (blocks.length) {

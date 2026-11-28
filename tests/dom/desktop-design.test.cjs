@@ -227,6 +227,34 @@ test('reflow moves surviving tiles to new positions and cancellation clears ever
   assert.equal(records.find(r=>r.node===a).frames[0].transform,'translate(0px,-70px)');assert.equal(records.find(r=>r.node===b).frames[0].transform,'translate(0px,70px)');
   p.w.__univerMotionUI.stop();assert.ok(records.every(r=>r.cancelled));assert.equal(parent.firstChild,b);assert.equal(a.style.transform,'');apply(p,false);p.close();
 });
+test('reflow animates card width changes, compensates scroll for an anchor button, and honours reduced motion and keyboard',()=>{
+  const p=page(shell.replace('CONTENT',''),'https://univer.kaznu.kz/news/student');apply(p);
+  let reduced=false, wide=false, y=200;
+  p.w.matchMedia=()=>({matches:reduced,addEventListener(){},removeEventListener(){}});
+  Object.defineProperty(p.w,'scrollY',{configurable:true,get:()=>y});
+  const scrolls=[], records=[];
+  p.w.scrollTo=o=>{scrolls.push(o.top);y=o.top;};
+  p.w.HTMLElement.prototype.animate=function(frames,options){const r={node:this,frames,options,cancel(){this.cancelled=true;this.oncancel?.();}};records.push(r);return r;};
+  const parent=p.d.createElement('div'), card=p.d.createElement('div'), anchor=p.d.createElement('button');
+  card.append(anchor); parent.append(card); p.d.body.append(parent);
+  card.getBoundingClientRect=()=>wide?{left:0,top:200,width:1200,height:240}:{left:620,top:200,width:580,height:240};
+  anchor.getBoundingClientRect=()=>({left:0,top:(wide?600:450)-y,width:120,height:38});
+  p.w.__univerMotionUI.reflow(parent,()=>{wide=true;},{anchor});
+  assert.deepEqual(scrolls,[350],'scroll shifts by the anchor delta so the clicked button stays put');
+  assert.equal(records.length,1);
+  assert.deepEqual(JSON.parse(JSON.stringify(records[0].frames)),[{transform:'translate(620px,0px)',maxWidth:'580px'},{transform:'none',maxWidth:'1200px'}],'widening animates maxWidth and translate');
+  // Narrowing back into its column animates minWidth.
+  records.length=0; scrolls.length=0;
+  p.w.__univerMotionUI.reflow(parent,()=>{wide=false;},{anchor});
+  assert.deepEqual(scrolls,[200]);
+  assert.equal(records[0].frames[0].minWidth,'1200px'); assert.equal(records[0].frames[1].minWidth,'580px');
+  // Reduced motion: still compensates scroll, skips animations.
+  reduced=true; records.length=0; scrolls.length=0;
+  p.w.__univerMotionUI.reflow(parent,()=>{wide=true;},{anchor});
+  assert.deepEqual(scrolls,[350],'reduced motion still compensates scroll');
+  assert.equal(records.length,0,'reduced motion skips animation');
+  apply(p,false);p.close();
+});
 
 test('popup exits are passive snapshots; real controls close now and Original or reopen removes the old visual',async()=>{
   const p=page(shell.replace('CONTENT',''),'https://univer.kaznu.kz/news/student');apply(p);const menu=p.d.querySelector('.univer-app-menu');
@@ -632,6 +660,9 @@ test('folds take a pace that grows with the distance, within 220 to 420 ms, and 
   assert.equal(records.at(-1).options.duration, 300); assert.equal(records.at(-1).options.easing, 'cubic-bezier(.45,0,.25,1)');
   // A caller that moves several boxes as one (the journal's rows) gives the whole distance.
   height = 40; ui.resize(box, 1, { distance: 1000 }); assert.equal(records.at(-1).options.duration, 420);
+  // A caller inside a widening card can pass its pre-measured full-width target height.
+  height = 320; ui.resize(box, 1, { target: 180 });
+  assert.deepEqual([records.at(-1).frames[0].height, records.at(-1).frames[1].height], ['1px', '180px']);
   assert.equal(ui.span(0), 220); assert.equal(ui.span(-2000), 420);
   apply(p, false); p.close();
 });

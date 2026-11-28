@@ -55,28 +55,41 @@
         });
         return parts;
     }
-    var umkd = null;
+    var umkd = null, umkdAbort = null;
     // The observed course list: rows are tr.link[id], and the site's dblclick handler opens /student/umkd/ + id + /year/term.
     // Read once per page; a fetched page's scripts are parsed as text and never run.
     function umkdCourses(again) {
         if (umkd && !again) return umkd;
+        var abort = new AbortController(), timer = setTimeout(function () { abort.abort(); }, 15000);
+        var cancelled = new Promise(function (_, reject) {
+            abort.signal.addEventListener('abort', function () { reject(new Error('Course list read cancelled')); }, {once:true});
+        });
+        cancelled.catch(function () {}); // fetch may throw before the race starts
+        umkdAbort = abort;
         var load = (async function () {
-            var abort = new AbortController(), timer = setTimeout(function () { abort.abort(); }, 15000);
             try {
-            var response = await fetch('/student/umkd/', {credentials:'same-origin', cache:'no-store', redirect:'error', signal:abort.signal}), final = new URL(response.url, location.origin);
-            if (response.status !== 200 || final.origin !== location.origin || /^\/user\/login/i.test(final.pathname)) throw new Error('Unavailable');
-            var html = await boundedText(response, 4 * 1024 * 1024);
-            var doc = new DOMParser().parseFromString(html, 'text/html');
-            var term = Array.from(doc.scripts).map(function (s) { return s.textContent; }).join('\n').match(/["']\/student\/umkd\/["']\s*\+\s*this\.id\s*\+\s*["'](\/\d{4}\/[12])["']/);
-            if (!term) throw new Error('Semester unavailable');
-            return Array.from(doc.querySelectorAll('#l4 table.inner tr.link[id]')).filter(function (r) { return /^\d+$/.test(r.id) && r.cells.length === 3; })
-                .map(function (r) { return {name:(r.cells[1].textContent || '').replace(/\s+/g, ' ').trim(), href:'/student/umkd/' + r.id + term[1]}; });
-            } finally { clearTimeout(timer); abort.abort(); }
+                var request = fetch('/student/umkd/', {credentials:'same-origin', cache:'no-store', redirect:'error', signal:abort.signal});
+                var response = await Promise.race([cancelled, request]), final = new URL(response.url, location.origin);
+                if (response.status !== 200 || final.origin !== location.origin || /^\/user\/login/i.test(final.pathname)) throw new Error('Unavailable');
+                var html = await Promise.race([cancelled, boundedText(response, 4 * 1024 * 1024)]);
+                var doc = new DOMParser().parseFromString(html, 'text/html');
+                var term = Array.from(doc.scripts).map(function (s) { return s.textContent; }).join('\n').match(/["']\/student\/umkd\/["']\s*\+\s*this\.id\s*\+\s*["'](\/\d{4}\/[12])["']/);
+                if (!term) throw new Error('Semester unavailable');
+                return Array.from(doc.querySelectorAll('#l4 table.inner tr.link[id]')).filter(function (r) { return /^\d+$/.test(r.id) && r.cells.length === 3; })
+                    .map(function (r) { return {name:(r.cells[1].textContent || '').replace(/\s+/g, ' ').trim(), href:'/student/umkd/' + r.id + term[1]}; });
+            } finally {
+                clearTimeout(timer); abort.abort();
+                if (umkdAbort === abort) umkdAbort = null;
+            }
         })();
         // One attempt per page: a failed read leaves the links on the course list instead of asking again for every class.
         // Only the user's own "retry" or "refresh" (again) reads the list once more.
         umkd = load; load.catch(function () { });
         return load;
+    }
+    function cancelUmkdCourses() {
+        if (!umkdAbort) return;
+        umkdAbort.abort(); umkdAbort = null; umkd = null;
     }
     // Where a course's materials are; the list itself when the course is not in the current semester.
     function umkdHref(name) {
@@ -191,6 +204,8 @@
         lesson: lesson,
         umkdHref: umkdHref,
         umkdCourses: umkdCourses,
+        pendingUmkdCourses: function () { return umkdAbort ? umkd : null; },
+        cancelUmkdCourses: cancelUmkdCourses,
         boundedText: boundedText,
         // An element's text with runs of white space collapsed.
         clean: function (node) { return (node?.textContent || '').replace(/\s+/g, ' ').trim(); },

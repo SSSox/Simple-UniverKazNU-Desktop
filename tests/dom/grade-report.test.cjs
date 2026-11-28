@@ -51,18 +51,26 @@ test('the grades page offers the summary once a course has a grade, and the shee
  assert.equal(p.d.getElementById('univer-app-report'),null);assert.equal(p.d.documentElement.hasAttribute('data-univer-report'),false);assert.equal(p.d.getElementById('univer-app-report-page'),null);
  assert.equal(p.d.activeElement,button);p.close();
 });
-test('the grade summary prints both labelled zeroes for every course and the term', () => {
+test('the grade summary omits absences when zero and prints only non-zero kinds as tinted pills', () => {
     const p = page();
     try {
         p.w.__univerAttendanceV1.apply('en');
         p.d.querySelector('.univer-app-attendance-report').click();
         const root = sheet(p);
-        const pairs = line => Array.from(line.querySelectorAll('span > b'), count =>
-            [count.previousSibling.textContent, count.textContent]);
-        const zeroes = [['without a valid reason', '0'], ['with a valid reason', '0']];
-        assert.deepEqual(Array.from(root.querySelectorAll('.course .missed'), pairs), [zeroes, zeroes]);
-        assert.deepEqual(pairs(root.querySelector('.term')), zeroes);
+        assert.equal(root.querySelectorAll('.course .missed').length, 0, 'courses without absences have no absence line');
+        assert.equal(root.querySelector('.term'), null, 'term bar is omitted when both kinds are zero');
     } finally { p.close(); }
+    const oneKind = fixture().replace('<td>2</td><td>10</td>', '<td>н</td><td>10</td>');
+    const q = page(oneKind);
+    try {
+        q.w.__univerAttendanceV1.apply('en');
+        q.d.querySelector('.univer-app-attendance-report').click();
+        const root = sheet(q);
+        const pills = line => Array.from(line.querySelectorAll('.pill'), pill => [pill.className, pill.firstChild.textContent, pill.querySelector('b').textContent]);
+        assert.equal(root.querySelectorAll('.course .missed').length, 1, 'only the course with absences shows a line');
+        assert.deepEqual(pills(root.querySelector('.course .missed')), [['pill unexcused', 'without a valid reason', '1']]);
+        assert.deepEqual(pills(root.querySelector('.term')), [['pill unexcused', 'without a valid reason', '1']]);
+    } finally { q.close(); }
 });
 test('the sheet follows the language and new numbers, answers the app, lies flat for its picture and goes with Original',()=>{
  const p=page();p.d.querySelector('.univer-app-attendance-report').click();

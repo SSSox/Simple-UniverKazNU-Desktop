@@ -529,7 +529,7 @@ test('UMKD: an own syllabus found while the block is in use moves first when the
   p.close();
 });
 
-test('UMKD: the student\'s own syllabus gets a «Ваша специальность» tag and moves first; Original puts it back', async () => {
+test('UMKD: the student\'s own syllabus gets a «Ваш силлабус» tag and moves first; Original puts it back', async () => {
   const body = '<a id="s1" href="/student/interactive/syllabus/print/22/1">Социология (эк.)</a><a id="s2" href="/student/interactive/syllabus/print/22/2">Социология</a>';
   const p = page(umkdSyllabus(body), 'https://univer.kaznu.kz/student/umkd/321/2026/1');
   const asked = []; p.w.__univerSyllabusV1 = { apply() {}, release() {}, state: () => ({}), own: async list => { asked.push([...list]); return 'https://univer.kaznu.kz/student/interactive/syllabus/print/22/2'; } };
@@ -538,14 +538,38 @@ test('UMKD: the student\'s own syllabus gets a «Ваша специальнос
   assert.deepEqual(asked, [['https://univer.kaznu.kz/student/interactive/syllabus/print/22/1', 'https://univer.kaznu.kz/student/interactive/syllabus/print/22/2']]);
   assert.equal(box.querySelector('h4').nextElementSibling, own, 'it stands first');
   assert.ok(own.classList.contains('univer-app-syllabus-own'));
-  assert.equal(own.querySelector('.univer-app-own-tag').textContent, 'Ваша специальность', 'the tag is part of the link\'s name');
+  assert.equal(own.querySelector('.univer-app-own-tag').textContent, 'Ваш силлабус', 'the tag is part of the link\'s name');
   assert.ok(!p.d.getElementById('s1').querySelector('.univer-app-own-tag'));
   apply(p); await new Promise(r => setTimeout(r, 20)); assert.equal(asked.length, 1, 'asked once');
-  apply(p, true, 'en'); await new Promise(r => setTimeout(r, 20)); assert.equal(own.querySelector('.univer-app-own-tag').textContent, 'Your programme');
-  apply(p, true, 'kz'); await new Promise(r => setTimeout(r, 20)); assert.equal(own.querySelector('.univer-app-own-tag').textContent, 'Сіздің мамандығыңыз');
+  apply(p, true, 'en'); await new Promise(r => setTimeout(r, 20)); assert.equal(own.querySelector('.univer-app-own-tag').textContent, 'Your syllabus');
+  apply(p, true, 'kz'); await new Promise(r => setTimeout(r, 20)); assert.equal(own.querySelector('.univer-app-own-tag').textContent, 'Сіздің силлабусыңыз');
   apply(p, false);
   assert.deepEqual(Array.from(box.querySelectorAll('a'), a => a.id), ['s1', 's2'], 'the site\'s order is back');
   assert.equal(own.textContent, 'Социология'); assert.equal(own.hasAttribute('class'), false);
+  p.close();
+});
+
+test('UMKD shows localized lookup progress, retries a failure once, and clears the status in Original', async () => {
+  const p = page(umkdSyllabus('<a href="/student/interactive/syllabus/print/22/1">Социология</a>'), 'https://univer.kaznu.kz/student/umkd/321/2026/1');
+  let reject, calls = 0, now = Date.now();
+  p.w.Date.now = () => now;
+  p.w.__univerSyllabusV1 = { apply() {}, release() {}, state: () => ({}), own: () => {
+    calls++; return new Promise((_, no) => { reject = no; });
+  } };
+  apply(p);
+  const status = () => p.d.querySelector('.univer-app-own-status[role=status]');
+  assert.equal(status().textContent, 'Ищу ваш силлабус…');
+  apply(p, true, 'en'); assert.equal(status().textContent, 'Looking for your syllabus…');
+  reject(new Error('unavailable')); await Promise.resolve();
+  assert.equal(status(), null);
+  now += 20000; apply(p, true, 'kz');
+  assert.equal(status().textContent, 'Силлабусыңыз ізделуде…');
+  reject(new Error('unavailable')); await Promise.resolve();
+  for (let i = 0; i < 5; i++) { now += 20000; apply(p); }
+  assert.equal(calls, 2);
+  assert.equal(status(), null);
+  apply(p, false); apply(p); assert.ok(status());
+  apply(p, false); assert.equal(status(), null);
   p.close();
 });
 

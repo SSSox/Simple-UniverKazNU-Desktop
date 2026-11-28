@@ -68,20 +68,23 @@ test('the goal is kept for the next visit, and the extension keeps it only while
  ext.close();
 });
 
-test('absences are the journal\'s «н» marks, counted per course and by class type, on the page and on the sheet',()=>{
+test('absences are the journal\'s «н» marks, showing only non-zero kinds per course and for the term on the page and on the sheet',()=>{
  const p=page();
  const line=id=>card(p,id).querySelector('.univer-app-attendance-absences');
  assert.equal(line('course-a').querySelector('b').textContent,'3');
  assert.equal(line('course-a').querySelector('small').textContent,'лекции 2, семинары 1');
- // «нб» is never an unexcused «н»: it is counted apart, as an absence with a valid reason.
+ // «нб» is never an unexcused «н»: it is counted apart, and zero kinds are omitted.
  const pairs=id=>Array.from(line(id).querySelectorAll('.univer-app-absence'),n=>[n.dataset.kind,n.firstChild.textContent,n.querySelector('b').textContent]);
- assert.deepEqual(pairs('course-a'),[['unexcused','Без уважительной причины','3'],['excused','По уважительной причине','0']]);
- assert.deepEqual(pairs('course-b'),[['unexcused','Без уважительной причины','0'],['excused','По уважительной причине','1']]);
+ assert.deepEqual(pairs('course-a'),[['unexcused','Без уважительной причины','3']]);
+ assert.deepEqual(pairs('course-b'),[['excused','По уважительной причине','1']]);
+ const term=p.d.querySelector('.univer-app-attendance-term');
+ assert.equal(term.hidden,false);
+ assert.deepEqual(Array.from(term.querySelectorAll('.univer-app-absence'),n=>[n.dataset.kind,n.querySelector('b').textContent]),[['unexcused','3'],['excused','1']]);
  p.d.querySelector('.univer-app-attendance-report').click();
  const root=p.d.getElementById('univer-app-report').shadowRoot;
  const courses=Array.from(root.querySelectorAll('.course'));
- assert.equal(courses[0].querySelector('.missed').textContent,'Пропускибез уважительной причины3по уважительной причине0');
- assert.equal(courses[1].querySelector('.missed').textContent,'Пропускибез уважительной причины0по уважительной причине1');
+ assert.equal(courses[0].querySelector('.missed').textContent,'Пропускибез уважительной причины3');
+ assert.equal(courses[1].querySelector('.missed').textContent,'Пропускипо уважительной причине1');
  assert.equal(root.querySelector('.missed.term').textContent,'Пропуски за семестрбез уважительной причины3по уважительной причине1');
  p.close();
 });
@@ -229,5 +232,134 @@ test('a class log grows and folds as one block: every row runs at the pace of th
  toggle().dispatchEvent(new p.w.MouseEvent('click',{bubbles:true,detail:1}));
  assert.equal(JSON.stringify(folds),JSON.stringify(Array(rows).fill({distance})),'and folds at it');
  finish.forEach(done=>done());
+ p.w.__univerAttendanceV1.release();p.close();
+});
+
+test('opening a class log passes its toggle as scroll anchor and syncs growing journal rows with the widening card',async()=>{
+ const p=page(),anchors=[],widths=[],scrolls=[]; let y=300;
+ Object.defineProperty(p.w,'scrollY',{configurable:true,get:()=>y});
+ p.w.scrollTo=o=>{scrolls.push(o.top);y=o.top;};
+ const row=p.d.getElementById('course-a').closest('tr');
+ row.getBoundingClientRect=()=>({left:row.hasAttribute('data-univer-journal')?0:620,top:200,width:row.hasAttribute('data-univer-journal')?1200:580,height:240});
+ p.w.HTMLElement.prototype.animate=function(frames,options){if(frames.some(f=>'maxWidth' in f))widths.push([this.getAttribute('data-univer-journal'),JSON.parse(JSON.stringify(frames)),options?.duration]);return {cancel(){}};};
+ p.w.__univerMotionUI={reduced:()=>false,reveal(){},stop(){},resize(){},collapse(n,done){done();},span:()=>280,easing:'shared',
+  reflow(parent,mutate,settings){anchors.push(settings?.anchor);mutate();}};
+ const toggle=card(p,'course-a').querySelector('.univer-app-attendance-details-toggle');
+ toggle.dispatchEvent(new p.w.MouseEvent('click',{bubbles:true,detail:1}));
+ assert.equal(anchors[0],toggle,'opening passes the toggle button as scroll anchor');
+ await new Promise(r=>setTimeout(r,20));
+ assert.equal(widths.length,4,'each journal row widens alongside the card');
+ assert.equal(widths[0][1][0].maxWidth,'580px'); assert.equal(widths[0][1][1].maxWidth,'1200px');
+ assert.equal(widths[0][1][0].transform,'translateX(620px)');
+ assert.equal(widths[0][2],300,'width animation duration matches reflow so card top and journal rows move in lockstep');
+ // Keyboard activation skips reflow animation but still compensates scroll when the button moves.
+ toggle.getBoundingClientRect=()=>({top:row.hasAttribute('data-univer-journal')?200:360,left:0,width:160,height:38});
+ toggle.click();
+ assert.deepEqual(scrolls,[460],'keyboard closing keeps the toggle at the same viewport position');
+ p.w.__univerAttendanceV1.release();p.close();
+});
+
+test('closing a class log before its open frame fires cancels the open cleanly, and clicking mid-close grows back smoothly',async()=>{
+ const p=page(),resizes=[]; let finish=[], collapsing=false;
+ const toggle=card(p,'course-a').querySelector('.univer-app-attendance-details-toggle');
+ const click=()=>toggle.dispatchEvent(new p.w.MouseEvent('click',{bubbles:true,detail:1}));
+ p.w.HTMLElement.prototype.getBoundingClientRect=function(){return {top:0,left:0,width:300,height:collapsing?18:60};};
+ p.w.__univerMotionUI={
+  reduced:()=>false,reveal(){},stop(){},reflow(parent,mutate){mutate();},
+  resize(n,before,opts){resizes.push([before,opts?.distance]);},
+  collapse(n,done){collapsing=true;finish.push(done);}
+ };
+ // Rapid open then close before requestAnimationFrame fires: journal closes immediately and pending frame does nothing.
+ click();
+ assert.equal(toggle.getAttribute('aria-expanded'),'true');
+ click();
+ assert.equal(toggle.getAttribute('aria-expanded'),'false');
+ assert.equal(p.d.getElementById('a1').closest('tr').hidden,true,'shut rows close at once without waiting for collapse');
+ await new Promise(r=>setTimeout(r,20));
+ assert.equal(resizes.length,0,'cancelled open frame never resizes a closed journal');
+ assert.equal(p.d.getElementById('a1').closest('tr').hidden,true);
+ // Open, wait for grow, start closing, then click mid-close: grows back from current live height (18 px -> 60 px).
+ click();
+ await new Promise(r=>setTimeout(r,20));
+ resizes.length=0; finish=[];
+ click();
+ assert.equal(finish.length,4,'collapse started');
+ click();
+ assert.equal(toggle.getAttribute('aria-expanded'),'true');
+ assert.equal(resizes.length,4,'mid-close reversal smoothly resizes rows back open');
+ assert.equal(resizes[0][0],18,'starts from live mid-collapse height');
+ p.w.__univerAttendanceV1.release();p.close();
+});
+
+test('opening a class log with real reflow captures final width before backwards-filled animation and syncs header and lesson rows',async()=>{
+ const desktop=read('desktop.js');
+ const p=page(fixture(),w=>{w.eval(desktop);});
+ p.d.documentElement.classList.add('univer-mobile');
+ p.w.matchMedia=()=>({matches:false,addEventListener(){},removeEventListener(){}});
+ const active=new Map(), anims=[];
+ p.w.HTMLElement.prototype.getAnimations=function(){return Array.from(active.get(this)||[]);};
+ p.w.HTMLElement.prototype.animate=function(frames,options){
+  const rec={node:this,frames:JSON.parse(JSON.stringify(frames)),options:Object.assign({},options),startTime:100,playState:'running',
+   cancel(){active.get(this.node)?.delete(this);this.playState='idle';this.oncancel?.();},
+   finish(){active.get(this.node)?.delete(this);this.playState='finished';this.onfinish?.();}};
+  if(!active.has(this))active.set(this,new Set());
+  active.get(this).add(rec); anims.push(rec); return rec;
+ };
+ const baseRect=(left,width,height)=>({left,top:200,bottom:200+height,width,height});
+ const liveRect=(node,base)=>{
+  let {left,top,bottom,width,height}=base;
+  for(const a of active.get(node)||[]){
+   if(a.options.fill!=='backwards')continue;
+   const f=a.frames[0]||{};
+   if(f.maxWidth)width=Math.min(width,parseFloat(f.maxWidth));
+   const m=String(f.transform||'').match(/translate(?:X)?\((-?\d+(?:\.\d+)?)px(?:,\s*(-?\d+(?:\.\d+)?)px)?\)/);
+   if(m){left+=parseFloat(m[1]);if(m[2]){top+=parseFloat(m[2]);bottom+=parseFloat(m[2]);}}
+  }
+  return {left,top,bottom,width,height};
+ };
+ const rowA=p.d.getElementById('course-a').closest('tr');
+ const rowB=p.d.getElementById('course-b').closest('tr');
+ // Case 1: right-column card widens from left=620, width=580 to left=0, width=1200.
+ rowA.getBoundingClientRect=()=>liveRect(rowA,rowA.hasAttribute('data-univer-journal')?baseRect(0,1200,240):baseRect(620,580,240));
+ rowB.getBoundingClientRect=()=>liveRect(rowB,rowB.hasAttribute('data-univer-journal')?baseRect(0,1200,240):baseRect(0,580,240));
+ p.d.querySelectorAll('tr').forEach(tr=>{
+  if(tr!==rowA&&tr!==rowB)tr.getBoundingClientRect=()=>liveRect(tr,tr.hidden?baseRect(0,0,0):baseRect(0,1200,48));
+ });
+ const toggleA=card(p,'course-a').querySelector('.univer-app-attendance-details-toggle');
+ toggleA.dispatchEvent(new p.w.MouseEvent('click',{bubbles:true,detail:1}));
+ await new Promise(r=>setTimeout(r,20));
+ const cardAnimA=anims.find(a=>a.node===rowA&&a.frames.some(f=>'maxWidth' in f));
+ assert.ok(cardAnimA,'real reflow installs a backwards-filled width animation on the card header');
+ assert.equal(rowA.getBoundingClientRect().width,580,'Chromium live rect reflects the backwards-filled start width');
+ const rowAnimsA=anims.filter(a=>a.node!==rowA&&a.node.hasAttribute('data-univer-journal')&&a.frames.some(f=>'maxWidth' in f));
+ assert.equal(rowAnimsA.length,4,'every lesson row widens in lockstep with the header despite backwards-filled card rect');
+ rowAnimsA.forEach(a=>{
+  assert.equal(a.frames[0].maxWidth,cardAnimA.frames[0].maxWidth);
+  assert.equal(a.frames[1].maxWidth,cardAnimA.frames[1].maxWidth);
+  assert.equal(a.frames[0].transform,'translateX(620px)');
+  assert.equal(a.frames[1].transform,'none');
+  assert.equal(a.options.duration,cardAnimA.options.duration);
+  assert.equal(a.options.easing,cardAnimA.options.easing);
+  assert.equal(a.options.fill,'backwards');
+  assert.equal(a.startTime,cardAnimA.startTime,'lesson rows sync animation clock with header');
+ });
+ // Case 2: left-column card widens from left=0, width=580 to left=0, width=1200 with no mismatched reveal jump.
+ anims.forEach(a=>a.finish()); anims.length=0;
+ const toggleB=card(p,'course-b').querySelector('.univer-app-attendance-details-toggle');
+ toggleB.dispatchEvent(new p.w.MouseEvent('click',{bubbles:true,detail:1}));
+ await new Promise(r=>setTimeout(r,20));
+ const cardAnimB=anims.find(a=>a.node===rowB&&a.frames.some(f=>'maxWidth' in f));
+ assert.ok(cardAnimB,'left-column card header widens via real reflow');
+ const rowAnimsB=anims.filter(a=>a.node.getAttribute('data-univer-journal')&&a.node.getAttribute('data-univer-journal')!=='top'&&a.frames.some(f=>'maxWidth' in f));
+ assert.equal(rowAnimsB.length,2,'left-column lesson rows also widen with the header');
+ rowAnimsB.forEach(a=>{
+  assert.equal(a.frames[0].maxWidth,'580px');
+  assert.equal(a.frames[1].maxWidth,'1200px');
+  assert.equal(a.options.duration,cardAnimB.options.duration);
+  assert.equal(a.options.easing,cardAnimB.options.easing);
+  assert.equal(a.options.fill,'backwards');
+ });
+ const revealY=anims.filter(a=>a.node!==rowB&&a.node.hasAttribute('data-univer-journal')&&a.frames.some(f=>String(f.transform||'').includes('translateY')));
+ assert.equal(revealY.length,0,'widening lesson rows do not run a separate translateY reveal that tears them from the header');
  p.w.__univerAttendanceV1.release();p.close();
 });

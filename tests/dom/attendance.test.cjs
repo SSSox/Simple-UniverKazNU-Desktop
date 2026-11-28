@@ -202,16 +202,68 @@ test('all courses open as a summary with score tiles, the class log opens on req
  select(p,'all');p.w.__univerAttendanceV1.apply('kz');assert.equal(p.d.querySelectorAll('.univer-app-attendance-details-toggle')[0].textContent,'Сабақ журналын жасыру');
  p.w.__univerAttendanceV1.release();assert.equal(p.d.querySelector('#l4').innerHTML,original);p.close();
 });
-test('courses without absences show both labelled zeroes, even without classes or under a class filter', () => {
+test('an opened card keeps the height it had beside its neighbour, so its footer does not jump',()=>{
+ const p=page(),original=p.d.querySelector('#l4').innerHTML;p.w.__univerAttendanceV1.apply('ru');
+ const toggle=()=>p.d.querySelectorAll('.univer-app-attendance-details-toggle')[1];const top=()=>p.d.querySelector('tr[data-univer-journal=top]');
+ p.w.HTMLElement.prototype.getBoundingClientRect=()=>({top:0,left:0,width:500,height:320,bottom:320});
+ toggle().click();assert.equal(top().style.minHeight,'320px');const card=top();
+ p.w.__univerAttendanceV1.apply('ru');assert.equal(top().style.minHeight,'320px');
+ toggle().click();assert.equal(card.style.minHeight,'');
+ toggle().click();p.w.__univerAttendanceV1.release();assert.equal(p.d.querySelector('#l4').innerHTML,original);p.close();
+});
+test('courses without absences show nothing and the term bar stays hidden when both counts are zero', () => {
     const p = page(fixture.replace('</table></td></tr></table>', '<tr><td class="ct">Новый предмет 01.09.2026 - 12.12.2026</td></tr></table></td></tr></table>'));
     try {
         p.w.__univerAttendanceV1.apply('en');
-        const pairs = card => Array.from(card.querySelectorAll('.univer-app-absence'), pair =>
-            [pair.firstChild.textContent, pair.lastChild.textContent]);
-        const zeroes = [['Without a valid reason', '0'], ['With a valid reason', '0']];
-        assert.deepEqual(Array.from(p.d.querySelectorAll('.univer-app-attendance-summary'), pairs), [zeroes, zeroes, zeroes]);
+        assert.equal(p.d.querySelectorAll('.univer-app-attendance-absences').length, 0, 'no absence strip on courses with zero absences');
+        assert.equal(p.d.querySelector('.univer-app-attendance-term').hidden, true, 'term bar is hidden when both kinds are zero');
         select(p, 'lecture');
-        assert.deepEqual(Array.from(p.d.querySelectorAll('.univer-app-attendance-summary'), pairs), [zeroes, zeroes, zeroes]);
+        assert.equal(p.d.querySelectorAll('.univer-app-attendance-absences').length, 0);
+        assert.equal(p.d.querySelector('.univer-app-attendance-term').hidden, true);
+    } finally { p.close(); }
+});
+test('empty columns without a date or a mark are hidden reversibly while date-only and mark-only columns stay shown', () => {
+    const html = fixture.replace(
+        matrix('lecture', '10'),
+        '<div class="inner"><table class="inner" id="lecture"><tr><th rowspan="2">РК1 (100)</th><th>06.10</th><th>08.10</th><th></th><th></th><th>Сумма</th></tr><tr><td>2</td><td></td><td>5</td><td></td><td>10</td></tr></table></div>'
+    );
+    const p = page(html), original = p.d.querySelector('#l4').innerHTML;
+    try {
+        p.w.__univerAttendanceV1.apply('ru');
+        const table = p.d.getElementById('lecture');
+        const emptyTh = Array.from(table.rows[0].cells).map(c => c.classList.contains('univer-app-empty-col'));
+        const emptyTd = Array.from(table.rows[1].cells).map(c => c.classList.contains('univer-app-empty-col'));
+        assert.deepEqual(emptyTh, [false, false, false, false, true, false], 'only the column with neither date nor mark is hidden');
+        assert.deepEqual(emptyTd, [false, false, false, true, false], 'date-only and mark-only columns stay shown');
+        assert.equal(table.rows[0].cells.length, 6, 'empty column nodes are never removed');
+        assert.equal(table.rows[1].cells.length, 5);
+        // Lesson labels carry their class type for styling; toggling keeps the same summary card and button in place.
+        assert.equal(p.d.querySelector('.univer-app-lesson-label').dataset.kind, 'lecture');
+        const card = p.d.querySelector('.univer-app-attendance-summary'), toggle = card.querySelector('.univer-app-attendance-details-toggle');
+        toggle.click();
+        assert.equal(p.d.querySelector('.univer-app-attendance-summary'), card, 'opening keeps the same summary node');
+        assert.equal(card.querySelector('.univer-app-attendance-details-toggle'), toggle, 'opening keeps the same toggle node');
+        p.w.__univerAttendanceV1.release();
+        assert.equal(p.d.querySelector('#l4').innerHTML, original, 'Original removes empty-col marks cleanly');
+    } finally { p.close(); }
+});
+test('empty columns in a second RK section are hidden reversibly even when the first RK has data at that column index', () => {
+    const multi =
+        '<div class="inner"><table class="inner" id="lecture">' +
+        '<tr><th rowspan="2">РК1 (100)</th><th>02.09</th><th>09.09</th><th>16.09</th><th>Сумма</th></tr>' +
+        '<tr><td>5</td><td>6</td><td>7</td><td>18</td></tr>' +
+        '<tr><th rowspan="2">РК2 (100)</th><th>04.11</th><th></th><th>18.11</th><th>Сумма</th></tr>' +
+        '<tr><td>8</td><td></td><td></td><td>8</td></tr>' +
+        '</table></div>';
+    const p = page(fixture.replace(matrix('lecture', '10'), multi)), original = p.d.querySelector('#l4').innerHTML;
+    try {
+        p.w.__univerAttendanceV1.apply('ru');
+        const table = p.d.getElementById('lecture');
+        assert.deepEqual(Array.from(table.rows[0].cells, c => c.classList.contains('univer-app-empty-col')), [false, false, false, false, false], 'RK1 has no empty column');
+        assert.deepEqual(Array.from(table.rows[2].cells, c => c.classList.contains('univer-app-empty-col')), [false, false, true, false, false], 'RK2 blank column is hidden despite RK1 column 2 having 09.09');
+        assert.deepEqual(Array.from(table.rows[3].cells, c => c.classList.contains('univer-app-empty-col')), [false, true, false, false], 'RK2 date-only column 18.11 stays shown');
+        p.w.__univerAttendanceV1.release();
+        assert.equal(p.d.querySelector('#l4').innerHTML, original, 'Original restores multi-RK table');
     } finally { p.close(); }
 });
 test('a course without classes keeps its empty message, and unrecognized totals keep the server wording',()=>{

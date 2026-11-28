@@ -17,6 +17,8 @@
     window.__univerGoalKeep = false;
     // UMKD course pages mark no files as new: which files a page had last time is not kept in the browser.
     window.__univerUmkdSeenKeep = false;
+    window.__univerSyllabusKeep = false;
+    window.__univerCourseTasksKeep = false;
     window.__univerSurveyCountKeep = false;
     try { localStorage.removeItem('univer.desktop.survey-count.v1'); } catch (_) { }
     // The schedule page's export buttons need the Windows app, which builds the calendar file and the picture: no buttons here.
