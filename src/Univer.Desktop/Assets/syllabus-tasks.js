@@ -545,7 +545,7 @@
                 // The best of what could be read is shown; an unfinished lookup is not remembered and runs again next time.
                 if (!best && partial) throw new Error('Syllabus lookup incomplete');
                 // "None of these" is not an answer while some of the list was never read.
-                return {path:best ? best.path : null, partial:partial || (!best && list.paths.length < list.routes.size)};
+                return {path:best ? best.path : null, partial:partial || list.paths.length < list.routes.size};
             } finally { clearTimeout(timer); }
         })();
         picks.set(key, lookup);

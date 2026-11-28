@@ -344,6 +344,21 @@ test('a syllabus uploaded after the last visit shows when the journal list is op
   assert.equal(uploaded(again), true);
   again.close();
 });
+test('a course added since the last visit makes the journal read the course list again', async () => {
+  const row = name => '<tr><td class="ct">' + name + ' ([РК1 + РК2 + Экз] (100)) 01.09.2026 - 12.12.2026</td></tr>';
+  const journal = '<table>' + row('Политология') + row('Культурология') + '</table>', path = '/student/attendance/full/2026/1', list = '/student/umkd/0/2026/1';
+  const map = { ...routes(), [list]: courseList([['7001', 'Политология']]) };
+  const first = page(journal, { path, routes: map, local: { [ACCOUNT]: 'a1' } });
+  first.w.__univerStudyV1.apply('ru');
+  await until(() => first.d.querySelectorAll('.univer-app-attendance-course').length === 1);
+  const local = snapshot(first); first.close();
+  map[list] = courseList([['7001', 'Политология'], ['7002', 'Культурология']]);
+  const again = page(journal, { path, routes: map, local });
+  again.w.__univerStudyV1.apply('ru');
+  await until(() => again.d.querySelectorAll('.univer-app-attendance-course').length === 2);
+  assert.ok(again.requests.includes(list));
+  again.close();
+});
 test('another student signing in on the same profile does not get the previous student\'s programme, course list or weeks', async () => {
   const first = page(schedule(lessons, 4), { routes: routes(), local: { 'univer.app.account.v1': 'a1' } });
   apply(first); await until(done(first));
@@ -890,9 +905,10 @@ test('the candidate limit cannot turn a partial scan into a kept answer', async 
   const p = page('', { routes: map, local: { [ACCOUNT]: 'a1' } });
   const api = p.w.__univerSyllabusV1;
   api.limits.candidates = 1;
-  map[new URL(candidates[0]).pathname] = map['/student/interactive/syllabus/print/9001/2'];
+  map[new URL(candidates[0]).pathname] = map[new URL(candidates[1]).pathname];
   map[new URL(candidates[1]).pathname] = politics;
-  assert.equal(await api.own(candidates, course), null);
+  // The readable partial match is shown, and a better one past the limit can still replace it.
+  assert.equal(await api.own(candidates, course), candidates[0]);
   assert.equal(api.peekOwn(candidates, course), undefined);
   assert.deepEqual(p.requests.filter(path => path.includes('/print/')), [new URL(candidates[0]).pathname]);
   api.limits.candidates = 2;

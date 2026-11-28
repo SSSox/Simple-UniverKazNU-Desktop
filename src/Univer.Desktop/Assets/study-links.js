@@ -337,8 +337,9 @@
         if (document.readyState==='loading') return;
         if (!/^\/student\/attendance\/(full|show)(\/|$)/.test(location.pathname)) return;
         enabled=true;
-        if (!courses && !pending && !attempted) loadCourses().catch(()=>{});
+        // The headings first: a remembered course list is used only when it names every course shown.
         connectCourses();
+        if (!courses && !pending && !attempted) loadCourses().catch(()=>{});
         markOwn(null,generation);
         panels.forEach(record=>{
             if (record.tag && record.tag.textContent!==ownText()) record.tag.textContent=ownText();
