@@ -325,7 +325,7 @@
         var starts=new Set(group.lessons.map(lesson=>lesson.start));
         [top].concat(shown).forEach(row=>{ row.setAttribute('data-univer-journal',row===top?'top':starts.has(row)?'head':'body'); journal.set(row,group.token); });
         shown[shown.length-1].setAttribute('data-univer-journal-end','');
-        if (keptHeight.has(group.token)) { heldStyle.set(top,top.getAttribute('style')); top.style.setProperty('min-height',keptHeight.get(group.token)+'px'); }
+        if (keptHeight.has(group.token) && selected==='all' && selectedCourse==='all') { heldStyle.set(top,top.getAttribute('style')); top.style.setProperty('min-height',keptHeight.get(group.token)+'px'); }
     }
     function freeHeight(row) {
         if (!heldStyle.has(row)) return;

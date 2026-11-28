@@ -208,6 +208,7 @@ test('an opened card keeps the height it had beside its neighbour, so its footer
  p.w.HTMLElement.prototype.getBoundingClientRect=()=>({top:0,left:0,width:500,height:320,bottom:320});
  toggle().click();assert.equal(top().style.minHeight,'320px');const card=top();
  p.w.__univerAttendanceV1.apply('ru');assert.equal(top().style.minHeight,'320px');
+ select(p,'seminar');assert.equal(card.style.minHeight,'');select(p,'all');assert.equal(top().style.minHeight,'320px');
  toggle().click();assert.equal(card.style.minHeight,'');
  toggle().click();p.w.__univerAttendanceV1.release();assert.equal(p.d.querySelector('#l4').innerHTML,original);p.close();
 });
