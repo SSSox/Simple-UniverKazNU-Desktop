@@ -37,8 +37,8 @@
     }
     function absenceText() { return language==='en'?{label:'Absences',lecture:'lectures',seminar:'seminars',sro:'independent work',other:'other',unexcused:'Without a valid reason',excused:'With a valid reason',term:'Absences this term'}:language==='kz'?{label:'Қатыспаған сабақтар',lecture:'дәріс',seminar:'семинар',sro:'СӨЖ',other:'басқа',unexcused:'Дәлелсіз себеппен',excused:'Дәлелді себеппен',term:'Семестрдегі қатыспаған сабақтар'}:{label:'Пропуски',lecture:'лекции',seminar:'семинары',sro:'СРО',other:'другие',unexcused:'Без уважительной причины',excused:'По уважительной причине',term:'Пропуски за семестр'}; }
     // Absences are the journal's own marks in a class's date cells: «н» without a valid reason, EXCUSED with one (the
-    // owner's reading: the journal of 28 November 2026 showed only «н»). Anything else in a cell is not counted.
-    var EXCUSED=/^(нб|н\/б|ну)$/i;
+    // owner's answer of 28 November 2026; the journal itself showed only «н» that day). Anything else in a cell is not counted.
+    var EXCUSED=/^(нб|ну)$/i;
     function absences(table) {
         var count={missed:0,excused:0};
         ownRows(table).forEach(row=>Array.from(row.cells).forEach(cell=>{

@@ -144,12 +144,12 @@ test('a class of no known type (a lab) still counts its absences in the course t
  p.close();
 });
 
-test('absences with a valid reason («нб», «н/б», «ну», any case) are counted apart: per course, for the term, never in the 25-hour warning',()=>{
- const marks=['нб','Н/Б','ну','НУ','н','нн','н б'];
+test('absences with a valid reason («нб», «ну», any case) are counted apart: per course, for the term, never in the 25-hour warning',()=>{
+ const marks=['нб','НБ','ну','НУ','н','нн','н б','н/б'];
  const many=Array.from({length:26},()=>'нб');
  const p=page(fixture().replace(`<tr><td class="ct" id="total-a">`,lesson('a3','семинар',marks,'5')+lesson('a4','семинар',many,'1')+`<tr><td class="ct" id="total-a">`));
  const pairs=root=>Array.from(root.querySelectorAll('.univer-app-absence'),n=>n.dataset.kind+' '+n.querySelector('b').textContent);
- assert.deepEqual(pairs(card(p,'course-a').querySelector('.univer-app-attendance-absences')),['unexcused 4','excused 30'],'only a lone «н» is unexcused; «нн» and «н б» are neither');
+ assert.deepEqual(pairs(card(p,'course-a').querySelector('.univer-app-attendance-absences')),['unexcused 4','excused 30'],'only a lone «н» is unexcused; «нн», «н б» and «н/б» are neither');
  assert.equal(card(p,'course-a').querySelector('.univer-app-attendance-absences b').textContent,'4','«Пропуски» still counts «н» only');
  const term=p.d.querySelector('.univer-app-attendance-term');
  assert.equal(term.hidden,false);assert.equal(term.closest('.univer-app-attendance-tools')!==null,true,'the term total stands above the courses');
