@@ -93,7 +93,7 @@ var rows=Array.from(document.querySelectorAll('#l4 tr.file')).filter(function(r)
 var shut=rows.length===3&&rows.every(function(r){return getComputedStyle(r).display==='none'&&!r.hasAttribute('data-univer-sliding')});
 var click=function(){head.dispatchEvent(new MouseEvent('click',{bubbles:true,cancelable:true,detail:1,view:window}))},value=function(r){return parseFloat(getComputedStyle(r).getPropertyValue('--univer-slide'))};
 click();var runs=rows.map(function(r){return r.getAnimations()[0]});if(!runs.every(Boolean))return 'no unfold';
-var length=runs[0].effect.getComputedTiming().duration;runs.forEach(function(a){a.pause();a.currentTime=length/8});var before=value(rows[0]);
+var length=runs[0].effect.getComputedTiming().duration;runs.forEach(function(a){a.pause();a.currentTime=length/4});var before=value(rows[0]);
 click();var after=value(rows[0]),turned=rows.every(function(r){return r.hasAttribute('data-univer-folded-row')})&&before>.05&&before<.95&&Math.abs(after-before)<.05;
 click();rows.forEach(function(r){r.getAnimations().forEach(function(a){a.finish()})});return shut&&turned?'turned':'shut '+shut+' turned '+turned+' '+before+'→'+after})()";
                 var turned = await AutomationController.EvaluateAsync(main, slideBack); await Task.Delay(150);
