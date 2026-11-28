@@ -277,7 +277,7 @@
     async function load(path, timeout) {
         var abort = new AbortController(), timer = setTimeout(function () { abort.abort(); }, timeout || READ_TIMEOUT);
         try {
-            var response = await fetch(path, {mode:'same-origin', credentials:'same-origin', redirect:'follow', cache:'no-store', signal:abort.signal});
+            var response = await fetch(path, {credentials:'same-origin', redirect:'follow', cache:'no-store', signal:abort.signal});
             var type = response.headers.get('content-type') || '';
             if (!response.ok || !/text\/html/i.test(type)) return null;
             var final = new URL(response.url);

@@ -70,7 +70,6 @@ test('a questionnaire stays open if any of its detail rows is unanswered', async
   const firstDetail = new Promise(resolve => { release = resolve; });
   p.w.fetch = async (address, options) => {
     assert.equal(options.method || 'GET', 'GET');
-    assert.equal(options.mode, 'same-origin');
     const response = await fetch(address);
     if (address.endsWith('/208')) await firstDetail;
     return response;
