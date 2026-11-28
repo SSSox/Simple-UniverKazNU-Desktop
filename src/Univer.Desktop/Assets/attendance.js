@@ -295,8 +295,6 @@
     // follow (a type's first row carries its name and teacher), and the last row closes the card. Only the site's own
     // rows beside the course row are marked; release removes the marks.
     var journal=new Map(), closing=new Map(), shut=new Map(), pendingOpen=new Map(), rowAnims=new Map(), openSeq=0;
-    // The height a closed card had (stretched to its neighbour): an open card keeps it, so its totals and footer stay put.
-    var keptHeight=new Map(), heldStyle=new Map();
     function trackRowAnim(row,anim) {
         if (!anim) return;
         var set=rowAnims.get(row); if (!set) rowAnims.set(row,set=new Set());
@@ -325,16 +323,10 @@
         var starts=new Set(group.lessons.map(lesson=>lesson.start));
         [top].concat(shown).forEach(row=>{ row.setAttribute('data-univer-journal',row===top?'top':starts.has(row)?'head':'body'); journal.set(row,group.token); });
         shown[shown.length-1].setAttribute('data-univer-journal-end','');
-        if (keptHeight.has(group.token) && selected==='all' && selectedCourse==='all') { heldStyle.set(top,top.getAttribute('style')); top.style.setProperty('min-height',keptHeight.get(group.token)+'px'); }
-    }
-    function freeHeight(row) {
-        if (!heldStyle.has(row)) return;
-        var was=heldStyle.get(row); heldStyle.delete(row);
-        if (was===null) row.removeAttribute('style'); else row.setAttribute('style',was);
     }
     function journalOf(token) { return Array.from(journal.keys()).filter(row=>journal.get(row)===token && row.getAttribute('data-univer-journal')!=='top'); }
     function unmarkJournal(token) {
-        journal.forEach((owner,row)=>{ if (token===undefined || owner===token) { cancelRowAnims([row]); unshutRow(row); freeHeight(row); row.removeAttribute('data-univer-journal'); row.removeAttribute('data-univer-journal-end'); journal.delete(row); } });
+        journal.forEach((owner,row)=>{ if (token===undefined || owner===token) { cancelRowAnims([row]); unshutRow(row); row.removeAttribute('data-univer-journal'); row.removeAttribute('data-univer-journal-end'); journal.delete(row); } });
     }
     // A fold still running is let go: its rows come back as they were, and its change is not made.
     function stopClosing() { pendingOpen.clear(); cancelRowAnims(); var runs=Array.from(closing.values()); closing.clear(); runs.forEach(rows=>rows.forEach(row=>window.__univerMotionUI?.stop(row))); }
@@ -472,7 +464,7 @@
                     closing.delete(token); expanded.set(token,true); toggle.setAttribute('aria-expanded','true'); toggle.textContent=text().hideDetails;
                     var heights=moving?leaving.map(row=>row.getBoundingClientRect().height):null;
                     cancelRowAnims(leaving);
-                    leaving.forEach(row=>motion?.stop(row));
+                    leaving.forEach(row=>{ motion?.stop(row); unshutRow(row); });
                     if (moving && heights) {
                         var full=leaving.map(row=>row.getBoundingClientRect().height);
                         var leftDist=full.reduce((sum,h,i)=>sum+Math.max(0,h-heights[i]),0);
@@ -481,8 +473,6 @@
                     return;
                 }
                 var nextOpen=box.dataset.open!=='true'; expanded.set(token,nextOpen);
-                var tall=nextOpen&&card?(card.querySelector(':scope>td.ct')||card).getBoundingClientRect().height:0;
-                if (tall>0) keptHeight.set(token,tall); else keptHeight.delete(token);
                 var change=()=>{
                     unmarkJournal(token);
                     var excludeCourse=selectedCourse!=='all'&&selectedCourse!==token, shownRows=[];
@@ -507,7 +497,13 @@
                     closing.set(token,shown);
                     // The rows fold at one pace, set by the whole log's height (the shared fold pace).
                     var distance=shown.reduce((sum,row)=>sum+row.getBoundingClientRect().height,0);
-                    shown.forEach(row=>motion.collapse(row,()=>{ if (--left===0 && closing.get(token)===shown) { closing.delete(token); place(change); } },{distance}));
+                    // A folded row stays out of the layout until the card's change: its run ends before the others are
+                    // measured, and a row back at its full height would throw the courses below down and slide them up again.
+                    shown.forEach(row=>motion.collapse(row,()=>{
+                        if (closing.get(token)!==shown) return;
+                        shutRow(row); row.style.setProperty('display','none','important');
+                        if (--left===0) { closing.delete(token); place(change); }
+                    },{distance}));
                     return;
                 }
                 // The rows stay shut while the grid slides (so the courses below are not moved twice) and grow in the next
@@ -744,7 +740,6 @@
     function release() {
         tableFacts=new WeakMap();
         window.__univerReportV1?.close();
-        keptHeight.clear();
         marked.forEach((absent,cell)=>{cell.classList.remove('univer-app-sum','univer-app-absent','univer-app-excused','univer-app-empty-col');if(absent&&!cell.className)cell.removeAttribute('class');}); marked.clear();
         stopClosing(); resetVisibility(); owned.forEach(node=>{window.__univerMotionUI?.stop(node);node.remove();}); owned=[];
         labels.forEach((record,link)=>{record.caption.remove();record.attrs.forEach(a=>{if(a[1]===null)link.removeAttribute(a[0]);else link.setAttribute(a[0],a[1]);});}); labels.clear();

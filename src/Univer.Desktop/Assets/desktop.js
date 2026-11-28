@@ -88,7 +88,14 @@
             // max-height moves too: a box whose height a stylesheet holds at auto with !important (which an animation cannot
             // override) still grows within it.
             var edge = edges(node);
-            var animation = node.animate([{height:px(before, edge), maxHeight:px(before, edge), overflow:'hidden'}, {height:px(after, edge), maxHeight:px(after, edge), overflow:'hidden'}],
+            var from = {height:px(before, edge), maxHeight:px(before, edge), overflow:'hidden'}, to = {height:px(after, edge), maxHeight:px(after, edge), overflow:'hidden'};
+            // A box growing from nothing starts without its padding too: a border box is never shorter than that, so
+            // it would appear that tall at once.
+            if (before <= 1) {
+                var look = getComputedStyle(node);
+                ['paddingTop', 'paddingBottom'].forEach(function (key) { from[key] = '0px'; to[key] = look[key] || '0px'; });
+            }
+            var animation = node.animate([from, to],
                 {duration:span(wanted.distance || after - before), easing:foldEase, fill:'backwards'});
             var scroll = glide(node, start, before, after);
             track(layouts, node, animation, function () { scroll?.(animation.playState === 'finished'); node.removeAttribute('data-univer-resizing'); });
@@ -147,13 +154,16 @@
             before.forEach(function (rect, node) {
                 if (!node.isConnected || !node.animate || !rect.width || !rect.height) return;
                 var after = node.getBoundingClientRect(), x = rect.left - after.left, y = rect.top - after.top, dw = Math.abs(rect.width - after.width);
-                if (!after.width || !after.height || (Math.abs(x) + Math.abs(y) < 1 && dw < 1)) return;
+                // A card that leaves a taller neighbour loses the height it was stretched to: its footer glides up.
+                var shorter = rect.height - after.height >= 1;
+                if (!after.width || !after.height || (Math.abs(x) + Math.abs(y) < 1 && dw < 1 && !shorter)) return;
                 var from = {transform:Math.abs(x) + Math.abs(y) >= 1 ? 'translate(' + x + 'px,' + y + 'px)' : 'none'};
                 var to = {transform:'none'};
                 if (dw >= 1) {
                     if (rect.width < after.width) { from.maxWidth = rect.width + 'px'; to.maxWidth = after.width + 'px'; }
                     else { from.minWidth = rect.width + 'px'; to.minWidth = after.width + 'px'; from.position = to.position = 'relative'; from.zIndex = to.zIndex = '2'; }
                 }
+                if (shorter) { from.minHeight = rect.height + 'px'; to.minHeight = after.height + 'px'; }
                 var a = node.animate([from, to],
                     {duration:wanted.duration || 300, easing:wanted.easing || foldEase, fill:'backwards'});
                 motions.set(node, a); a.onfinish = a.oncancel = function () { if (motions.get(node) === a) motions.delete(node); };
@@ -1358,10 +1368,10 @@
 :root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr:has(>td.ct>.univer-app-attendance-summary)>td.ct .univer-app-syllabi { grid-column:1/-1; order:4; margin:0; padding:14px 16px 16px; border:0; border-top:1px solid var(--u-line); border-radius:0; background:var(--u-surface-2); }
 :root:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr:has(>td.ct>.univer-app-attendance-summary)>td.ct .univer-app-syllabi>a { display:inline-flex; align-items:center; min-height:28px; color:var(--u-brand); font-size:13px!important; font-weight:500; text-decoration:none; }
 :root:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr:has(>td.ct>.univer-app-attendance-summary)>td.ct .univer-app-syllabi>a:hover { text-decoration:underline; text-underline-offset:3px; }
-:root:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr:has(>td.ct>.univer-app-attendance-summary)>td.ct .univer-app-syllabi ul { display:grid; grid-template-columns:repeat(auto-fill,minmax(min(100%,420px),1fr)); gap:8px 12px; margin:0 0 12px!important; padding:0!important; list-style:none; }
+:root:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr:has(>td.ct>.univer-app-attendance-summary)>td.ct .univer-app-syllabi ul { display:grid; align-items:start; grid-template-columns:repeat(auto-fill,minmax(min(100%,420px),1fr)); gap:8px 12px; margin:0 0 12px!important; padding:0!important; list-style:none; }
 :root:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr:has(>td.ct>.univer-app-attendance-summary)>td.ct .univer-app-syllabi li { display:flex; align-items:center; flex-wrap:wrap; gap:6px 10px; box-sizing:border-box; margin:0!important; padding:10px 14px!important; border:1px solid var(--u-line); border-radius:8px; background:var(--u-surface); }
 :root:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr:has(>td.ct>.univer-app-attendance-summary)>td.ct .univer-app-syllabi li:only-child { grid-column:1/-1; }
-:root:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr:has(>td.ct>.univer-app-attendance-summary)>td.ct .univer-app-syllabi li>a { flex:1 1 200px; min-width:0; color:var(--u-ink); font-weight:500; text-decoration:none; }
+:root:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr:has(>td.ct>.univer-app-attendance-summary)>td.ct .univer-app-syllabi li>a { flex:1 1 160px; min-width:0; color:var(--u-ink); font-weight:500; text-decoration:none; }
 :root:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr:has(>td.ct>.univer-app-attendance-summary)>td.ct .univer-app-syllabi li>a:hover { color:var(--u-brand); text-decoration:underline; }
 :root:root:root:root:root.univer-mobile #l4 tbody:has(>tr>td.ct>.univer-app-attendance-summary)>tr:has(>td.ct>.univer-app-attendance-summary)>td.ct .univer-app-syllabi .univer-app-syllabus-type { flex:none; font-size:12px; white-space:nowrap; }
 :root:root:root.univer-mobile #l4 .univer-app-lesson-label { gap:4px 10px; margin:12px 0 6px; }

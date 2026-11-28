@@ -223,6 +223,11 @@
         }
         return compensate(anchor,()=>mutate(tr));
     }
+    // A list about to grow is held at nothing, padding included, while the cards around it are measured: its padding
+    // alone would move them down and the growth would then start by throwing them back.
+    function holdShut(panel) {
+        panel.style.maxHeight='1px'; panel.style.overflow='hidden'; panel.style.paddingTop=panel.style.paddingBottom='0px';
+    }
     async function show(link, force, event) {
         var record=panels.get(link);
         var animate=event?.detail>0;
@@ -265,7 +270,7 @@
             var panel=record.panel, prevStyle=panel.getAttribute('style'), target=0;
             placeCard(panel,link,animate,tr=>{
                 setOpenCard(tr,true); panel.hidden=false;
-                if (moving) { target=panel.getBoundingClientRect().height; panel.style.maxHeight='1px'; panel.style.overflow='hidden'; }
+                if (moving) { target=panel.getBoundingClientRect().height; holdShut(panel); }
             });
             if (moving) {
                 if (prevStyle===null) panel.removeAttribute('style'); else panel.setAttribute('style',prevStyle);
@@ -283,7 +288,7 @@
         var prevStyle=panel.getAttribute('style'), initTarget=0;
         placeCard(panel,link,animate,tr=>{
             setOpenCard(tr,true); panel.hidden=false; panel.textContent=''; panel.appendChild(status);
-            if (moving) { initTarget=panel.getBoundingClientRect().height; panel.style.maxHeight='1px'; panel.style.overflow='hidden'; }
+            if (moving) { initTarget=panel.getBoundingClientRect().height; holdShut(panel); }
         });
         if (moving) {
             if (prevStyle===null) panel.removeAttribute('style'); else panel.setAttribute('style',prevStyle);
@@ -295,6 +300,9 @@
             course=courseFor(link); if (!course) throw new Error('Course not found');
             items=(await loadItems(course,force)).map(item=>({...item}));
         } catch (_) { items=null; }
+        // A card still widening would give the list's height at a passing width: it is drawn when the card stands.
+        var widening=(cardRow(panel)?.getAnimations?.()||[]).filter(run=>run.playState==='running');
+        if (widening.length) await Promise.all(widening.map(run=>run.finished.catch(()=>{})));
         if (!enabled || generation!==epoch || !panel.isConnected) return;
         var draw=()=>{
             var before=0;
@@ -310,7 +318,9 @@
             }
             else if (!items.length) { status.className=''; status.textContent=text().empty; panel.appendChild(status); }
             else {
-                var list=document.createElement('ul');
+                // The layout's list class from the start: given a frame later it grew the rows after the panel's
+                // height had been measured, and the list jumped at the end of its opening.
+                var list=document.createElement('ul'); list.className='univer-app-list';
                 items.forEach(item=>{ var li=document.createElement('li'), type=document.createElement('span'); type.className='univer-app-syllabus-type'; type.textContent=item.print?text().printType:text().file; item.link=anchor(item.href,item.name); item.li=li; li.append(item.link,type); list.appendChild(li); });
                 panel.appendChild(list); record.list=list;
                 markOwn(record,epoch);

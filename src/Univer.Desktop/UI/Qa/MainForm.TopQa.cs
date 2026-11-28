@@ -140,7 +140,7 @@ namespace Univer.Desktop.UI
             var page = PolishShell(news, false);
             prefs.Readable = true; prefs.Language = "ru";
             await RefreshDocumentScriptsAsync();
-            SetPresentation(main, true); main.LoadHtml(page, SitePolicy.Origin + "/news/student"); await WaitQaPresentationAsync(); await ApplyPresentationAsync(); await Task.Delay(500);
+            SetPresentation(main, true); main.LoadHtml(page, SitePolicy.Origin + "/news/student/2/"); await WaitQaPresentationAsync(); await ApplyPresentationAsync(); await Task.Delay(500);
             await FixesEvalAsync("window.__univerMotion=false;'still'");
 
             var start = await TopQaAtAsync(0);
@@ -155,7 +155,8 @@ namespace Univer.Desktop.UI
             var deep = await TopQaAtAsync(2.5);
             Check(deep.Contains("\"text\":\"Наверх\"") && deep.Contains("\"height\":40"), "the button reads «Наверх» and is 40 px tall like the page's controls", results);
             await FixesShotAsync(qa, "top-ru.png");
-            // News links sit on the left: the news page needs no room and keeps its full column.
+            // News links sit on the left: a later news page needs no room and keeps its full column (the first one is a home
+            // route, which widens its side gutters whatever it holds).
             Check(deep.Contains("\"room\":\"\""), "a page whose controls stay clear of the button keeps its full width", results);
 
             // A real mouse click on the button: back at the top, the button gone and the focus at the top of the page.

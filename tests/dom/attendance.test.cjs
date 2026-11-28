@@ -169,6 +169,7 @@ for (const fails of [false, true]) {
             click();
             assert.equal(panel.hidden, false);
             assert.ok(panel.querySelector(fails ? 'button' : 'a[href*="/syllabus/print/"]'));
+            if (!fails) assert.ok(panel.querySelector('ul').classList.contains('univer-app-list'), 'the list is laid out before its height is read');
             assert.equal(panel.querySelector('.univer-app-pending'), null);
         } finally { p.close(); }
     });
@@ -202,15 +203,64 @@ test('all courses open as a summary with score tiles, the class log opens on req
  select(p,'all');p.w.__univerAttendanceV1.apply('kz');assert.equal(p.d.querySelectorAll('.univer-app-attendance-details-toggle')[0].textContent,'Сабақ журналын жасыру');
  p.w.__univerAttendanceV1.release();assert.equal(p.d.querySelector('#l4').innerHTML,original);p.close();
 });
-test('an opened card keeps the height it had beside its neighbour, so its footer does not jump',()=>{
+test('an opened card holds no height, so hiding the syllabus list leaves no gap above its footer',()=>{
  const p=page(),original=p.d.querySelector('#l4').innerHTML;p.w.__univerAttendanceV1.apply('ru');
- const toggle=()=>p.d.querySelectorAll('.univer-app-attendance-details-toggle')[1];const top=()=>p.d.querySelector('tr[data-univer-journal=top]');
- p.w.HTMLElement.prototype.getBoundingClientRect=()=>({top:0,left:0,width:500,height:320,bottom:320});
- toggle().click();assert.equal(top().style.minHeight,'320px');const card=top();
- p.w.__univerAttendanceV1.apply('ru');assert.equal(top().style.minHeight,'320px');
- select(p,'seminar');assert.equal(card.style.minHeight,'');select(p,'all');assert.equal(top().style.minHeight,'320px');
- toggle().click();assert.equal(card.style.minHeight,'');
- toggle().click();p.w.__univerAttendanceV1.release();assert.equal(p.d.querySelector('#l4').innerHTML,original);p.close();
+ p.w.HTMLElement.prototype.getBoundingClientRect=()=>({top:0,left:0,width:500,height:670,bottom:670});
+ p.d.querySelectorAll('.univer-app-attendance-details-toggle')[1].click();
+ assert.equal(p.d.querySelector('tr[data-univer-journal=top]').style.minHeight,'');
+ p.w.__univerAttendanceV1.release();assert.equal(p.d.querySelector('#l4').innerHTML,original);p.close();
+});
+test('closing a journal measures the card only when every row has left the layout',()=>{
+ const p=page(),original=p.d.querySelector('#l4').innerHTML;p.w.__univerAttendanceV1.apply('ru');
+ const toggle=p.d.querySelectorAll('.univer-app-attendance-details-toggle')[1];toggle.click();
+ const rows=()=>Array.from(p.d.querySelectorAll('tr[data-univer-journal]:not([data-univer-journal=top])'));
+ const folded=rows(),styles=folded.map(row=>row.getAttribute('style')),dones=[];let measured=null;
+ assert.ok(folded.length>1);
+ p.w.__univerMotionUI={reduced:()=>false,stop(){},resize(){},reveal(){},collapse:(node,done)=>dones.push(done),
+  reflow:(grid,mutate)=>{measured=folded.map(row=>row.style.display);mutate();}};
+ const click=()=>toggle.dispatchEvent(new p.w.MouseEvent('click',{bubbles:true,detail:1}));
+ click();dones.splice(0).forEach(done=>done());
+ assert.deepEqual(measured,folded.map(()=>'none'));
+ assert.deepEqual(folded.map(row=>row.getAttribute('style')),styles,'the rows get their own style back');
+ assert.equal(rows().length,0);
+ // Opened again halfway through a fold: the rows already folded come back.
+ delete p.w.__univerMotionUI;toggle.click();const again=rows();
+ p.w.__univerMotionUI={reduced:()=>true,stop(){},resize(){},reveal(){},collapse:(node,done)=>dones.push(done)};
+ click();dones.splice(0,1).forEach(done=>done());click();
+ assert.deepEqual(again.map(row=>[row.hidden,row.style.display]),again.map(()=>[false,'']));
+ p.w.__univerAttendanceV1.release();assert.equal(p.d.querySelector('#l4').innerHTML,original);p.close();
+});
+test('a syllabus list is drawn only when its card has finished widening',async()=>{
+ const p=page();
+ try {
+  p.w.eval(fs.readFileSync('src/Univer.Desktop/Assets/study-links.js','utf8'));
+  p.w.fetch=async path=>({status:200,url:'https://univer.kaznu.kz'+path,headers:{get:()=>null},text:async()=>path.includes('/0/')?
+   '<div id="l4"><table class="inner"><tr class="link" id="321"><td>1</td><td>История</td><td>Обязательная</td></tr></table></div>':
+   '<div id="l4"><a href="/student/interactive/syllabus/print/31/2">Силлабус</a></div>'});
+  let stand;const finished=new Promise(resolve=>stand=resolve);
+  p.w.HTMLElement.prototype.getAnimations=function(){return this.tagName==='TR'?[{playState:'running',finished}]:[];};
+  p.w.__univerStudyV1.apply('ru');p.w.__univerAttendanceV1.apply('ru');p.d.querySelector('.univer-app-course-syllabus').click();
+  for(let i=0;i<5;i++)await new Promise(resolve=>setImmediate(resolve));
+  const panel=p.d.querySelector('.univer-app-syllabi');
+  assert.ok(panel.closest('tr').querySelector(':scope>td.ct>.univer-app-attendance-summary'),'the list is inside a course card');
+  assert.equal(panel.querySelector('ul'),null);
+  stand();for(let i=0;i<5;i++)await new Promise(resolve=>setImmediate(resolve));
+  assert.ok(panel.querySelector('ul.univer-app-list'));
+ } finally { p.close(); }
+});
+test('an opening syllabus list takes no room while the cards around it are measured',async()=>{
+ const p=page();
+ try {
+  p.w.eval(fs.readFileSync('src/Univer.Desktop/Assets/study-links.js','utf8'));
+  p.w.fetch=()=>new Promise(()=>{});
+  const held=[];
+  p.w.__univerMotionUI={reduced:()=>false,stop(){},resize(){},reveal(){},collapse(node,done){done();},
+   reflow:(grid,mutate)=>{mutate();const panel=p.d.querySelector('.univer-app-syllabi');held.push([panel.style.maxHeight,panel.style.paddingTop,panel.style.paddingBottom]);}};
+  p.w.__univerStudyV1.apply('ru');p.w.__univerAttendanceV1.apply('ru');
+  p.d.querySelector('.univer-app-course-syllabus').dispatchEvent(new p.w.MouseEvent('click',{bubbles:true,detail:1}));
+  assert.deepEqual(held,[['1px','0px','0px']]);
+  assert.equal(p.d.querySelector('.univer-app-syllabi').getAttribute('style'),null);
+ } finally { p.close(); }
 });
 test('courses without absences show nothing and the term bar stays hidden when both counts are zero', () => {
     const p = page(fixture.replace('</table></td></tr></table>', '<tr><td class="ct">Новый предмет 01.09.2026 - 12.12.2026</td></tr></table></td></tr></table>'));

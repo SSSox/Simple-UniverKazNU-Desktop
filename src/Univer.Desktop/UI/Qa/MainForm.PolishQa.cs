@@ -161,10 +161,10 @@ namespace Univer.Desktop.UI
                 "the class filter is named in plain words, in ink, outside its track", results);
             await AutomationController.EvaluateAsync(main, "document.querySelector('.univer-app-attendance-course-list button:nth-child(2)').click();'course'"); await Task.Delay(350);
             await AutomationController.EvaluateAsync(main, "document.querySelectorAll('.univer-app-attendance-details-toggle[aria-expanded=false]').forEach(function(t){t.click();});'open'"); await Task.Delay(350);
-            var matrix = await AutomationController.EvaluateAsync(main, "(function(){var t=Array.from(document.querySelectorAll('table.univer-app-matrix')).filter(function(n){return n.offsetWidth>0;})[0];if(!t)return 'none';var host=t.closest('.univer-app-table-scroll'),sum=t.querySelector('td.univer-app-sum'),cell=t.querySelector('td');var s=getComputedStyle(sum),line=getComputedStyle(cell).borderRightColor;return [Math.round(t.getBoundingClientRect().width),Math.round(host.getBoundingClientRect().width),s.fontWeight,s.backgroundColor,line].join('|')})()");
+            var matrix = await AutomationController.EvaluateAsync(main, "(function(){var t=Array.from(document.querySelectorAll('table.univer-app-matrix')).filter(function(n){return n.offsetWidth>0;})[0];if(!t)return 'none';var host=t.closest('.univer-app-table-scroll'),sum=t.querySelector('td.univer-app-sum'),cell=t.querySelector('td');var s=getComputedStyle(sum),line=getComputedStyle(cell).borderRightColor;return [Math.round(t.getBoundingClientRect().width),host.scrollWidth-host.clientWidth,s.fontWeight,s.backgroundColor,line].join('|')})()");
             QaTrace("qa-polish-matrix " + matrix);
-            var cells = (matrix ?? "").Split('|'); int tableWidth, hostWidth;
-            Check(cells.Length == 5 && int.TryParse(cells[0], out tableWidth) && int.TryParse(cells[1], out hostWidth) && tableWidth <= 420 && hostWidth <= tableWidth + 4, "a course journal is as wide as its marks", results);
+            var cells = (matrix ?? "").Split('|'); int tableWidth, sideways;
+            Check(cells.Length == 5 && int.TryParse(cells[0], out tableWidth) && int.TryParse(cells[1], out sideways) && tableWidth <= 420 && sideways <= 1, "a course journal keeps its marks compact, with no sideways scroll", results);
             Check(cells.Length == 5 && cells[2] == "700" && cells[3] != "rgba(0, 0, 0, 0)", "the journal's total stands out", results);
             using (var client = main.GetDevToolsClient()) File.WriteAllBytes(Path.Combine(qa, "polish-journal.png"), (await client.Page.CaptureScreenshotAsync()).Data);
             var sizes = await AutomationController.EvaluateAsync(main, EvenControlsQa);

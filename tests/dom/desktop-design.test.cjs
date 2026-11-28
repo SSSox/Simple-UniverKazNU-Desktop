@@ -227,6 +227,16 @@ test('reflow moves surviving tiles to new positions and cancellation clears ever
   assert.equal(records.find(r=>r.node===a).frames[0].transform,'translate(0px,-70px)');assert.equal(records.find(r=>r.node===b).frames[0].transform,'translate(0px,70px)');
   p.w.__univerMotionUI.stop();assert.ok(records.every(r=>r.cancelled));assert.equal(parent.firstChild,b);assert.equal(a.style.transform,'');apply(p,false);p.close();
 });
+test('reflow lets a card that lost its stretched height shrink instead of snapping',()=>{
+  const p=page(shell.replace('CONTENT',''),'https://univer.kaznu.kz/news/student');apply(p);
+  let opened=false;const records=[];
+  p.w.HTMLElement.prototype.animate=function(frames,options){const r={node:this,frames,options,cancel(){}};records.push(r);return r;};
+  const parent=p.d.createElement('div'),card=p.d.createElement('div');parent.append(card);p.d.body.append(parent);
+  card.getBoundingClientRect=()=>({left:0,top:0,width:500,height:opened?311:340});
+  p.w.__univerMotionUI.reflow(parent,()=>{opened=true;});
+  assert.deepEqual(JSON.parse(JSON.stringify(records[0].frames)),[{transform:'none',minHeight:'340px'},{transform:'none',minHeight:'311px'}]);
+  apply(p,false);p.close();
+});
 test('reflow animates card width changes, compensates scroll for an anchor button, and honours reduced motion and keyboard',()=>{
   const p=page(shell.replace('CONTENT',''),'https://univer.kaznu.kz/news/student');apply(p);
   let reduced=false, wide=false, y=200;

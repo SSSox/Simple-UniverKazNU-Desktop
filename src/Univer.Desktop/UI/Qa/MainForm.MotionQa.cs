@@ -189,7 +189,7 @@ namespace Univer.Desktop.UI
                 Check(await AutomationController.EvaluateAsync(main, "(function(){var s=getComputedStyle(document.querySelector('.univer-app-menu'));return +s.opacity>.3&&+s.opacity<1&&s.transform!=='none'?'middle':''})()") == "middle",
                     "menu entrance interpolates opacity and transform in its middle frame", results);
                 File.WriteAllBytes(Path.Combine(qa, "motion-menu-middle.png"), (await client.Page.CaptureScreenshotAsync()).Data);
-                await AutomationController.EvaluateAsync(main, "window.qaPopupAnimation.currentTime=240;'end'");
+                await AutomationController.EvaluateAsync(main, "window.qaPopupAnimation.currentTime=window.qaPopupAnimation.effect.getComputedTiming().endTime;'end'");
                 Check(await AutomationController.EvaluateAsync(main, "(function(){var s=getComputedStyle(document.querySelector('.univer-app-menu'));return +s.opacity===1&&s.transform==='none'?'end':''})()") == "end",
                     "menu entrance settles without leaving a transform or opacity behind", results);
                 File.WriteAllBytes(Path.Combine(qa, "motion-menu-end.png"), (await client.Page.CaptureScreenshotAsync()).Data);

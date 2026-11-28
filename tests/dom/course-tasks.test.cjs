@@ -151,6 +151,25 @@ test('the course list shows open and closed assignments and retries only the fai
   await settle(); again.close();
 });
 
+test('Refresh keeps one assignments panel and reads long-closed weeks again', async () => {
+  for (const [content, url] of [[index, INDEX], [weeks, 'https://univer.kaznu.kz/student/discussion/acpos/week/list/501/7101/2026/1/']]) {
+    const p = page(content, url, { routes: { ...siteRoutes, [SECOND_COURSE]: plans([]) }, storage: { [ACCOUNT]: 'a1' } });
+    apply(p); await settle();
+    for (let i = 0; i < 2; i++) {
+      p.requests.length = 0;
+      p.d.querySelector('.univer-app-tasks-refresh').click();
+      assert.equal(p.d.querySelectorAll('.univer-app-tasks').length, 1, 'the panel is rebuilt in place');
+      assert.equal(p.d.querySelector('.univer-app-tasks').dataset.busy, 'true');
+      await settle();
+      assert.ok(p.requests.some(r => r.address === OLD_WEEK), 'Refresh reads the kept closed week again');
+      assert.equal(p.d.querySelectorAll('.univer-app-tasks').length, 1);
+    }
+    apply(p, false);
+    assert.equal(p.d.querySelectorAll('.univer-app-tasks').length, 0);
+    p.close();
+  }
+});
+
 test('course results survive reload during collection and a fully checked index makes no requests on revisit', async () => {
   const routes = { ...siteRoutes, [SECOND_COURSE]: plans([]) }, mark = { [ACCOUNT]: 'a1' };
   const p = page(index, INDEX, { routes, storage: mark });

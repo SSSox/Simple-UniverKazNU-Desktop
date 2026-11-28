@@ -148,10 +148,10 @@
         return {id:row.id, number:number(row.cells[1]) || +row.id, tasks:number(row.cells[4]), end:end,
             current:row.classList.contains('normal') || (!!period && date(period[1]) <= now && now < end)};
     }
-    function readTasks(url, week, run, cache, lang) {
+    function readTasks(url, week, run, cache, lang, force) {
         if (!url) return Promise.reject(new Error('route'));
         var key = lang + '|' + url, saved = cache?.weeks[key], old = week.end > 0 && week.end <= Date.now() - DAY;
-        if (old && Array.isArray(saved?.items) && fresh(saved.at, DAY) && saved.count === week.tasks) return Promise.resolve(saved.items);
+        if (!force && old && Array.isArray(saved?.items) && fresh(saved.at, DAY) && saved.count === week.tasks) return Promise.resolve(saved.items);
         return load(url, run).then(function (page) {
             var preview = template(page.html, 'task\\/preview');
             var items = links(page.doc).filter(function (row) { return row.cells.length >= 4; }).map(function (row) { return taskRow(row, week.number, preview); });
@@ -160,14 +160,14 @@
             return items;
         });
     }
-    function tasksOf(weekUrl, weeks, run, cache, lang) {
+    function tasksOf(weekUrl, weeks, run, cache, lang, force) {
         // Task list routes come from the weeks page; the task route comes from each task list page.
         return load(weekUrl, run).then(function (page) {
             var list = template(page.html, 'task\\/list');
             var picked = busy(links(page.doc).filter(function (row) { return row.cells.length >= 5 && /^\d+$/.test(row.id); }).map(weekRow));
             return Promise.all(picked.map(function (week) {
                 var url = build(list, week.id, routes.tasks);
-                return readTasks(url, week, run, cache, lang).catch(function (error) {
+                return readTasks(url, week, run, cache, lang, force).catch(function (error) {
                     // One unread week does not hide the others; the course is still named as not fully checked.
                     if (error && error.message === 'stale') throw error;
                     weeks.partial = true; return [];
@@ -282,15 +282,15 @@
     function courseName(cell) {
         return Array.from(cell.childNodes).filter(function (n) { return n.nodeType === 3; }).map(function (n) { return n.data; }).join('').replace(/\s*\(\d+\)\s*$/, '').replace(/\s+/g, ' ').trim();
     }
-    function indexPage(force) {
+    function indexPage(force, kept) {
         var rows = links(document.getElementById('l4')).filter(function (row) { return /^\d+$/.test(row.id) && row.cells.length === 2; });
         var plans = template(scripts(), 'acpos\\/list');
         if (!rows.length || !plans) return;
         var anchor = rows[0].closest('table.mt');
         if (!anchor) return;
         if (!courses) {
-            courses = {done:0, total:rows.length, items:[], failed:[], weeks:{}, open:{}, closed:{}, view:'open', course:'',
-                refresh:function () { courses = null; indexPage(true); }};
+            courses = {done:0, total:rows.length, items:[], failed:[], weeks:{}, open:{}, closed:{}, view:kept?.view || 'open', course:'', box:kept?.box,
+                refresh:function () { var old = courses; courses = null; indexPage(true, old); }};
             collect(courses, rows, plans, force);
         }
         panel(anchor, courses);
@@ -321,7 +321,7 @@
                         if (!weeksUrl) { partial = true; return []; }
                         if (plansRows.length === 1) url = weeksUrl;
                         try {
-                            var tasks = await tasksOf(weeksUrl, weeks, run, cache, lang);
+                            var tasks = await tasksOf(weeksUrl, weeks, run, cache, lang, force);
                             if (weeks.partial) partial = true;
                             return tasks;
                         } catch (_) { partial = true; return []; }
@@ -393,7 +393,7 @@
 
     // Weeks: the whole list without the short scroll box, the current week and the weeks with assignments marked,
     // and this course's assignments above it.
-    function weeksPage() {
+    function weeksPage(force, kept) {
         var l4 = document.getElementById('l4'), rows = links(l4).filter(function (row) { return row.cells.length >= 5 && /^\d+$/.test(row.id); });
         if (!rows.length) return;
         var t = text(), resource = template(scripts(), 'resource');
@@ -423,11 +423,12 @@
             var weeks = rows.map(weekRow);
             var now = (weeks.find(function (w) { return w.current; }) || {number:0}).number;
             var picked = weeks.filter(function (w) { return w.tasks > 0; }).sort(function (a, b) { return Math.abs(a.number - now) - Math.abs(b.number - now); }).slice(0, 10);
-            var record = course = {done:0, total:picked.length ? 1 : 0, items:[], failed:[], course:location.pathname, refresh:function () { course = null; apply(language); }};
+            var record = course = {done:0, total:picked.length ? 1 : 0, items:[], failed:[], course:location.pathname, box:kept?.box,
+                refresh:function () { var old = course; course = null; weeksPage(true, old); }};
             var run = generation, cache = stored(), lang = language;
             Promise.all(picked.map(function (week) {
                 var url = build(list, week.id, routes.tasks);
-                return readTasks(url, week, run, cache, lang).catch(function (error) {
+                return readTasks(url, week, run, cache, lang, force).catch(function (error) {
                     if (error && error.message === 'stale') throw error;
                     record.failed.push(t.week(week.number)); return [];
                 });
