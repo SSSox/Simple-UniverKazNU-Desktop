@@ -570,3 +570,15 @@ test('UMKD: a section slides at the shared fold pace, set by its height, and a r
   assert.equal(runs[3].options.easing, ui.easing);
   p.close();
 });
+
+test('UMKD: moving the own syllabus first does not start the lookup again, however many passes follow', async () => {
+  const body = '<a id="s1" href="/student/interactive/syllabus/print/22/1">Социология (эк.)</a><a id="s2" href="/student/interactive/syllabus/print/22/2">Социология</a>';
+  const p = page(umkdSyllabus(body), 'https://univer.kaznu.kz/student/umkd/321/2026/1');
+  let asked = 0; p.w.__univerSyllabusV1 = { apply() {}, release() {}, state: () => ({}), own: async () => { asked++; return 'https://univer.kaznu.kz/student/interactive/syllabus/print/22/2'; } };
+  for (let i = 0; i < 4; i++) { apply(p); await new Promise(r => setTimeout(r, 20)); }
+  const box = p.d.getElementById('syllabus');
+  assert.equal(asked, 1);
+  assert.equal(box.querySelector('h4').nextElementSibling.id, 's2');
+  assert.equal(box.querySelectorAll('.univer-app-own-tag').length, 1);
+  p.close();
+});

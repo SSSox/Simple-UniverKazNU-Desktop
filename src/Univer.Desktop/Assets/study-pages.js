@@ -377,7 +377,8 @@
             try { var url = new URL(node.getAttribute('href'), location.href); return url.origin === location.origin && /^\/student\/interactive\/syllabus\/print\/\d+\/\d+\/?$/.test(url.pathname); } catch (_) { return false; }
         });
         if (links.length < 1 || typeof own !== 'function') return;
-        var key = links.map(function (a) { return a.href; }).join(' '), record = owns.get(head);
+        // The same links in another order are the same list: promoting one must not start the lookup again.
+        var key = links.map(function (a) { return a.href; }).sort().join(' '), record = owns.get(head);
         // A lookup that failed (the programme could not be read) is asked again, at most every 20 s.
         if (record && record.key === key && !(record.failed && Date.now() - record.failed > 20000)) { promoteOwn(record); return; }
         if (record) unmarkOwn(record);
